@@ -1,0 +1,23 @@
+# Vercel은 Root Directory = admin-web 으로 설정됨.
+# 그러나 CLI는 repo root에서 호출되므로 외부 디렉토리/파일을 명시적으로 제외.
+node_modules
+out
+dist
+release
+build
+src
+scripts
+.env
+.env.local
+.env.example
+.mcp.json
+package-lock.json
+*.log
+*.dmg
+*.tar.xz
+*.zip
+
+# admin-web 내부의 빌드 산출물도 제외 (Vercel이 다시 install 함)
+admin-web/node_modules
+admin-web/.next
+admin-web/tsconfig.tsbuildinfo
