@@ -3,7 +3,7 @@ out
 dist
 release
 .env
-.env.local
+.env.*
 .DS_Store
 *.log
 admin-web/.next
