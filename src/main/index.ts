@@ -2,6 +2,12 @@ import './wsPolyfill.js';
 import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
 
 app.setName('Realtime Doctor');
+if (process.platform === 'darwin') {
+  app.setAboutPanelOptions({
+    applicationName: 'Realtime Doctor',
+    applicationVersion: app.getVersion()
+  });
+}
 import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

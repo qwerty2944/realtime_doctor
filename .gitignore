@@ -10,3 +10,4 @@ admin-web/.next
 admin-web/node_modules
 admin-web/tsconfig.tsbuildinfo
 admin-web/.vercel
+.vercel

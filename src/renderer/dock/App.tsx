@@ -13,7 +13,7 @@ import {
   NotebookPen,
   Power,
   Save,
-  Settings2,
+  SlidersHorizontal,
   Star,
   StarOff,
   Trash2,
@@ -98,7 +98,8 @@ export default function DockApp() {
   const [defaultLayout, setDefaultLayoutName] = useState<string>('');
   const [providers, setProviders] = useState<TranscribeProviderInfo[]>([]);
   const [provider, setProvider] = useState<TranscribeProviderId>('gemini');
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>({ status: 'signed-out' });
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [emailInput, setEmailInput] = useState('');
@@ -149,10 +150,11 @@ export default function DockApp() {
     };
   }, [refresh]);
 
-  // Force-open dialog while signed out (login gate).
+  // Force-open account dialog while signed out (login gate).
   useEffect(() => {
     if (authState.status === 'signed-out') {
-      setSettingsOpen(true);
+      setAccountOpen(true);
+      setProviderDialogOpen(false);
     }
   }, [authState.status]);
 
@@ -308,12 +310,13 @@ export default function DockApp() {
           })}
         </div>
 
+        {/* 계정·동기화 다이얼로그 */}
         <Dialog
-          open={settingsOpen}
+          open={accountOpen}
           onOpenChange={(next) => {
-            // While signed-out the dialog acts as a login gate — block close.
+            // 미로그인일 때는 로그인 게이트라 닫지 못함.
             if (!next && authState.status === 'signed-out') return;
-            setSettingsOpen(next);
+            setAccountOpen(next);
           }}
         >
           <DialogTrigger asChild>
@@ -321,12 +324,12 @@ export default function DockApp() {
               size="icon"
               variant="outline"
               className="h-9 w-9 shrink-0"
-              title="설정"
+              title="계정"
             >
-              <Settings2 className="h-4 w-4" />
+              <UserRound className="h-4 w-4" />
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {authState.status === 'signed-in'
@@ -529,77 +532,94 @@ export default function DockApp() {
                     />
                   </div>
                 </div>
-
-                <div className="space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Transcribe Provider
-                    </div>
-                    <div className="text-[10px] text-muted-foreground">
-                      변경은 다음 "시작"부터 적용
-                    </div>
-                  </div>
-                  {providers.map((p) => {
-                    const selected = p.id === provider;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        disabled={!p.available && !selected}
-                        onClick={() => p.available && chooseProvider(p.id)}
-                        className={cn(
-                          'flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
-                          selected
-                            ? 'border-primary/60 bg-primary/15'
-                            : 'border-white/10 bg-white/5 hover:bg-white/10',
-                          !p.available && !selected && 'opacity-40 cursor-not-allowed'
-                        )}
-                      >
-                        <div className="mt-0.5">
-                          <div
-                            className={cn(
-                              'flex h-4 w-4 items-center justify-center rounded-full border',
-                              selected
-                                ? 'border-primary bg-primary text-primary-foreground'
-                                : 'border-white/30'
-                            )}
-                          >
-                            {selected && <Check className="h-2.5 w-2.5" />}
-                          </div>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">{p.label}</span>
-                            <span
-                              className={cn(
-                                'rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
-                                p.mode === 'stream'
-                                  ? 'bg-emerald-500/30 text-emerald-50'
-                                  : 'bg-sky-500/30 text-sky-50'
-                              )}
-                            >
-                              {p.mode === 'stream' ? '실시간' : '청크'}
-                            </span>
-                          </div>
-                          {p.notes && (
-                            <div className="text-[11px] text-muted-foreground">
-                              {p.notes}
-                            </div>
-                          )}
-                          {!p.available && (
-                            <div className="mt-0.5 text-[11px] text-yellow-300">
-                              {p.id === 'clova-stream'
-                                ? 'CLOVA_SPEECH_SECRET이 필요합니다 (장문 인식 도메인).'
-                                : 'API 키가 .env에 없어 사용할 수 없습니다.'}
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Transcribe Provider 다이얼로그 */}
+        <Dialog
+          open={providerDialogOpen}
+          onOpenChange={setProviderDialogOpen}
+        >
+          <DialogTrigger asChild>
+            <Button
+              size="icon"
+              variant="outline"
+              className="h-9 w-9 shrink-0"
+              title="Transcribe Provider"
+              disabled={authState.status === 'signed-out'}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Transcribe Provider</DialogTitle>
+              <DialogDescription>
+                전사(STT) 공급자를 선택합니다. 변경은 다음 "시작"부터 적용됩니다.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              {providers.map((p) => {
+                const selected = p.id === provider;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={!p.available && !selected}
+                    onClick={() => p.available && chooseProvider(p.id)}
+                    className={cn(
+                      'flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+                      selected
+                        ? 'border-primary/60 bg-primary/15'
+                        : 'border-white/10 bg-white/5 hover:bg-white/10',
+                      !p.available && !selected && 'opacity-40 cursor-not-allowed'
+                    )}
+                  >
+                    <div className="mt-0.5">
+                      <div
+                        className={cn(
+                          'flex h-4 w-4 items-center justify-center rounded-full border',
+                          selected
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-white/30'
+                        )}
+                      >
+                        {selected && <Check className="h-2.5 w-2.5" />}
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium">{p.label}</span>
+                        <span
+                          className={cn(
+                            'rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+                            p.mode === 'stream'
+                              ? 'bg-emerald-500/30 text-emerald-50'
+                              : 'bg-sky-500/30 text-sky-50'
+                          )}
+                        >
+                          {p.mode === 'stream' ? '실시간' : '청크'}
+                        </span>
+                      </div>
+                      {p.notes && (
+                        <div className="text-[11px] text-muted-foreground">
+                          {p.notes}
+                        </div>
+                      )}
+                      {!p.available && (
+                        <div className="mt-0.5 text-[11px] text-yellow-300">
+                          {p.id === 'clova-stream'
+                            ? 'CLOVA_SPEECH_SECRET이 필요합니다 (장문 인식 도메인).'
+                            : 'API 키가 .env에 없어 사용할 수 없습니다.'}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </DialogContent>
         </Dialog>
 
