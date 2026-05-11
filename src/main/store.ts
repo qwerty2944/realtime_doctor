@@ -40,7 +40,7 @@ interface Schema {
 }
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {
-  enabled: false,
+  enabled: true,
   saveTranscripts: false
 };
 

@@ -503,7 +503,7 @@ export default function DockApp() {
                     <div className="space-y-0.5">
                       <div className="text-sm font-medium">클라우드 동기화</div>
                       <div className="text-[11px] text-muted-foreground">
-                        세션·분석·요약·딕테이션을 DB에 저장합니다. 기본 꺼짐.
+                        세션·분석·요약·딕테이션을 DB에 저장합니다. 기본 켜짐.
                       </div>
                     </div>
                     <Switch
