@@ -1,4 +1,4 @@
-import { getServiceSupabase } from '@/lib/supabase/server';
+import { getAdminSupabase } from '@/lib/supabase/server';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtInt, fmtUsd } from '@/lib/format';
 import { DailyCostLine, ProviderCallsBar } from '@/components/usage-charts';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 const DAYS = 30;
 
 export default async function AdminOverview() {
-  const supabase = getServiceSupabase();
+  const supabase = getAdminSupabase();
   const since = new Date();
   since.setDate(since.getDate() - DAYS);
   const sinceIso = since.toISOString();
@@ -64,12 +64,14 @@ export default async function AdminOverview() {
 
   let emailById: Record<string, string> = {};
   if (userIds.length > 0) {
-    const { data: users } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 100
-    });
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, email')
+      .in('user_id', userIds);
     emailById = Object.fromEntries(
-      (users?.users ?? []).map((u) => [u.id, u.email ?? ''])
+      ((profiles ?? []) as Array<{ user_id: string; email: string | null }>).map(
+        (p) => [p.user_id, p.email ?? '']
+      )
     );
   }
 

@@ -3,15 +3,15 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 let cached: SupabaseClient | null = null;
 
-// service_role 키 사용. 절대 client bundle에 포함되어선 안 됨.
-// 'server-only' import는 client component에서 이 모듈을 불러오면 빌드 시점에 실패시킴.
-export function getServiceSupabase(): SupabaseClient {
+// 모든 public 테이블이 RLS off 라서 anon key 만으로 어드민 페이지 데이터 조회 가능.
+// service_role 키는 사용하지 않음 — 운영자/배포자가 별도로 관리 안 해도 됨.
+export function getAdminSupabase(): SupabaseClient {
   if (cached) return cached;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) {
     throw new Error(
-      'NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing. ' +
+      'NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY missing. ' +
         'Set them in Vercel project env vars (or .env.local for dev).'
     );
   }

@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 
 // /admin/* 만 게이트. /login, /api/auth/signout 등은 자유로.
 export const config = {
@@ -40,13 +39,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // is_admin 체크는 service_role로 (RLS 우회 + anon 권한 의존 X)
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
-  const { data: profile } = await admin
+  // profiles 테이블이 RLS off라 anon 쿼리로 조회 가능.
+  const { data: profile } = await supabase
     .from('profiles')
     .select('is_admin')
     .eq('user_id', user.id)

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getServiceSupabase } from '@/lib/supabase/server';
+import { getAdminSupabase } from '@/lib/supabase/server';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtDate, fmtInt, fmtUsd } from '@/lib/format';
 import { DailyCostLine, TaskCostBar } from '@/components/usage-charts';
@@ -15,11 +15,15 @@ export default async function UserDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = getServiceSupabase();
+  const supabase = getAdminSupabase();
 
-  const { data: userRes, error: userErr } = await supabase.auth.admin.getUserById(id);
-  if (userErr || !userRes?.user) notFound();
-  const user = userRes.user;
+  const { data: profile, error: profileErr } = await supabase
+    .from('profiles')
+    .select('user_id, email, created_at')
+    .eq('user_id', id)
+    .maybeSingle();
+  if (profileErr || !profile) notFound();
+  const user = profile as { user_id: string; email: string | null; created_at: string };
 
   const since = new Date();
   since.setDate(since.getDate() - DAYS);
@@ -82,9 +86,9 @@ export default async function UserDetail({
         >
           ← 사용자 목록
         </Link>
-        <h1 className="mt-1 text-lg font-semibold">{user.email}</h1>
+        <h1 className="mt-1 text-lg font-semibold">{user.email || user.user_id}</h1>
         <p className="text-xs text-foreground/50">
-          가입 {fmtDate(user.created_at)} · {user.id}
+          가입 {fmtDate(user.created_at)} · {user.user_id}
         </p>
       </div>
 

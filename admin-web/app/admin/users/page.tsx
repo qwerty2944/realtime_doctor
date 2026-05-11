@@ -1,27 +1,37 @@
 import Link from 'next/link';
-import { getServiceSupabase } from '@/lib/supabase/server';
+import { getAdminSupabase } from '@/lib/supabase/server';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtInt, fmtUsd, fmtDate } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
 export default async function UsersPage() {
-  const supabase = getServiceSupabase();
+  const supabase = getAdminSupabase();
 
-  const [{ data: usersRes }, { data: events = [] }, { data: sessions = [] }] =
-    await Promise.all([
-      supabase.auth.admin.listUsers({ page: 1, perPage: 200 }),
-      supabase
-        .from('usage_events')
-        .select(
-          'user_id, ts, provider, task, model, prompt_tokens, output_tokens, total_tokens, chars, duration_ms'
-        )
-        .order('ts', { ascending: false })
-        .limit(50_000),
-      supabase.from('sessions').select('user_id, started_at')
-    ]);
+  const [
+    { data: profiles = [] },
+    { data: events = [] },
+    { data: sessions = [] }
+  ] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('user_id, email, created_at')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('usage_events')
+      .select(
+        'user_id, ts, provider, task, model, prompt_tokens, output_tokens, total_tokens, chars, duration_ms'
+      )
+      .order('ts', { ascending: false })
+      .limit(50_000),
+    supabase.from('sessions').select('user_id, started_at')
+  ]);
 
-  const users = usersRes?.users ?? [];
+  const profileRows = (profiles ?? []) as Array<{
+    user_id: string;
+    email: string | null;
+    created_at: string;
+  }>;
   const eventRows = (events ?? []) as Array<UsageRow & { user_id: string; ts: string }>;
   const sessionRows = (sessions ?? []) as Array<{
     user_id: string;
@@ -39,14 +49,14 @@ export default async function UsersPage() {
     sessionsByUser.set(s.user_id, (sessionsByUser.get(s.user_id) ?? 0) + 1);
   }
 
-  const rows = users
-    .map((u) => ({
-      id: u.id,
-      email: u.email ?? '',
-      created_at: u.created_at,
-      last_activity: lastTsByUser.get(u.id) ?? null,
-      sessions: sessionsByUser.get(u.id) ?? 0,
-      cost: costByUser.get(u.id) ?? 0
+  const rows = profileRows
+    .map((p) => ({
+      id: p.user_id,
+      email: p.email ?? '',
+      created_at: p.created_at,
+      last_activity: lastTsByUser.get(p.user_id) ?? null,
+      sessions: sessionsByUser.get(p.user_id) ?? 0,
+      cost: costByUser.get(p.user_id) ?? 0
     }))
     .sort((a, b) => b.cost - a.cost);
 
