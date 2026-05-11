@@ -1,12 +1,12 @@
 import Link from 'next/link';
-import { getAdminSupabase } from '@/lib/supabase/server';
+import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtInt, fmtUsd, fmtDate } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
 export default async function UsersPage() {
-  const supabase = getAdminSupabase();
+  const supabase = await getCookieSupabase();
 
   const [
     { data: profiles = [] },

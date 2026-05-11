@@ -41,7 +41,8 @@ interface Schema {
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {
   enabled: true,
-  saveTranscripts: false
+  saveTranscripts: false,
+  saveAudio: false
 };
 
 export const store = new Store<Schema>({
@@ -91,8 +92,10 @@ export function getCloudSync(): CloudSyncSettings {
 
 export function setCloudSync(patch: Partial<CloudSyncSettings>): CloudSyncSettings {
   const next = { ...getCloudSync(), ...patch };
-  // saveTranscripts only meaningful if enabled is true
-  if (!next.enabled) next.saveTranscripts = false;
+  if (!next.enabled) {
+    next.saveTranscripts = false;
+    next.saveAudio = false;
+  }
   store.set('cloudSync', next);
   return next;
 }

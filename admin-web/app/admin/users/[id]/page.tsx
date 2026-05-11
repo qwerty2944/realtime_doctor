@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getAdminSupabase } from '@/lib/supabase/server';
+import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtDate, fmtInt, fmtUsd } from '@/lib/format';
 import { DailyCostLine, TaskCostBar } from '@/components/usage-charts';
@@ -15,7 +15,7 @@ export default async function UserDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = getAdminSupabase();
+  const supabase = await getCookieSupabase();
 
   const { data: profile, error: profileErr } = await supabase
     .from('profiles')
@@ -138,7 +138,12 @@ export default async function UserDetail({
                   className="border-b border-border/40 last:border-0 hover:bg-muted/40"
                 >
                   <td className="px-3 py-2 text-foreground/80">
-                    {fmtDate(s.started_at)}
+                    <Link
+                      href={`/admin/users/${id}/sessions/${s.id}`}
+                      className="hover:text-accent"
+                    >
+                      {fmtDate(s.started_at)}
+                    </Link>
                   </td>
                   <td className="px-3 py-2 text-foreground/60">
                     {fmtDate(s.ended_at)}

@@ -110,7 +110,8 @@ export default function DockApp() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [cloud, setCloud] = useState<CloudSyncSettings>({
     enabled: false,
-    saveTranscripts: false
+    saveTranscripts: false,
+    saveAudio: false
   });
 
   const refresh = useCallback(async () => {
@@ -529,6 +530,26 @@ export default function DockApp() {
                       checked={cloud.saveTranscripts}
                       disabled={!cloud.enabled}
                       onCheckedChange={(v) => updateCloud({ saveTranscripts: v })}
+                    />
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div
+                        className={cn(
+                          'text-sm font-medium',
+                          !cloud.enabled && 'text-muted-foreground'
+                        )}
+                      >
+                        음성 파일 업로드
+                      </div>
+                      <div className="text-[11px] text-yellow-300">
+                        진료 중 녹음된 음성 원본이 Supabase Storage에 저장됩니다.
+                      </div>
+                    </div>
+                    <Switch
+                      checked={cloud.saveAudio}
+                      disabled={!cloud.enabled}
+                      onCheckedChange={(v) => updateCloud({ saveAudio: v })}
                     />
                   </div>
                 </div>

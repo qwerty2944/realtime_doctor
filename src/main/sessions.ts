@@ -108,7 +108,8 @@ export function clearSessionCache(): void {
 }
 
 export async function saveTranscriptChunk(
-  chunk: TranscriptChunk & { speaker: Speaker }
+  chunk: TranscriptChunk & { speaker: Speaker },
+  opts: { audioPath?: string | null } = {}
 ): Promise<void> {
   if (!canPersist()) return;
   if (!getCloudSync().saveTranscripts) return;
@@ -124,11 +125,70 @@ export async function saveTranscriptChunk(
       chunk_id: chunk.id,
       speaker: chunk.speaker,
       text: chunk.text,
-      timestamp_ms: chunk.timestamp
+      timestamp_ms: chunk.timestamp,
+      audio_path: opts.audioPath ?? null
     });
     if (error) warn('saveTranscriptChunk', error.message);
   } catch (err) {
     warn('saveTranscriptChunk', err);
+  }
+}
+
+/** chunk 모드 WAV 업로드. saveAudio=false면 no-op. */
+export async function uploadChunkAudio(
+  chunkId: string,
+  base64Wav: string
+): Promise<string | null> {
+  if (!canPersist()) return null;
+  if (!getCloudSync().saveAudio) return null;
+  const user = getCurrentUser();
+  const supabase = getSupabase();
+  if (!user || !supabase) return null;
+  const sessionId = await ensureSession();
+  if (!sessionId) return null;
+  const path = `${user.id}/${sessionId}/${chunkId}.wav`;
+  try {
+    const buf = Buffer.from(base64Wav, 'base64');
+    const { error } = await supabase.storage
+      .from('recordings')
+      .upload(path, buf, { contentType: 'audio/wav', upsert: true });
+    if (error) {
+      warn('uploadChunkAudio', error.message);
+      return null;
+    }
+    return path;
+  } catch (err) {
+    warn('uploadChunkAudio', err);
+    return null;
+  }
+}
+
+/** 스트림 모드 세션 전체 PCM → WAV 업로드 + sessions.audio_path 업데이트. */
+export async function uploadSessionAudio(
+  sessionId: string,
+  wavBuffer: Buffer
+): Promise<void> {
+  if (!canPersist()) return;
+  if (!getCloudSync().saveAudio) return;
+  const user = getCurrentUser();
+  const supabase = getSupabase();
+  if (!user || !supabase) return;
+  const path = `${user.id}/${sessionId}/session.wav`;
+  try {
+    const { error: upErr } = await supabase.storage
+      .from('recordings')
+      .upload(path, wavBuffer, { contentType: 'audio/wav', upsert: true });
+    if (upErr) {
+      warn('uploadSessionAudio:upload', upErr.message);
+      return;
+    }
+    const { error: dbErr } = await supabase
+      .from('sessions')
+      .update({ audio_path: path })
+      .eq('id', sessionId);
+    if (dbErr) warn('uploadSessionAudio:update', dbErr.message);
+  } catch (err) {
+    warn('uploadSessionAudio', err);
   }
 }
 

@@ -1,4 +1,4 @@
-import { getAdminSupabase } from '@/lib/supabase/server';
+import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtInt, fmtUsd } from '@/lib/format';
 import { DailyCostLine, ProviderCallsBar } from '@/components/usage-charts';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 const DAYS = 30;
 
 export default async function AdminOverview() {
-  const supabase = getAdminSupabase();
+  const supabase = await getCookieSupabase();
   const since = new Date();
   since.setDate(since.getDate() - DAYS);
   const sinceIso = since.toISOString();

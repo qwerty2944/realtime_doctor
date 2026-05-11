@@ -39,9 +39,12 @@ import {
   appendSummary,
   clearSessionCache,
   endCurrentSession,
+  getCurrentSessionId,
   logUsage,
   relabelChunk,
   saveTranscriptChunk,
+  uploadChunkAudio,
+  uploadSessionAudio,
   upsertAnalysis
 } from './sessions.js';
 import {
@@ -144,7 +147,10 @@ ipcMain.handle(
       timestamp: Date.now()
     };
     analyzer.push({ ...chunk, speaker: 'unknown' });
-    void saveTranscriptChunk({ ...chunk, speaker: 'unknown' });
+    void (async () => {
+      const audioPath = await uploadChunkAudio(chunk.id, payload.base64Wav);
+      await saveTranscriptChunk({ ...chunk, speaker: 'unknown' }, { audioPath });
+    })();
     classifySpeaker({
       text,
       history: analyzer.history().slice(0, -1).map((h) => ({
@@ -191,7 +197,9 @@ ipcMain.on(IPC.TranscriptRelabel, (_event, payload: TranscriptLabelEvent) => {
 
 ipcMain.on(IPC.TranscriptReset, () => {
   analyzer.reset();
-  void endCurrentSession();
+  void flushStreamSessionAudio().finally(() => {
+    void endCurrentSession();
+  });
 });
 
 ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate) => {
@@ -361,6 +369,46 @@ let clovaSeqId = 0;
 let clovaCurrentItemId = '';
 let clovaCurrentPartial = '';
 
+// CLOVA stream 모드용 세션 전체 PCM 누적기. saveAudio 플래그 무관하게 항상 누적
+// (메모리 비용 작음). 세션 종료 시 sessions.uploadSessionAudio 가 saveAudio 체크.
+const CLOVA_SAMPLE_RATE = 16000;
+let streamPcmChunks: Buffer[] = [];
+let streamSessionIdAtStart: string | null = null;
+
+function resetStreamPcm(): void {
+  streamPcmChunks = [];
+  streamSessionIdAtStart = null;
+}
+
+function pcm16ToWav(pcm: Buffer, sampleRate: number, channels = 1): Buffer {
+  const header = Buffer.alloc(44);
+  const dataSize = pcm.length;
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * 2, 28);
+  header.writeUInt16LE(channels * 2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+async function flushStreamSessionAudio(): Promise<void> {
+  if (streamPcmChunks.length === 0) return;
+  const sessionId = streamSessionIdAtStart ?? getCurrentSessionId();
+  const pcm = Buffer.concat(streamPcmChunks);
+  resetStreamPcm();
+  if (!sessionId) return;
+  const wav = pcm16ToWav(pcm, CLOVA_SAMPLE_RATE);
+  await uploadSessionAudio(sessionId, wav);
+}
+
 function newClovaItemId(): string {
   clovaSeqId += 1;
   return `clova_${Date.now()}_${clovaSeqId}`;
@@ -432,6 +480,10 @@ ipcMain.handle(IPC.ClovaStreamOpen, async (event) => {
 ipcMain.on(IPC.ClovaStreamAudio, (_event, chunk: Uint8Array) => {
   if (!clovaStreamSession || !chunk) return;
   const buf = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  if (streamSessionIdAtStart === null) {
+    streamSessionIdAtStart = getCurrentSessionId();
+  }
+  streamPcmChunks.push(buf);
   clovaSeqId += 1;
   clovaStreamSession.sendAudio(buf, clovaSeqId);
 });
@@ -442,6 +494,7 @@ ipcMain.on(IPC.ClovaStreamClose, () => {
     clovaStreamSession = null;
   }
   clovaStreamSenderId = null;
+  void flushStreamSessionAudio();
 });
 
 // silence unused warning
@@ -513,8 +566,11 @@ function hideOverlaysAndClearPHI(): void {
     if (win.isVisible()) win.hide();
   }
   analyzer.reset();
-  void endCurrentSession();
-  clearSessionCache();
+  void flushStreamSessionAudio().finally(() => {
+    void endCurrentSession().finally(() => {
+      clearSessionCache();
+    });
+  });
   broadcastWindowState();
 }
 
@@ -576,6 +632,7 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
+  void flushStreamSessionAudio();
   void endCurrentSession();
 });
 

@@ -48,6 +48,7 @@ export interface AuthOpResult {
 export interface CloudSyncSettings {
   enabled: boolean;
   saveTranscripts: boolean;
+  saveAudio: boolean;
 }
 
 export type TranscribeProviderId =
