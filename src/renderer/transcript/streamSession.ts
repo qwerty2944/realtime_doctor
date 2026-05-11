@@ -108,6 +108,7 @@ export async function startStreamSession(
         } catch {
           /* ignore */
         }
+        window.api.endRealtimeSession();
       }, 2000);
     }
   };

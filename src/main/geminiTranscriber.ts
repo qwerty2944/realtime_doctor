@@ -38,7 +38,8 @@ export async function transcribeWithGemini(base64Wav: string): Promise<string> {
         generationConfig: {
           temperature: 0
         }
-      }
+      },
+      { metadata: { task: 'transcribe' } }
     );
 
     return extractText(data).trim();

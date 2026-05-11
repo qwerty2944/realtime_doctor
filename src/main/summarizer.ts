@@ -80,7 +80,8 @@ export async function summarizeConversation(
           responseMimeType: 'application/json',
           responseSchema: SCHEMA
         }
-      }
+      },
+      { metadata: { task: 'summarize' } }
     );
 
     const text = extractText(data);

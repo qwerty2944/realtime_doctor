@@ -6,3 +6,7 @@ release
 .env.local
 .DS_Store
 *.log
+admin-web/.next
+admin-web/node_modules
+admin-web/tsconfig.tsbuildinfo
+admin-web/.vercel

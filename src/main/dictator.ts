@@ -190,7 +190,8 @@ JSON 스키마에 맞춰 sections를 반환하세요. heading은 위에 명시�
           responseMimeType: 'application/json',
           responseSchema: SCHEMA
         }
-      }
+      },
+      { metadata: { task: 'dictate' } }
     );
 
     const text = extractText(data);

@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import type {
   AnalysisResult,
   DictationResult,
@@ -8,6 +9,31 @@ import type {
 import { getCurrentUser } from './auth.js';
 import { getCloudSync, getTranscribeProvider } from './store.js';
 import { getSupabase } from './supabaseClient.js';
+
+export type UsageProvider =
+  | 'gemini'
+  | 'openai-realtime'
+  | 'clova-csr'
+  | 'clova-stream';
+
+export type UsageTask =
+  | 'transcribe'
+  | 'diarize'
+  | 'analyze'
+  | 'summarize'
+  | 'dictate'
+  | 'realtime-session';
+
+export interface UsageEventInput {
+  provider: UsageProvider;
+  task: UsageTask;
+  model: string;
+  prompt_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  chars?: number;
+  duration_ms?: number;
+}
 
 let currentSessionId: string | null = null;
 let creating: Promise<string | null> | null = null;
@@ -173,6 +199,32 @@ export async function appendSummary(result: SummaryResult): Promise<void> {
     if (error) warn('appendSummary', error.message);
   } catch (err) {
     warn('appendSummary', err);
+  }
+}
+
+export async function logUsage(input: UsageEventInput): Promise<void> {
+  if (!canPersist()) return;
+  const user = getCurrentUser();
+  const supabase = getSupabase();
+  if (!user || !supabase) return;
+  try {
+    const { error } = await supabase.from('usage_events').insert({
+      user_id: user.id,
+      session_id: currentSessionId,
+      provider: input.provider,
+      task: input.task,
+      model: input.model,
+      prompt_tokens: input.prompt_tokens,
+      output_tokens: input.output_tokens,
+      total_tokens: input.total_tokens,
+      chars: input.chars,
+      duration_ms: input.duration_ms,
+      app_version: app.getVersion(),
+      platform: process.platform
+    });
+    if (error) warn('logUsage', error.message);
+  } catch (err) {
+    warn('logUsage', err);
   }
 }
 

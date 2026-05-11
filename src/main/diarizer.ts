@@ -59,7 +59,8 @@ export async function classifySpeaker(ctx: ClassifierContext): Promise<Speaker> 
           responseMimeType: 'application/json',
           responseSchema: SCHEMA
         }
-      }
+      },
+      { metadata: { task: 'diarize' } }
     );
 
     const text = extractText(data);

@@ -112,7 +112,7 @@ class Analyzer {
             responseSchema: ANALYSIS_RESPONSE_SCHEMA
           }
         },
-        { signal: ctrl.signal }
+        { signal: ctrl.signal, metadata: { task: 'analyze' } }
       );
 
       const text = extractText(data);

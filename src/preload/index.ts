@@ -151,6 +151,9 @@ const api = {
   mintStreamSession(): Promise<EphemeralSession> {
     return ipcRenderer.invoke(IPC.StreamMint);
   },
+  endRealtimeSession(): void {
+    ipcRenderer.send(IPC.RealtimeSessionEnd);
+  },
   quitApp(): void {
     ipcRenderer.send('app:quit');
   },

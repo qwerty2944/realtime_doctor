@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { logUsage } from './sessions.js';
 
 const ENDPOINT = 'https://naveropenapi.apigw.ntruss.com/recog/v1/stt';
 
@@ -26,7 +27,14 @@ export async function transcribeWithClova(base64Wav: string): Promise<string> {
       timeout: 30_000,
       maxBodyLength: 32 * 1024 * 1024
     });
-    return typeof data?.text === 'string' ? data.text.trim() : '';
+    const text = typeof data?.text === 'string' ? data.text.trim() : '';
+    void logUsage({
+      provider: 'clova-csr',
+      task: 'transcribe',
+      model: 'clova-csr',
+      chars: text.length
+    });
+    return text;
   } catch (err) {
     if (axios.isAxiosError(err)) {
       const status = err.response?.status;

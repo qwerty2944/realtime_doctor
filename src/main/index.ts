@@ -33,6 +33,7 @@ import {
   appendSummary,
   clearSessionCache,
   endCurrentSession,
+  logUsage,
   relabelChunk,
   saveTranscriptChunk,
   upsertAnalysis
@@ -329,7 +330,24 @@ ipcMain.handle(
   IPC.CloudSyncSet,
   (_event, patch: Partial<CloudSyncSettings>) => setCloudSync(patch)
 );
-ipcMain.handle(IPC.StreamMint, async () => mintStreamSession());
+let openaiSessionStartedAt: number | null = null;
+ipcMain.handle(IPC.StreamMint, async () => {
+  const result = await mintStreamSession();
+  openaiSessionStartedAt = Date.now();
+  return result;
+});
+
+ipcMain.on(IPC.RealtimeSessionEnd, () => {
+  if (openaiSessionStartedAt === null) return;
+  const duration_ms = Date.now() - openaiSessionStartedAt;
+  openaiSessionStartedAt = null;
+  void logUsage({
+    provider: 'openai-realtime',
+    task: 'realtime-session',
+    model: process.env.OPENAI_TRANSCRIBE_MODEL ?? 'gpt-4o-transcribe',
+    duration_ms
+  });
+});
 
 let clovaStreamSession: ClovaStreamHandle | null = null;
 let clovaStreamSenderId: number | null = null;
@@ -373,6 +391,12 @@ ipcMain.handle(IPC.ClovaStreamOpen, async (event) => {
       };
       analyzer.push({ ...chunk, speaker: 'unknown' });
       void saveTranscriptChunk({ ...chunk, speaker: 'unknown' });
+      void logUsage({
+        provider: 'clova-stream',
+        task: 'transcribe',
+        model: 'clova-stream',
+        chars: finalText.length
+      });
       classifySpeaker({
         text: finalText,
         history: analyzer.history().slice(0, -1).map((h) => ({
