@@ -1,10 +1,27 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, Mic, MicOff, RotateCcw, Stethoscope, User } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  FolderOpen,
+  Mic,
+  MicOff,
+  RotateCcw,
+  Stethoscope,
+  User
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import type {
+  SessionSummary,
   Speaker,
   TranscribeProviderId,
   TranscribeProviderInfo
@@ -71,6 +88,9 @@ export default function TranscriptApp() {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [providerId, setProviderId] = useState<TranscribeProviderId | null>(null);
   const [providerInfos, setProviderInfos] = useState<TranscribeProviderInfo[]>([]);
+  const [loadOpen, setLoadOpen] = useState(false);
+  const [sessionList, setSessionList] = useState<SessionSummary[] | null>(null);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +113,23 @@ export default function TranscriptApp() {
   }, []);
 
   const currentProvider = providerInfos.find((p) => p.id === providerId);
+
+  const openLoadDialog = async () => {
+    setLoadOpen(true);
+    setSessionList(null);
+    const list = await window.api.listMySessions();
+    setSessionList(list);
+  };
+
+  const pickSession = async (sessionId: string) => {
+    setLoadingId(sessionId);
+    try {
+      await window.api.loadSession(sessionId);
+      setLoadOpen(false);
+    } finally {
+      setLoadingId(null);
+    }
+  };
 
   useLayoutEffect(() => {
     const el = viewportRef.current;
@@ -143,6 +180,71 @@ export default function TranscriptApp() {
             <RotateCcw />
             새 세션
           </Button>
+          <Dialog open={loadOpen} onOpenChange={setLoadOpen}>
+            <DialogTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                disabled={isPending || active}
+                onClick={openLoadDialog}
+                title="이전 세션 불러오기"
+              >
+                <FolderOpen />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>세션 불러오기</DialogTitle>
+                <DialogDescription>
+                  이전 세션을 선택하면 transcript 와 분석/요약/딕테이션이 복원되고
+                  이후 새 발화는 그 세션에 이어집니다. 클라우드 동기화가 켜져
+                  있어야 합니다.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                {sessionList === null && (
+                  <p className="text-xs text-muted-foreground">불러오는 중…</p>
+                )}
+                {sessionList && sessionList.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    저장된 세션이 없습니다.
+                  </p>
+                )}
+                {sessionList?.map((s) => {
+                  const started = new Date(s.started_at).toLocaleString('ko-KR', {
+                    dateStyle: 'short',
+                    timeStyle: 'short'
+                  });
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => pickSession(s.id)}
+                      disabled={loadingId === s.id}
+                      className={cn(
+                        'flex w-full flex-col gap-1 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm transition-colors',
+                        'hover:border-primary/60 hover:bg-white/10',
+                        loadingId === s.id && 'opacity-60'
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{started}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {s.chunk_count} 발화 ·{' '}
+                          {s.transcribe_provider ?? '—'}
+                        </span>
+                      </div>
+                      {s.preview && (
+                        <div className="line-clamp-1 text-xs text-foreground/60">
+                          {s.preview}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       }
     >

@@ -30,8 +30,35 @@ export const IPC = {
   AuthGetState: 'auth:getState',
   AuthStateChange: 'auth:state-change',
   CloudSyncGet: 'cloudSync:get',
-  CloudSyncSet: 'cloudSync:set'
+  CloudSyncSet: 'cloudSync:set',
+  SessionsListMine: 'sessions:list-mine',
+  SessionsLoad: 'sessions:load',
+  SessionLoaded: 'session:loaded'
 } as const;
+
+export interface SessionSummary {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  transcribe_provider: string | null;
+  chunk_count: number;
+  preview: string;
+}
+
+export interface LoadedSessionPayload {
+  session: {
+    id: string;
+    started_at: string;
+    ended_at: string | null;
+    transcribe_provider: string | null;
+  };
+  chunks: Array<{
+    chunk_id: string;
+    speaker: Speaker;
+    text: string;
+    timestamp_ms: number;
+  }>;
+}
 
 export interface AuthUser {
   id: string;

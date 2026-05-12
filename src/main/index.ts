@@ -40,9 +40,12 @@ import {
   clearSessionCache,
   endCurrentSession,
   getCurrentSessionId,
+  listMySessions,
+  loadSession,
   logUsage,
   relabelChunk,
   saveTranscriptChunk,
+  setCurrentSessionId,
   uploadChunkAudio,
   uploadSessionAudio,
   upsertAnalysis
@@ -346,6 +349,37 @@ ipcMain.handle(
   IPC.CloudSyncSet,
   (_event, patch: Partial<CloudSyncSettings>) => setCloudSync(patch)
 );
+
+ipcMain.handle(IPC.SessionsListMine, () => listMySessions(30));
+
+ipcMain.handle(IPC.SessionsLoad, async (_event, sessionId: string) => {
+  const loaded = await loadSession(sessionId);
+  if (!loaded) return null;
+  // analyzer 를 그 세션 chunks 로 복원
+  analyzer.reset();
+  for (const c of loaded.chunks) {
+    analyzer.push({
+      id: c.chunk_id,
+      text: c.text,
+      timestamp: c.timestamp_ms,
+      speaker: c.speaker
+    });
+  }
+  setCurrentSessionId(loaded.session.id);
+  // 분석/요약/딕테이션 broadcast 로 다른 창 갱신
+  if (loaded.analysis) broadcast(IPC.AnalysisUpdate, loaded.analysis);
+  if (loaded.latestSummary)
+    broadcast(IPC.SummaryUpdate, { state: 'ready', result: loaded.latestSummary });
+  if (loaded.latestDictation)
+    broadcast(IPC.DictationUpdate, { state: 'ready', result: loaded.latestDictation });
+  // transcript 창에 chunks 전달
+  const payload = {
+    session: loaded.session,
+    chunks: loaded.chunks
+  };
+  broadcast(IPC.SessionLoaded, payload);
+  return payload;
+});
 let openaiSessionStartedAt: number | null = null;
 ipcMain.handle(IPC.StreamMint, async () => {
   const result = await mintStreamSession();
@@ -504,7 +538,14 @@ ipcMain.on(IPC.ClovaStreamAudio, (_event, chunk: Uint8Array) => {
 });
 
 ipcMain.on(IPC.ClovaStreamMarkHandled, (_event, itemId: string) => {
-  if (typeof itemId === 'string' && itemId) handledClovaItemIds.add(itemId);
+  if (typeof itemId !== 'string' || !itemId) return;
+  handledClovaItemIds.add(itemId);
+  // client 가 이 itemId 를 final 로 승격했으면 main 도 즉시 다음 발화로 advance
+  // 시켜야 그 다음 partial 이 새 itemId 로 와서 기존 row 를 덮어쓰지 않음.
+  if (itemId === clovaCurrentItemId) {
+    clovaCurrentItemId = newClovaItemId();
+    clovaCurrentPartial = '';
+  }
 });
 
 ipcMain.on(IPC.ClovaStreamClose, () => {

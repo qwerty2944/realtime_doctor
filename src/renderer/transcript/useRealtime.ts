@@ -51,6 +51,22 @@ export function useRealtime() {
     return off;
   }, []);
 
+  // 어드민이 아닌, 같은 사용자가 이전 세션을 불러왔을 때 transcript 복원.
+  useEffect(() => {
+    return window.api.onSessionLoaded((payload) => {
+      setUtterances(
+        payload.chunks.map((c) => ({
+          id: c.chunk_id,
+          text: c.text,
+          timestamp: c.timestamp_ms,
+          speaker: c.speaker
+        }))
+      );
+      setPartial(null);
+      setError(null);
+    });
+  }, []);
+
   const stop = useCallback(() => {
     sessionRef.current?.stop();
     sessionRef.current = null;

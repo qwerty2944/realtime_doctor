@@ -8,6 +8,8 @@ import {
   type DictationStatus,
   type DictationTemplate,
   type EphemeralSession,
+  type LoadedSessionPayload,
+  type SessionSummary,
   type Speaker,
   type SummaryStatus,
   type TranscribeProviderId,
@@ -238,6 +240,20 @@ const api = {
     set(patch: Partial<CloudSyncSettings>): Promise<CloudSyncSettings> {
       return ipcRenderer.invoke(IPC.CloudSyncSet, patch);
     }
+  },
+  listMySessions(): Promise<SessionSummary[]> {
+    return ipcRenderer.invoke(IPC.SessionsListMine);
+  },
+  loadSession(sessionId: string): Promise<LoadedSessionPayload | null> {
+    return ipcRenderer.invoke(IPC.SessionsLoad, sessionId);
+  },
+  onSessionLoaded(
+    handler: (payload: LoadedSessionPayload) => void
+  ): () => void {
+    const listener = (_e: unknown, payload: LoadedSessionPayload) =>
+      handler(payload);
+    ipcRenderer.on(IPC.SessionLoaded, listener);
+    return () => ipcRenderer.removeListener(IPC.SessionLoaded, listener);
   }
 };
 
