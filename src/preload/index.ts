@@ -148,6 +148,13 @@ const api = {
   setTranscribeProvider(id: TranscribeProviderId): Promise<TranscribeProviderId> {
     return ipcRenderer.invoke(IPC.ProviderSet, id);
   },
+  onTranscribeProviderChange(
+    handler: (id: TranscribeProviderId) => void
+  ): () => void {
+    const listener = (_e: unknown, id: TranscribeProviderId) => handler(id);
+    ipcRenderer.on(IPC.ProviderChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.ProviderChanged, listener);
+  },
   mintStreamSession(): Promise<EphemeralSession> {
     return ipcRenderer.invoke(IPC.StreamMint);
   },

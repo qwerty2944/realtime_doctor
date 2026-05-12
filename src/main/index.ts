@@ -336,7 +336,9 @@ ipcMain.handle(IPC.ProviderList, () => listProviders());
 ipcMain.handle(IPC.ProviderGet, () => getTranscribeProvider());
 ipcMain.handle(IPC.ProviderSet, (_event, id: TranscribeProviderId) => {
   setTranscribeProvider(id);
-  return getTranscribeProvider();
+  const current = getTranscribeProvider();
+  broadcast(IPC.ProviderChanged, current);
+  return current;
 });
 
 ipcMain.handle(IPC.CloudSyncGet, () => getCloudSync());

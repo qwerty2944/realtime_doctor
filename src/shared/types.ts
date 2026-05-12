@@ -12,6 +12,7 @@ export const IPC = {
   ProviderList: 'provider:list',
   ProviderGet: 'provider:get',
   ProviderSet: 'provider:set',
+  ProviderChanged: 'provider:changed',
   StreamMint: 'stream:mint',
   RealtimeSessionEnd: 'realtime:session-end',
   ClovaStreamOpen: 'clova-stream:open',

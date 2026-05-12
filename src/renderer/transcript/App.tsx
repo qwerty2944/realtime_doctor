@@ -1,10 +1,14 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeftRight, Mic, MicOff, RotateCcw, Stethoscope, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import type { Speaker } from '../../shared/types';
+import type {
+  Speaker,
+  TranscribeProviderId,
+  TranscribeProviderInfo
+} from '../../shared/types';
 import { OverlayShell } from '../shared/OverlayShell';
 import { useRealtime } from './useRealtime';
 
@@ -65,6 +69,30 @@ export default function TranscriptApp() {
   } = useRealtime();
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [providerId, setProviderId] = useState<TranscribeProviderId | null>(null);
+  const [providerInfos, setProviderInfos] = useState<TranscribeProviderInfo[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [id, list] = await Promise.all([
+        window.api.getTranscribeProvider(),
+        window.api.listTranscribeProviders()
+      ]);
+      if (cancelled) return;
+      setProviderId(id);
+      setProviderInfos(list);
+    })();
+    const off = window.api.onTranscribeProviderChange((id) => {
+      setProviderId(id);
+    });
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
+  const currentProvider = providerInfos.find((p) => p.id === providerId);
 
   useLayoutEffect(() => {
     const el = viewportRef.current;
@@ -75,6 +103,16 @@ export default function TranscriptApp() {
   return (
     <OverlayShell
       title="Transcript"
+      badge={
+        currentProvider ? (
+          <span
+            className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70"
+            title={`${currentProvider.label} · ${currentProvider.mode === 'stream' ? '실시간' : '청크'}`}
+          >
+            {currentProvider.label}
+          </span>
+        ) : null
+      }
       actions={
         <div className="flex items-center gap-1" data-no-drag>
           <Button
