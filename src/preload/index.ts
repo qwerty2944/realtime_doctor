@@ -173,6 +173,9 @@ const api = {
   closeClovaStream(): void {
     ipcRenderer.send(IPC.ClovaStreamClose);
   },
+  markClovaItemHandled(itemId: string): void {
+    ipcRenderer.send(IPC.ClovaStreamMarkHandled, itemId);
+  },
   onClovaPartial(
     handler: (payload: { itemId: string; text: string }) => void
   ): () => void {

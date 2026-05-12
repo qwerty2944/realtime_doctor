@@ -21,6 +21,7 @@ export const IPC = {
   ClovaStreamPartial: 'clova-stream:partial',
   ClovaStreamFinal: 'clova-stream:final',
   ClovaStreamError: 'clova-stream:error',
+  ClovaStreamMarkHandled: 'clova-stream:mark-handled',
   WindowToggleClickThrough: 'window:toggle-click-through',
   WindowSetAlwaysOnTop: 'window:set-always-on-top',
   AuthSignUp: 'auth:signUp',

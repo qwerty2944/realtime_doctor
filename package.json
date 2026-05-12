@@ -1,6 +1,6 @@
 {
   "name": "realtime-doctor",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Always-on-top medical differential-diagnosis overlay powered by OpenAI Realtime API",
   "private": true,
   "main": "out/main/index.js",

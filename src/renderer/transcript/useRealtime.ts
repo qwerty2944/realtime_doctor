@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import type { Speaker, TranscriptChunk } from '../../shared/types';
+
+// CLOVA Speech Streaming은 발화 종료 감지(EPD) 가 짧은 발화나 조용한 마이크에서
+// 누락되는 경우가 있어 partial 이 final 로 못 떨어지고 회색으로 남는다.
+// 마지막 partial 갱신 후 이 시간만큼 변화가 없으면 client side 에서 final 로 승격.
+const CLOVA_PARTIAL_IDLE_MS = 1500;
 import {
   startChunkSession,
   type ChunkSessionHandle
@@ -124,15 +129,38 @@ export function useRealtime() {
         });
         sessionRef.current = handle;
       } else if (info.id === 'clova-stream') {
+        let idleTimer: ReturnType<typeof setTimeout> | null = null;
+        const promoteToFinal = (itemId: string, text: string) => {
+          const finalText = text.trim();
+          setPartial((prev) => (prev?.itemId === itemId ? null : prev));
+          if (!finalText) return;
+          completeUtterance(itemId, finalText);
+          // main 에 "이 itemId 는 클라이언트가 이미 final 로 처리" 마킹 — 늦은 CLOVA
+          // final 이 와도 main 의 final 핸들러가 중복 row 안 만들도록.
+          window.api.markClovaItemHandled(itemId);
+          // analyzer + 화자 분류 + transcript_chunks 저장 트리거.
+          const chunk: TranscriptChunk = {
+            id: itemId,
+            text: finalText,
+            timestamp: Date.now()
+          };
+          window.api.pushTranscriptChunk(chunk);
+        };
         const handle = await startClovaStreamSession({
           onDelta: (itemId, text) => {
             setPartial({ itemId, text });
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+              idleTimer = null;
+              promoteToFinal(itemId, text);
+            }, CLOVA_PARTIAL_IDLE_MS);
           },
           onCompleted: (itemId, text) => {
-            const finalText = text.trim();
-            setPartial((prev) => (prev?.itemId === itemId ? null : prev));
-            if (!finalText) return;
-            completeUtterance(itemId, finalText);
+            if (idleTimer) {
+              clearTimeout(idleTimer);
+              idleTimer = null;
+            }
+            promoteToFinal(itemId, text);
           },
           onError: (err) => {
             setError(err instanceof Error ? err.message : String(err));

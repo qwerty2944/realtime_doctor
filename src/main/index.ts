@@ -370,6 +370,9 @@ let clovaStreamSenderId: number | null = null;
 let clovaSeqId = 0;
 let clovaCurrentItemId = '';
 let clovaCurrentPartial = '';
+// renderer가 idle timer 로 client-side에서 final 처리한 itemId들. CLOVA 가 늦게
+// 진짜 final 을 보내도 중복 row 가 생기지 않도록 final 핸들러에서 본 후 skip.
+const handledClovaItemIds = new Set<string>();
 
 // CLOVA stream 모드용 세션 전체 PCM 누적기. saveAudio 플래그 무관하게 항상 누적
 // (메모리 비용 작음). 세션 종료 시 sessions.uploadSessionAudio 가 saveAudio 체크.
@@ -438,8 +441,9 @@ ipcMain.handle(IPC.ClovaStreamOpen, async (event) => {
   handle.on('final', (text) => {
     const finalText = text.trim();
     const itemId = clovaCurrentItemId;
+    const alreadyHandled = handledClovaItemIds.has(itemId);
     broadcast(IPC.ClovaStreamFinal, { itemId, text: finalText });
-    if (finalText) {
+    if (finalText && !alreadyHandled) {
       const chunk: TranscriptChunk = {
         id: itemId,
         text: finalText,
@@ -465,7 +469,16 @@ ipcMain.handle(IPC.ClovaStreamOpen, async (event) => {
         const evt: TranscriptLabelEvent = { id: chunk.id, speaker };
         broadcast(IPC.TranscriptLabel, evt);
       });
+    } else if (finalText && alreadyHandled) {
+      // 사용량은 어차피 발화 했으니 기록 (analyzer/transcript 는 client side 가 이미 처리)
+      void logUsage({
+        provider: 'clova-stream',
+        task: 'transcribe',
+        model: 'clova-stream',
+        chars: finalText.length
+      });
     }
+    handledClovaItemIds.delete(itemId);
     clovaCurrentItemId = newClovaItemId();
     clovaCurrentPartial = '';
   });
@@ -488,6 +501,10 @@ ipcMain.on(IPC.ClovaStreamAudio, (_event, chunk: Uint8Array) => {
   streamPcmChunks.push(buf);
   clovaSeqId += 1;
   clovaStreamSession.sendAudio(buf, clovaSeqId);
+});
+
+ipcMain.on(IPC.ClovaStreamMarkHandled, (_event, itemId: string) => {
+  if (typeof itemId === 'string' && itemId) handledClovaItemIds.add(itemId);
 });
 
 ipcMain.on(IPC.ClovaStreamClose, () => {

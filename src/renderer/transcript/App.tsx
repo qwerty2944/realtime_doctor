@@ -106,10 +106,10 @@ export default function TranscriptApp() {
       badge={
         currentProvider ? (
           <span
-            className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70"
+            className="rounded bg-white/10 px-1 py-px text-[8px] font-medium text-foreground/60"
             title={`${currentProvider.label} · ${currentProvider.mode === 'stream' ? '실시간' : '청크'}`}
           >
-            {currentProvider.label}
+            {currentProvider.label.split(' ')[0]}
           </span>
         ) : null
       }
@@ -134,13 +134,14 @@ export default function TranscriptApp() {
             <ArrowLeftRight />
           </Button>
           <Button
-            size="icon"
-            variant="ghost"
+            size="sm"
+            variant="outline"
             disabled={isPending}
             onClick={reset}
-            title="초기화"
+            title="현재 세션을 종료하고 새 세션을 시작합니다"
           >
             <RotateCcw />
+            새 세션
           </Button>
         </div>
       }
