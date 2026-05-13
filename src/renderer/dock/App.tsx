@@ -7,6 +7,7 @@ import {
   EyeOff,
   FileText,
   HelpCircle,
+  Keyboard,
   LayoutGrid,
   LogOut,
   Mic,
@@ -19,6 +20,13 @@ import {
   Trash2,
   UserRound
 } from 'lucide-react';
+import {
+  SHORTCUT_DEFAULTS,
+  SHORTCUT_IDS,
+  SHORTCUT_LABELS,
+  type ShortcutId
+} from '../../shared/types';
+import { accelFromEvent, formatAccelerator } from '../shared/accelerator';
 
 type AuthMode = 'login' | 'signup';
 import { Button } from '@/components/ui/button';
@@ -71,14 +79,23 @@ const ORDER = ['transcript', 'diagnosis', 'terms', 'questions', 'summary', 'dict
 
 const META: Record<
   string,
-  { label: string; short: string; Icon: React.ComponentType<{ className?: string }> }
+  { label: string; Icon: React.ComponentType<{ className?: string }> }
 > = {
-  transcript: { label: 'Transcript', short: 'T', Icon: Mic },
-  diagnosis: { label: '감별진단', short: 'D', Icon: Activity },
-  terms: { label: '의학용어', short: 'M', Icon: BookOpen },
-  questions: { label: '다음 질문', short: 'Q', Icon: HelpCircle },
-  summary: { label: '요약', short: 'S', Icon: FileText },
-  dictation: { label: 'Dictation', short: 'K', Icon: NotebookPen }
+  transcript: { label: '전사', Icon: Mic },
+  diagnosis: { label: '감별진단', Icon: Activity },
+  terms: { label: '의학용어', Icon: BookOpen },
+  questions: { label: '다음 질문', Icon: HelpCircle },
+  summary: { label: '요약', Icon: FileText },
+  dictation: { label: '받아쓰기', Icon: NotebookPen }
+};
+
+const TOGGLE_ID: Record<string, ShortcutId> = {
+  transcript: 'toggleTranscript',
+  diagnosis: 'toggleDiagnosis',
+  terms: 'toggleTerms',
+  questions: 'toggleQuestions',
+  summary: 'toggleSummary',
+  dictation: 'toggleDictation'
 };
 
 const BUILTIN_LABELS: Record<string, string> = {
@@ -113,16 +130,21 @@ export default function DockApp() {
     saveTranscripts: false,
     saveAudio: false
   });
+  const [shortcuts, setShortcuts] = useState<Record<ShortcutId, string>>(
+    SHORTCUT_DEFAULTS
+  );
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [s, l, d, p, cur, a, c] = await Promise.all([
+    const [s, l, d, p, cur, a, c, sc] = await Promise.all([
       window.api.listWindowStates(),
       window.api.listLayouts(),
       window.api.getDefaultLayout(),
       window.api.listTranscribeProviders(),
       window.api.getTranscribeProvider(),
       window.api.auth.getState(),
-      window.api.cloudSync.get()
+      window.api.cloudSync.get(),
+      window.api.shortcuts.get()
     ]);
     setStates(s);
     setLayouts(l);
@@ -131,6 +153,7 @@ export default function DockApp() {
     setProvider(cur);
     setAuthState(a);
     setCloud(c);
+    setShortcuts(sc);
   }, []);
 
   useEffect(() => {
@@ -145,9 +168,11 @@ export default function DockApp() {
         setAuthError(null);
       }
     });
+    const offShortcuts = window.api.shortcuts.onChange((map) => setShortcuts(map));
     return () => {
       offWindows();
       offAuth();
+      offShortcuts();
     };
   }, [refresh]);
 
@@ -257,23 +282,34 @@ export default function DockApp() {
   return (
     <OverlayShell title="Dock">
       <div className="flex flex-wrap items-center justify-center gap-2 p-3">
-        <button
-          type="button"
-          onClick={() => window.api.toggleAllWindows()}
-          className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 transition-colors',
-            allMinimized
-              ? 'bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30'
-              : 'bg-primary/20 text-primary-foreground hover:bg-primary/30'
-          )}
-          title={allMinimized ? '모두 표시' : '모두 숨김'}
-        >
-          {allMinimized ? (
-            <Eye className="h-4 w-4" />
-          ) : (
-            <EyeOff className="h-4 w-4" />
-          )}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => window.api.toggleAllWindows()}
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 transition-colors',
+                allMinimized
+                  ? 'bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30'
+                  : 'bg-primary/20 text-primary-foreground hover:bg-primary/30'
+              )}
+            >
+              {allMinimized ? (
+                <Eye className="h-4 w-4" />
+              ) : (
+                <EyeOff className="h-4 w-4" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <div className="flex items-center gap-2">
+              <span>{allMinimized ? '모두 표시' : '모두 숨김'}</span>
+              <kbd className="rounded bg-white/10 px-1 font-mono text-[10px]">
+                {formatAccelerator(shortcuts.toggleAll)}
+              </kbd>
+            </div>
+          </TooltipContent>
+        </Tooltip>
 
         <div className="flex flex-wrap items-center justify-center gap-1">
           {ORDER.map((k) => {
@@ -282,6 +318,7 @@ export default function DockApp() {
             const m = META[k];
             const Icon = m.Icon;
             const minimized = s.minimized || !s.visible;
+            const accel = shortcuts[TOGGLE_ID[k]];
             return (
               <Tooltip key={k}>
                 <TooltipTrigger asChild>
@@ -302,7 +339,7 @@ export default function DockApp() {
                   <div className="flex items-center gap-2">
                     <span>{m.label}</span>
                     <kbd className="rounded bg-white/10 px-1 font-mono text-[10px]">
-                      {m.short}
+                      {formatAccelerator(accel)}
                     </kbd>
                   </div>
                 </TooltipContent>
@@ -644,6 +681,49 @@ export default function DockApp() {
           </DialogContent>
         </Dialog>
 
+        {/* 단축키 설정 다이얼로그 */}
+        <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+          <DialogTrigger asChild>
+            <Button
+              size="icon"
+              variant="outline"
+              className="h-9 w-9 shrink-0"
+              title="단축키 설정"
+              disabled={authState.status === 'signed-out'}
+            >
+              <Keyboard className="h-4 w-4" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>단축키 설정</DialogTitle>
+              <DialogDescription>
+                전역 단축키 — 앱이 백그라운드여도 동작합니다. 행을 클릭하여
+                키 조합을 다시 누르세요.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              {SHORTCUT_IDS.map((id) => (
+                <ShortcutRow
+                  key={id}
+                  label={SHORTCUT_LABELS[id]}
+                  accel={shortcuts[id]}
+                  onChange={(next) => void window.api.shortcuts.set(id, next)}
+                />
+              ))}
+            </div>
+            <div className="flex justify-end pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void window.api.shortcuts.reset()}
+              >
+                기본값으로
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -739,5 +819,59 @@ export default function DockApp() {
         </Tooltip>
       </div>
     </OverlayShell>
+  );
+}
+
+function ShortcutRow({
+  label,
+  accel,
+  onChange
+}: {
+  label: string;
+  accel: string;
+  onChange: (next: string) => void;
+}) {
+  const [capturing, setCapturing] = useState(false);
+
+  useEffect(() => {
+    if (!capturing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setCapturing(false);
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      const next = accelFromEvent(e);
+      if (!next) return;
+      onChange(next);
+      setCapturing(false);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [capturing, onChange]);
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-border/40 bg-muted/20 px-3 py-2">
+      <span className="text-sm">{label}</span>
+      <div className="flex items-center gap-2">
+        {capturing ? (
+          <span className="text-[11px] text-accent">키 입력 대기… (Esc 취소)</span>
+        ) : (
+          <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[11px]">
+            {formatAccelerator(accel)}
+          </kbd>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setCapturing((v) => !v)}
+        >
+          {capturing ? '취소' : '변경'}
+        </Button>
+      </div>
+    </div>
   );
 }

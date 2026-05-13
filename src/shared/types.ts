@@ -38,7 +38,8 @@ export const IPC = {
   ShortcutsGet: 'shortcuts:get',
   ShortcutsSet: 'shortcuts:set',
   ShortcutsReset: 'shortcuts:reset',
-  ShortcutTrigger: 'shortcut:trigger'
+  ShortcutTrigger: 'shortcut:trigger',
+  ShortcutsChanged: 'shortcuts:changed'
 } as const;
 
 export type ShortcutId =

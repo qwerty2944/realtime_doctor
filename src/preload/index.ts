@@ -10,6 +10,7 @@ import {
   type EphemeralSession,
   type LoadedSessionPayload,
   type SessionSummary,
+  type ShortcutId,
   type Speaker,
   type SummaryStatus,
   type TranscribeProviderId,
@@ -257,6 +258,34 @@ const api = {
       handler(payload);
     ipcRenderer.on(IPC.SessionLoaded, listener);
     return () => ipcRenderer.removeListener(IPC.SessionLoaded, listener);
+  },
+  shortcuts: {
+    get(): Promise<Record<ShortcutId, string>> {
+      return ipcRenderer.invoke(IPC.ShortcutsGet);
+    },
+    set(
+      id: ShortcutId,
+      accel: string
+    ): Promise<{ ok: boolean; shortcuts: Record<ShortcutId, string> }> {
+      return ipcRenderer.invoke(IPC.ShortcutsSet, id, accel);
+    },
+    reset(): Promise<{ ok: boolean; shortcuts: Record<ShortcutId, string> }> {
+      return ipcRenderer.invoke(IPC.ShortcutsReset);
+    },
+    onChange(
+      handler: (map: Record<ShortcutId, string>) => void
+    ): () => void {
+      const listener = (_e: unknown, payload: Record<ShortcutId, string>) =>
+        handler(payload);
+      ipcRenderer.on(IPC.ShortcutsChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.ShortcutsChanged, listener);
+    },
+    onTrigger(handler: (id: ShortcutId) => void): () => void {
+      const listener = (_e: unknown, payload: { id: ShortcutId }) =>
+        handler(payload.id);
+      ipcRenderer.on(IPC.ShortcutTrigger, listener);
+      return () => ipcRenderer.removeListener(IPC.ShortcutTrigger, listener);
+    }
   }
 };
 

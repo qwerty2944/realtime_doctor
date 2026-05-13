@@ -17,10 +17,18 @@ import {
   IPC,
   type AnalysisResult,
   type CloudSyncSettings,
+  type DictationResult,
+  type ShortcutId,
   type Speaker,
+  type SummaryResult,
   type TranscriptChunk,
   type TranscriptLabelEvent
 } from '../shared/types.js';
+import {
+  registerAllShortcuts,
+  setShortcutDispatch,
+  unregisterAllShortcuts
+} from './shortcuts.js';
 import { analyzer } from './analyzer.js';
 import { setAuthCallbacks } from './auth.js';
 import { classifySpeaker } from './diarizer.js';
@@ -58,10 +66,13 @@ import {
 import {
   getCloudSync,
   getLastDictationTemplate,
+  getShortcuts,
   getTranscribeProvider,
+  resetShortcuts,
   saveOpacity,
   setCloudSync,
   setLastDictationTemplate,
+  setShortcut,
   setTranscribeProvider,
   store,
   type WindowKey
@@ -205,7 +216,7 @@ ipcMain.on(IPC.TranscriptReset, () => {
   });
 });
 
-ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate) => {
+async function runDictationNow(template: DictationTemplate): Promise<{ state: string; result?: DictationResult; message?: string }> {
   const t: DictationTemplate = template ?? 'soap';
   setLastDictationTemplate(t);
   broadcast(IPC.DictationUpdate, { state: 'pending', template: t });
@@ -222,16 +233,9 @@ ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate)
     broadcast(IPC.DictationUpdate, { state: 'error', message });
     return { state: 'error', message };
   }
-});
+}
 
-ipcMain.handle('dictation:get-last-template', () => getLastDictationTemplate());
-
-ipcMain.handle(IPC.AnalysisRequest, () => {
-  analyzer.runNow();
-  return { ok: true };
-});
-
-ipcMain.handle(IPC.SummaryRequest, async () => {
+async function runSummaryNow(): Promise<{ state: string; result?: SummaryResult; message?: string }> {
   broadcast(IPC.SummaryUpdate, { state: 'pending' });
   try {
     const result = await summarizeConversation(
@@ -245,6 +249,83 @@ ipcMain.handle(IPC.SummaryRequest, async () => {
     broadcast(IPC.SummaryUpdate, { state: 'error', message });
     return { state: 'error', message };
   }
+}
+
+ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate) =>
+  runDictationNow(template)
+);
+
+ipcMain.handle('dictation:get-last-template', () => getLastDictationTemplate());
+
+ipcMain.handle(IPC.AnalysisRequest, () => {
+  analyzer.runNow();
+  return { ok: true };
+});
+
+ipcMain.handle(IPC.SummaryRequest, async () => runSummaryNow());
+
+function dispatchShortcut(id: ShortcutId): void {
+  switch (id) {
+    case 'toggleAll':
+      toggleAllMainWindows();
+      return;
+    case 'toggleTranscript':
+      toggleOneWindow('transcript');
+      return;
+    case 'toggleDiagnosis':
+      toggleOneWindow('diagnosis');
+      return;
+    case 'toggleTerms':
+      toggleOneWindow('terms');
+      return;
+    case 'toggleQuestions':
+      toggleOneWindow('questions');
+      return;
+    case 'toggleSummary':
+      toggleOneWindow('summary');
+      return;
+    case 'toggleDictation':
+      toggleOneWindow('dictation');
+      return;
+    case 'recordStartStop': {
+      const tr = windows.get('transcript');
+      if (tr && !tr.isDestroyed()) {
+        if (tr.isMinimized()) tr.restore();
+        if (!tr.isVisible()) tr.show();
+        tr.setAlwaysOnTop(true, 'screen-saver');
+        tr.focus();
+      }
+      broadcast(IPC.ShortcutTrigger, { id });
+      return;
+    }
+    case 'runAnalyze':
+      analyzer.runNow();
+      return;
+    case 'runSummary':
+      void runSummaryNow();
+      return;
+    case 'runDictation':
+      void runDictationNow(getLastDictationTemplate());
+      return;
+  }
+}
+
+function broadcastShortcuts(): void {
+  broadcast(IPC.ShortcutsChanged, getShortcuts());
+}
+
+ipcMain.handle(IPC.ShortcutsGet, () => getShortcuts());
+ipcMain.handle(IPC.ShortcutsSet, (_event, id: ShortcutId, accel: string) => {
+  const next = setShortcut(id, accel);
+  registerAllShortcuts();
+  broadcastShortcuts();
+  return { ok: true, shortcuts: next };
+});
+ipcMain.handle(IPC.ShortcutsReset, () => {
+  const next = resetShortcuts();
+  registerAllShortcuts();
+  broadcastShortcuts();
+  return { ok: true, shortcuts: next };
 });
 
 ipcMain.on(
@@ -572,7 +653,7 @@ void clovaCurrentPartial;
 
 ipcMain.handle('windows:list-state', () => snapshotWindows());
 
-ipcMain.on('windows:toggle-one', (_event, key: WindowKey) => {
+function toggleOneWindow(key: WindowKey): void {
   const win = windows.get(key);
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized() || !win.isVisible()) {
@@ -582,15 +663,13 @@ ipcMain.on('windows:toggle-one', (_event, key: WindowKey) => {
   } else {
     win.minimize();
   }
-});
+}
 
-ipcMain.on('windows:toggle-all', () => {
+function toggleAllMainWindows(): void {
   const mains = MAIN_WINDOW_KEYS.map((k) => windows.get(k)).filter(
     (w): w is BrowserWindow => !!w && !w.isDestroyed()
   );
   const anyShown = mains.some((w) => w.isVisible() && !w.isMinimized());
-  // Use hide()/show() instead of minimize()/restore() so all windows toggle
-  // instantly together, without per-window macOS minimize animations.
   if (anyShown) {
     for (const w of mains) {
       if (w.isVisible() && !w.isMinimized()) w.hide();
@@ -603,7 +682,10 @@ ipcMain.on('windows:toggle-all', () => {
     }
   }
   broadcastWindowState();
-});
+}
+
+ipcMain.on('windows:toggle-one', (_event, key: WindowKey) => toggleOneWindow(key));
+ipcMain.on('windows:toggle-all', () => toggleAllMainWindows());
 
 ipcMain.on('app:quit', () => {
   app.quit();
@@ -684,10 +766,20 @@ app.whenReady().then(() => {
     applyLayout(explicitDefault, windows as Map<WindowKey, BrowserWindow>);
   }
 
+  setShortcutDispatch(dispatchShortcut);
+
   setAuthCallbacks({
     broadcast,
-    onSignedIn: revealOverlays,
-    onSignedOut: hideOverlaysAndClearPHI
+    onSignedIn: () => {
+      revealOverlays();
+      registerAllShortcuts();
+      broadcastShortcuts();
+    },
+    onSignedOut: () => {
+      hideOverlaysAndClearPHI();
+      unregisterAllShortcuts();
+      broadcastShortcuts();
+    }
   });
 
   app.on('activate', () => {
@@ -703,6 +795,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   void flushStreamSessionAudio();
   void endCurrentSession();
+  unregisterAllShortcuts();
 });
 
 app.on('window-all-closed', () => {

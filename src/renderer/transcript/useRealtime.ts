@@ -259,6 +259,21 @@ export function useRealtime() {
     return () => stop();
   }, [stop]);
 
+  // 글로벌 단축키 recordStartStop 처리
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+  useEffect(() => {
+    return window.api.shortcuts.onTrigger((id) => {
+      if (id !== 'recordStartStop') return;
+      if (activeRef.current) stopMutation.mutate();
+      else startMutation.mutate();
+    });
+    // mutations are stable across renders for react-query useMutation results
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const pendingCount = utterances.filter((u) => u.pending).length;
   const finishing = !active && pendingCount > 0;
 
