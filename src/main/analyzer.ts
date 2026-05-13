@@ -8,7 +8,12 @@ import {
   extractText,
   getGeminiClient
 } from './geminiClient.js';
-import { ANALYSIS_RESPONSE_SCHEMA, ANALYZER_SYSTEM_PROMPT } from './prompts.js';
+import {
+  ANALYSIS_RESPONSE_SCHEMA,
+  getAnalyzerSystemPrompt,
+  speakerLabels
+} from './prompts.js';
+import { getLanguage } from './store.js';
 
 const DEBOUNCE_MS = 2500;
 // Cap total wait so continuous chunks (each <DEBOUNCE_MS apart) don't starve
@@ -80,14 +85,14 @@ class Analyzer {
     this.timer = setTimeout(() => void this.run(), delay);
   }
 
-  private buildTranscript(): string {
+  private buildTranscript(labels: { doctor: string; patient: string; unknown: string }): string {
     const lines = this.chunks.map((c) => {
       const tag =
         c.speaker === 'doctor'
-          ? '의사'
+          ? labels.doctor
           : c.speaker === 'patient'
-            ? '환자'
-            : '?';
+            ? labels.patient
+            : labels.unknown;
       return `[${tag}] ${c.text}`;
     });
     let text = lines.join('\n');
@@ -98,7 +103,9 @@ class Analyzer {
   }
 
   private async run(): Promise<void> {
-    const transcript = this.buildTranscript().trim();
+    const lang = getLanguage() ?? 'ko';
+    const labels = speakerLabels(lang);
+    const transcript = this.buildTranscript(labels).trim();
     if (!transcript) return;
 
     if (this.inflight) this.inflight.abort();
@@ -109,18 +116,19 @@ class Analyzer {
       const client = getGeminiClient();
       const model = process.env.GEMINI_ANALYZER_MODEL ?? 'gemini-2.5-flash';
 
+      const userMessage =
+        lang === 'en'
+          ? `Below is the accumulating transcript of an ongoing patient encounter. [${labels.doctor}] / [${labels.patient}] tags mark the speaker.\n\n---\n${transcript}\n---\n\nReturn the analysis matching the requested JSON schema.`
+          : `다음은 진행 중인 진료 대화의 누적 transcript입니다. [${labels.doctor}]/[${labels.patient}] 라벨이 화자 구분입니다.\n\n---\n${transcript}\n---\n\n요청한 JSON 스키마에 맞게 분석을 반환하세요.`;
+
       const { data } = await client.post(
         `/models/${encodeURIComponent(model)}:generateContent`,
         {
-          system_instruction: { parts: [{ text: ANALYZER_SYSTEM_PROMPT }] },
+          system_instruction: { parts: [{ text: getAnalyzerSystemPrompt(lang) }] },
           contents: [
             {
               role: 'user',
-              parts: [
-                {
-                  text: `다음은 진행 중인 진료 대화의 누적 transcript입니다. [의사]/[환자] 라벨이 화자 구분입니다.\n\n---\n${transcript}\n---\n\n요청한 JSON 스키마에 맞게 분석을 반환하세요.`
-                }
-              ]
+              parts: [{ text: userMessage }]
             }
           ],
           generationConfig: {

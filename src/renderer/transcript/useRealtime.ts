@@ -41,6 +41,15 @@ export function useRealtime() {
   const [partial, setPartial] = useState<PartialStreamState | null>(null);
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fallbackBanner, setFallbackBanner] = useState<string | null>(null);
+
+  // 메인이 stream mint/open 실패해서 gemini chunk 로 떨어졌을 때 알림 수신.
+  useEffect(() => {
+    return window.api.onTranscribeFallback((evt) => {
+      console.warn('[transcript] transcribe fallback', evt);
+      setFallbackBanner(evt.reason || 'Realtime transcription failed.');
+    });
+  }, []);
 
   useEffect(() => {
     const off = window.api.onTranscriptLabel(({ id, speaker }) => {
@@ -120,95 +129,119 @@ export function useRealtime() {
     setUtterances((prev) => prev.filter((u) => u.id !== id));
   }, []);
 
+  const startChunkFallback = useCallback(async () => {
+    const handle = await startChunkSession({
+      onPending: addPending,
+      onComplete: completeUtterance,
+      onFailed: markFailed,
+      onEmpty: dropPending,
+      onError: (err) => {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    });
+    sessionRef.current = handle;
+  }, [addPending, completeUtterance, markFailed, dropPending]);
+
   const startMutation = useMutation({
     mutationFn: async () => {
       setError(null);
+      setFallbackBanner(null);
       const providers = await window.api.listTranscribeProviders();
       const current = await window.api.getTranscribeProvider();
       const info = providers.find((p) => p.id === current);
       if (!info) throw new Error(`알 수 없는 공급자: ${current}`);
       if (!info.available) {
-        throw new Error(
-          `${info.label} 공급자가 비활성 상태입니다. 설정에서 다른 공급자를 선택하세요.`
-        );
+        // 사용자가 명시적으로 비활성 공급자를 가지고 있는 상황은 드물지만,
+        // 일관성을 위해 gemini chunk fallback 으로 한 번 더 시도.
+        const ok = providers.find((p) => p.id === 'gemini')?.available;
+        if (!ok) {
+          throw new Error(
+            `${info.label} 공급자가 비활성 상태이고 Gemini fallback 도 사용할 수 없습니다.`
+          );
+        }
+        await startChunkFallback();
+        setActive(true);
+        return;
       }
 
       if (info.mode === 'chunk') {
-        const handle = await startChunkSession({
-          onPending: addPending,
-          onComplete: completeUtterance,
-          onFailed: markFailed,
-          onEmpty: dropPending,
-          onError: (err) => {
-            setError(err instanceof Error ? err.message : String(err));
-          }
-        });
-        sessionRef.current = handle;
+        await startChunkFallback();
       } else if (info.id === 'clova-stream') {
-        let idleTimer: ReturnType<typeof setTimeout> | null = null;
-        const promoteToFinal = (itemId: string, text: string) => {
-          const finalText = text.trim();
-          setPartial((prev) => (prev?.itemId === itemId ? null : prev));
-          if (!finalText) return;
-          completeUtterance(itemId, finalText);
-          // main 에 "이 itemId 는 클라이언트가 이미 final 로 처리" 마킹 — 늦은 CLOVA
-          // final 이 와도 main 의 final 핸들러가 중복 row 안 만들도록.
-          window.api.markClovaItemHandled(itemId);
-          // analyzer + 화자 분류 + transcript_chunks 저장 트리거.
-          const chunk: TranscriptChunk = {
-            id: itemId,
-            text: finalText,
-            timestamp: Date.now()
-          };
-          window.api.pushTranscriptChunk(chunk);
-        };
-        const handle = await startClovaStreamSession({
-          onDelta: (itemId, text) => {
-            setPartial({ itemId, text });
-            if (idleTimer) clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-              idleTimer = null;
-              promoteToFinal(itemId, text);
-            }, CLOVA_PARTIAL_IDLE_MS);
-          },
-          onCompleted: (itemId, text) => {
-            if (idleTimer) {
-              clearTimeout(idleTimer);
-              idleTimer = null;
-            }
-            promoteToFinal(itemId, text);
-          },
-          onError: (err) => {
-            setError(err instanceof Error ? err.message : String(err));
-          }
-        });
-        sessionRef.current = handle;
-      } else {
-        const handle = await startStreamSession({
-          onDelta: (itemId, delta) => {
-            setPartial((prev) =>
-              prev && prev.itemId === itemId
-                ? { itemId, text: prev.text + delta }
-                : { itemId, text: delta }
-            );
-          },
-          onCompleted: (itemId, transcript) => {
-            const text = transcript.trim();
+        try {
+          let idleTimer: ReturnType<typeof setTimeout> | null = null;
+          const promoteToFinal = (itemId: string, text: string) => {
+            const finalText = text.trim();
             setPartial((prev) => (prev?.itemId === itemId ? null : prev));
-            if (!text) return;
-            completeUtterance(itemId, text);
+            if (!finalText) return;
+            completeUtterance(itemId, finalText);
+            // main 에 "이 itemId 는 클라이언트가 이미 final 로 처리" 마킹 — 늦은 CLOVA
+            // final 이 와도 main 의 final 핸들러가 중복 row 안 만들도록.
+            window.api.markClovaItemHandled(itemId);
+            // analyzer + 화자 분류 + transcript_chunks 저장 트리거.
             const chunk: TranscriptChunk = {
               id: itemId,
-              text,
+              text: finalText,
               timestamp: Date.now()
             };
             window.api.pushTranscriptChunk(chunk);
-          },
-          onError: (err) => {
-            setError(err instanceof Error ? err.message : String(err));
-          }
-        });
-        sessionRef.current = handle;
+          };
+          const handle = await startClovaStreamSession({
+            onDelta: (itemId, text) => {
+              setPartial({ itemId, text });
+              if (idleTimer) clearTimeout(idleTimer);
+              idleTimer = setTimeout(() => {
+                idleTimer = null;
+                promoteToFinal(itemId, text);
+              }, CLOVA_PARTIAL_IDLE_MS);
+            },
+            onCompleted: (itemId, text) => {
+              if (idleTimer) {
+                clearTimeout(idleTimer);
+                idleTimer = null;
+              }
+              promoteToFinal(itemId, text);
+            },
+            onError: (err) => {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+          });
+          sessionRef.current = handle;
+        } catch (e) {
+          // main 이 이미 provider 를 gemini chunk 로 바꿨음. 그쪽으로 시작.
+          console.warn('[transcript] CLOVA stream open failed → chunk fallback', e);
+          await startChunkFallback();
+        }
+      } else {
+        try {
+          const handle = await startStreamSession({
+            onDelta: (itemId, delta) => {
+              setPartial((prev) =>
+                prev && prev.itemId === itemId
+                  ? { itemId, text: prev.text + delta }
+                  : { itemId, text: delta }
+              );
+            },
+            onCompleted: (itemId, transcript) => {
+              const text = transcript.trim();
+              setPartial((prev) => (prev?.itemId === itemId ? null : prev));
+              if (!text) return;
+              completeUtterance(itemId, text);
+              const chunk: TranscriptChunk = {
+                id: itemId,
+                text,
+                timestamp: Date.now()
+              };
+              window.api.pushTranscriptChunk(chunk);
+            },
+            onError: (err) => {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+          });
+          sessionRef.current = handle;
+        } catch (e) {
+          console.warn('[transcript] OpenAI stream mint failed → chunk fallback', e);
+          await startChunkFallback();
+        }
       }
 
       setActive(true);
@@ -229,8 +262,11 @@ export function useRealtime() {
   const reset = useCallback(() => {
     setUtterances([]);
     setPartial(null);
+    setFallbackBanner(null);
     window.api.resetTranscript();
   }, []);
+
+  const dismissFallbackBanner = useCallback(() => setFallbackBanner(null), []);
 
   const relabel = useCallback((id: string, speaker: Speaker) => {
     setUtterances((prev) =>
@@ -284,6 +320,8 @@ export function useRealtime() {
     partial: partial?.text ?? '',
     utterances,
     error,
+    fallbackBanner,
+    dismissFallbackBanner,
     isPending: startMutation.isPending || stopMutation.isPending,
     start: () => startMutation.mutate(),
     stop: () => stopMutation.mutate(),

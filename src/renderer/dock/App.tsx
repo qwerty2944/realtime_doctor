@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
   BookOpen,
-  Check,
+  // Check, // (주석 처리된 provider 다이얼로그에서만 사용)
   Eye,
   EyeOff,
   FileText,
+  Globe,
   HelpCircle,
   Keyboard,
   LayoutGrid,
@@ -14,7 +15,7 @@ import {
   NotebookPen,
   Power,
   Save,
-  SlidersHorizontal,
+  // SlidersHorizontal, // (주석 처리된 provider 다이얼로그용)
   Star,
   StarOff,
   Trash2,
@@ -24,9 +25,11 @@ import {
   SHORTCUT_DEFAULTS,
   SHORTCUT_IDS,
   SHORTCUT_LABELS,
+  type Language,
   type ShortcutId
 } from '../../shared/types';
 import { accelFromEvent, formatAccelerator } from '../shared/accelerator';
+import { useT } from '../shared/i18n';
 
 type AuthMode = 'login' | 'signup';
 import { Button } from '@/components/ui/button';
@@ -54,12 +57,7 @@ import {
 } from '@/components/ui/dialog';
 import { OverlayShell } from '../shared/OverlayShell';
 import { cn } from '@/lib/utils';
-import type {
-  AuthState,
-  CloudSyncSettings,
-  TranscribeProviderId,
-  TranscribeProviderInfo
-} from '../../shared/types';
+import type { AuthState, CloudSyncSettings } from '../../shared/types';
 
 interface WindowState {
   key: string;
@@ -79,14 +77,14 @@ const ORDER = ['transcript', 'diagnosis', 'terms', 'questions', 'summary', 'dict
 
 const META: Record<
   string,
-  { label: string; Icon: React.ComponentType<{ className?: string }> }
+  { tkey: import('../shared/i18n').TKey; Icon: React.ComponentType<{ className?: string }> }
 > = {
-  transcript: { label: '전사', Icon: Mic },
-  diagnosis: { label: '감별진단', Icon: Activity },
-  terms: { label: '의학용어', Icon: BookOpen },
-  questions: { label: '다음 질문', Icon: HelpCircle },
-  summary: { label: '요약', Icon: FileText },
-  dictation: { label: '받아쓰기', Icon: NotebookPen }
+  transcript: { tkey: 'window.transcript', Icon: Mic },
+  diagnosis: { tkey: 'window.diagnosis', Icon: Activity },
+  terms: { tkey: 'window.terms', Icon: BookOpen },
+  questions: { tkey: 'window.questions', Icon: HelpCircle },
+  summary: { tkey: 'window.summary', Icon: FileText },
+  dictation: { tkey: 'window.dictation', Icon: NotebookPen }
 };
 
 const TOGGLE_ID: Record<string, ShortcutId> = {
@@ -110,13 +108,16 @@ function layoutLabel(name: string): string {
 }
 
 export default function DockApp() {
+  const t = useT();
   const [states, setStates] = useState<WindowState[]>([]);
   const [layouts, setLayouts] = useState<LayoutInfo[]>([]);
   const [defaultLayout, setDefaultLayoutName] = useState<string>('');
-  const [providers, setProviders] = useState<TranscribeProviderInfo[]>([]);
-  const [provider, setProvider] = useState<TranscribeProviderId>('gemini');
+  // provider 선택은 이제 언어가 결정. UI 는 주석 처리됨. (디버깅용으로 IPC 호출은 유지)
+  // const [providers, setProviders] = useState<TranscribeProviderInfo[]>([]);
+  // const [provider, setProvider] = useState<TranscribeProviderId>('gemini');
+  // const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [providerDialogOpen, setProviderDialogOpen] = useState(false);
+  const [language, setLanguageState] = useState<Language | null | undefined>(undefined);
   const [authState, setAuthState] = useState<AuthState>({ status: 'signed-out' });
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [emailInput, setEmailInput] = useState('');
@@ -136,24 +137,22 @@ export default function DockApp() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [s, l, d, p, cur, a, c, sc] = await Promise.all([
+    const [s, l, d, a, c, sc, lang] = await Promise.all([
       window.api.listWindowStates(),
       window.api.listLayouts(),
       window.api.getDefaultLayout(),
-      window.api.listTranscribeProviders(),
-      window.api.getTranscribeProvider(),
       window.api.auth.getState(),
       window.api.cloudSync.get(),
-      window.api.shortcuts.get()
+      window.api.shortcuts.get(),
+      window.api.language.get()
     ]);
     setStates(s);
     setLayouts(l);
     setDefaultLayoutName(d);
-    setProviders(p);
-    setProvider(cur);
     setAuthState(a);
     setCloud(c);
     setShortcuts(sc);
+    setLanguageState(lang);
   }, []);
 
   useEffect(() => {
@@ -169,10 +168,12 @@ export default function DockApp() {
       }
     });
     const offShortcuts = window.api.shortcuts.onChange((map) => setShortcuts(map));
+    const offLang = window.api.language.onChange((l) => setLanguageState(l));
     return () => {
       offWindows();
       offAuth();
       offShortcuts();
+      offLang();
     };
   }, [refresh]);
 
@@ -180,7 +181,6 @@ export default function DockApp() {
   useEffect(() => {
     if (authState.status === 'signed-out') {
       setAccountOpen(true);
-      setProviderDialogOpen(false);
     }
   }, [authState.status]);
 
@@ -241,9 +241,14 @@ export default function DockApp() {
     setCloud(next);
   };
 
-  const chooseProvider = async (id: TranscribeProviderId) => {
-    const next = await window.api.setTranscribeProvider(id);
-    setProvider(next);
+  // 언어가 provider 를 결정. UI 에서 manual 선택은 노출하지 않음.
+  // const chooseProvider = async (id: TranscribeProviderId) => {
+  //   const next = await window.api.setTranscribeProvider(id);
+  //   setProvider(next);
+  // };
+
+  const pickLanguage = (l: Language) => {
+    void window.api.language.set(l);
   };
 
   const stateOf = (key: string) => states.find((s) => s.key === key);
@@ -279,6 +284,18 @@ export default function DockApp() {
   const builtins = layouts.filter((l) => l.builtin);
   const customs = layouts.filter((l) => !l.builtin);
 
+  // 첫 실행 — 언어 미선택. IPC 응답 전 (undefined) 빈 화면, null 이면 picker.
+  if (language === undefined) {
+    return <OverlayShell title="Dock" hideOpacity hideMinimize><div /></OverlayShell>;
+  }
+  if (language === null) {
+    return (
+      <OverlayShell title="Dock" hideOpacity hideMinimize>
+        <LanguagePicker onPick={pickLanguage} />
+      </OverlayShell>
+    );
+  }
+
   return (
     <OverlayShell title="Dock">
       <div className="flex flex-wrap items-center justify-center gap-2 p-3">
@@ -303,7 +320,7 @@ export default function DockApp() {
           </TooltipTrigger>
           <TooltipContent side="bottom">
             <div className="flex items-center gap-2">
-              <span>{allMinimized ? '모두 표시' : '모두 숨김'}</span>
+              <span>{t('dock.toggleAll')}</span>
               <kbd className="rounded bg-white/10 px-1 font-mono text-[10px]">
                 {formatAccelerator(shortcuts.toggleAll)}
               </kbd>
@@ -337,7 +354,7 @@ export default function DockApp() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <div className="flex items-center gap-2">
-                    <span>{m.label}</span>
+                    <span>{t(m.tkey)}</span>
                     <kbd className="rounded bg-white/10 px-1 font-mono text-[10px]">
                       {formatAccelerator(accel)}
                     </kbd>
@@ -595,7 +612,38 @@ export default function DockApp() {
           </DialogContent>
         </Dialog>
 
-        {/* Transcribe Provider 다이얼로그 */}
+        {/* 언어 토글 — Korean ↔ English. 언어 선택이 transcribeProvider 자동 결정. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 shrink-0 gap-1.5 px-3"
+              disabled={authState.status === 'signed-out'}
+              title={t('dock.languageTitle')}
+            >
+              <Globe className="h-4 w-4" />
+              <span className="text-[11px] font-semibold uppercase">{language}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel>{t('dock.languageTitle')}</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => pickLanguage('ko')}>
+              <span className="flex-1">🇰🇷 한국어 (CLOVA)</span>
+              {language === 'ko' && <Star className="h-3 w-3 text-yellow-400" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => pickLanguage('en')}>
+              <span className="flex-1">🇺🇸 English (OpenAI Realtime)</span>
+              {language === 'en' && <Star className="h-3 w-3 text-yellow-400" />}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+              {t('dock.languageFallback')}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* 디버깅/관리자용 — UI 에는 노출하지 않음. 언어가 provider 를 결정.
         <Dialog
           open={providerDialogOpen}
           onOpenChange={setProviderDialogOpen}
@@ -680,6 +728,7 @@ export default function DockApp() {
             </div>
           </DialogContent>
         </Dialog>
+        */}
 
         {/* 단축키 설정 다이얼로그 */}
         <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
@@ -819,6 +868,27 @@ export default function DockApp() {
         </Tooltip>
       </div>
     </OverlayShell>
+  );
+}
+
+function LanguagePicker({ onPick }: { onPick: (l: Language) => void }) {
+  return (
+    <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-5 bg-background p-6 text-center">
+      <h1 className="text-xl font-semibold">언어를 선택하세요 / Choose language</h1>
+      <p className="max-w-md text-xs text-muted-foreground">
+        한국어 → CLOVA, 영어 → OpenAI Realtime 실시간 전사.
+        <br />
+        Gemini 는 실패 시 자동 폴백으로만 사용됩니다.
+      </p>
+      <div className="flex gap-3">
+        <Button size="lg" onClick={() => onPick('ko')}>
+          🇰🇷 한국어
+        </Button>
+        <Button size="lg" variant="outline" onClick={() => onPick('en')}>
+          🇺🇸 English
+        </Button>
+      </div>
+    </div>
   );
 }
 

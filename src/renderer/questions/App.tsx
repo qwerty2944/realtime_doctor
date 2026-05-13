@@ -6,9 +6,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { OverlayShell } from '../shared/OverlayShell';
 import { AnalyzeButton } from '../shared/AnalyzeButton';
 import { ANALYSIS_KEY } from '../shared/queryClient';
+import { useLang, useT } from '../shared/i18n';
 import type { AnalysisResult } from '../../shared/types';
 
 export default function QuestionsApp() {
+  const t = useT();
+  const lang = useLang();
   const { data } = useQuery<AnalysisResult | null>({
     queryKey: ANALYSIS_KEY,
     queryFn: () => null
@@ -18,20 +21,20 @@ export default function QuestionsApp() {
 
   return (
     <OverlayShell
-      title="다음 질문"
+      title={t('window.questions')}
       badge={
         <Badge variant="outline" className="gap-1">
           <HelpCircle className="h-2.5 w-2.5" />
           {items.length}
         </Badge>
       }
-      actions={<AnalyzeButton label="추천" />}
+      actions={<AnalyzeButton label={lang === 'en' ? 'Suggest' : '추천'} />}
     >
       <ScrollArea className="flex-1">
         <div className="space-y-2 p-2">
           {items.length === 0 && (
             <p className="px-1 py-4 text-center text-xs text-muted-foreground">
-              감별을 좁히는 데 유용한 질문이 여기에 추천됩니다.
+              {t('questions.empty')}
             </p>
           )}
           {items.map((q, i) => (

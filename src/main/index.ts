@@ -18,6 +18,7 @@ import {
   type AnalysisResult,
   type CloudSyncSettings,
   type DictationResult,
+  type Language,
   type ShortcutId,
   type Speaker,
   type SummaryResult,
@@ -65,9 +66,11 @@ import {
 } from './transcribers.js';
 import {
   getCloudSync,
+  getLanguage,
   getLastDictationTemplate,
   getShortcuts,
   getTranscribeProvider,
+  markLaunched,
   resetShortcuts,
   saveOpacity,
   setCloudSync,
@@ -77,6 +80,7 @@ import {
   store,
   type WindowKey
 } from './store.js';
+import { applyLanguage, preferredProviderFor } from './language.js';
 import { summarizeConversation } from './summarizer.js';
 import { MAIN_WINDOW_KEYS, OVERLAYS, createOverlayWindow } from './windows.js';
 import type {
@@ -212,7 +216,9 @@ ipcMain.on(IPC.TranscriptRelabel, (_event, payload: TranscriptLabelEvent) => {
 ipcMain.on(IPC.TranscriptReset, () => {
   analyzer.reset();
   void flushStreamSessionAudio().finally(() => {
-    void endCurrentSession();
+    void endCurrentSession().finally(() => {
+      restorePreferredProvider();
+    });
   });
 });
 
@@ -312,6 +318,16 @@ function dispatchShortcut(id: ShortcutId): void {
 
 function broadcastShortcuts(): void {
   broadcast(IPC.ShortcutsChanged, getShortcuts());
+}
+
+// 세션 끝나면 fallback 으로 떨어졌더라도 다음 세션은 다시 primary realtime 시도.
+function restorePreferredProvider(): void {
+  const lang = getLanguage();
+  if (!lang) return;
+  const preferred = preferredProviderFor(lang);
+  if (getTranscribeProvider() === preferred) return;
+  setTranscribeProvider(preferred);
+  broadcast(IPC.ProviderChanged, preferred);
 }
 
 ipcMain.handle(IPC.ShortcutsGet, () => getShortcuts());
@@ -430,6 +446,16 @@ ipcMain.handle(IPC.ProviderSet, (_event, id: TranscribeProviderId) => {
   return current;
 });
 
+ipcMain.handle(IPC.LanguageGet, () => getLanguage() ?? null);
+ipcMain.handle(IPC.LanguageSet, (_event, lang: Language) => {
+  const prev = getLanguage();
+  const provider = applyLanguage(lang);
+  if (!prev) markLaunched();
+  broadcast(IPC.LanguageChanged, lang);
+  broadcast(IPC.ProviderChanged, provider);
+  return { ok: true, language: lang, provider };
+});
+
 ipcMain.handle(IPC.CloudSyncGet, () => getCloudSync());
 ipcMain.handle(
   IPC.CloudSyncSet,
@@ -468,9 +494,22 @@ ipcMain.handle(IPC.SessionsLoad, async (_event, sessionId: string) => {
 });
 let openaiSessionStartedAt: number | null = null;
 ipcMain.handle(IPC.StreamMint, async () => {
-  const result = await mintStreamSession();
-  openaiSessionStartedAt = Date.now();
-  return result;
+  try {
+    const result = await mintStreamSession();
+    openaiSessionStartedAt = Date.now();
+    return result;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn('[fallback] stream mint failed → switch to gemini chunk:', reason);
+    setTranscribeProvider('gemini');
+    broadcast(IPC.ProviderChanged, 'gemini');
+    broadcast(IPC.TranscribeFallback, {
+      reason,
+      from: 'realtime',
+      to: 'gemini-chunk'
+    });
+    throw err;
+  }
 });
 
 ipcMain.on(IPC.RealtimeSessionEnd, () => {
@@ -544,7 +583,21 @@ ipcMain.handle(IPC.ClovaStreamOpen, async (event) => {
     clovaStreamSession.stop();
     clovaStreamSession = null;
   }
-  const handle = await openClovaStream();
+  let handle: ClovaStreamHandle;
+  try {
+    handle = await openClovaStream();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn('[fallback] CLOVA stream open failed → switch to gemini chunk:', reason);
+    setTranscribeProvider('gemini');
+    broadcast(IPC.ProviderChanged, 'gemini');
+    broadcast(IPC.TranscribeFallback, {
+      reason,
+      from: 'realtime',
+      to: 'gemini-chunk'
+    });
+    throw err;
+  }
   clovaStreamSession = handle;
   clovaStreamSenderId = event.sender.id;
   clovaSeqId = 0;
@@ -720,6 +773,7 @@ function hideOverlaysAndClearPHI(): void {
   void flushStreamSessionAudio().finally(() => {
     void endCurrentSession().finally(() => {
       clearSessionCache();
+      restorePreferredProvider();
     });
   });
   broadcastWindowState();
@@ -744,6 +798,16 @@ function applyDockIcon(): void {
 
 app.whenReady().then(() => {
   loadEnvFiles();
+
+  // 저장된 language 가 있는데 저장된 provider 가 .env 변경 등으로 더 이상
+  // available 하지 않으면 preferredProviderFor 로 자동 보정.
+  const savedLang = getLanguage();
+  if (savedLang) {
+    const cur = getTranscribeProvider();
+    const stillAvail = listProviders().find((p) => p.id === cur)?.available;
+    if (!stillAvail) setTranscribeProvider(preferredProviderFor(savedLang));
+  }
+
   if (process.platform === 'darwin') {
     app.setActivationPolicy('regular');
     applyDockIcon();

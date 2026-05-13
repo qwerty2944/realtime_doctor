@@ -1,0 +1,86 @@
+import type ko from './ko';
+
+const en: Record<keyof typeof ko, string> = {
+  'common.cancel': 'Cancel',
+  'common.save': 'Save',
+  'common.reset': 'Reset to defaults',
+  'common.close': 'Close',
+  'common.loading': 'Loading…',
+  'common.minimize': 'Minimize',
+  'common.opacity': 'Opacity',
+  'common.start': 'Start',
+  'common.stop': 'Stop',
+
+  'window.transcript': 'Transcript',
+  'window.diagnosis': 'Differential',
+  'window.terms': 'Medical terms',
+  'window.questions': 'Next questions',
+  'window.summary': 'Summary',
+  'window.dictation': 'Dictation',
+
+  'dock.account': 'Account',
+  'dock.signIn': 'Sign in',
+  'dock.signUp': 'Sign up',
+  'dock.signOut': 'Sign out',
+  'dock.email': 'Email',
+  'dock.password': 'Password',
+  'dock.passwordConfirm': 'Confirm password',
+  'dock.toggleAll': 'Show / hide all windows',
+  'dock.shortcutsTitle': 'Shortcuts',
+  'dock.shortcutsHint': 'Global shortcuts — work even when the app is in the background. Click a row to record a new combo.',
+  'dock.languageTitle': 'Language',
+  'dock.languageHintKo': 'Korean → uses CLOVA realtime transcription.',
+  'dock.languageHintEn': 'English → uses OpenAI Realtime transcription.',
+  'dock.languageFallback': 'Gemini is used automatically only when realtime transcription fails.',
+  'dock.layoutsTitle': 'Layouts',
+  'dock.layoutSave': 'Save current layout',
+  'dock.layoutDefault': 'Set as default',
+  'dock.layoutDelete': 'Delete',
+
+  'picker.title': 'Choose language / 언어를 선택하세요',
+  'picker.subtitle': 'Korean → CLOVA, English → OpenAI Realtime. Gemini is used automatically only as a fallback.',
+  'picker.ko': '🇰🇷 한국어',
+  'picker.en': '🇺🇸 English',
+
+  'transcript.empty': 'No utterances yet.',
+  'transcript.fallbackBanner': 'Realtime transcription failed — switched to Gemini chunk mode.',
+  'transcript.recording': 'Recording',
+  'transcript.paused': 'Paused',
+  'transcript.modeStream': 'Realtime',
+  'transcript.modeChunk': 'Chunk',
+  'transcript.speakerDoctor': 'Doctor',
+  'transcript.speakerPatient': 'Patient',
+  'transcript.speakerUnknown': '?',
+
+  'summary.run': 'Regenerate',
+  'summary.statusIdle': 'Idle',
+  'summary.statusPending': 'Generating…',
+  'summary.statusError': 'Error',
+  'summary.chiefComplaint': 'Chief complaint',
+  'summary.hpi': 'History of present illness',
+  'summary.findings': 'Pertinent findings',
+  'summary.investigations': 'Investigations',
+  'summary.impression': 'Clinical impression',
+  'summary.plan': 'Plan',
+
+  'dictation.run': 'Regenerate',
+  'dictation.statusIdle': 'Idle',
+  'dictation.statusPending': 'Generating…',
+  'dictation.statusError': 'Error',
+  'dictation.templateSoap': 'SOAP',
+  'dictation.templateApso': 'APSO',
+  'dictation.templateHp': 'H&P',
+  'dictation.templateNarrative': 'Narrative',
+
+  'diagnosis.empty': 'No differentials yet.',
+  'diagnosis.confidence': 'Likelihood',
+  'diagnosis.reasoning': 'Reasoning',
+
+  'terms.empty': 'No medical terms yet.',
+  'terms.context': 'Quote',
+
+  'questions.empty': 'No suggested questions yet.',
+  'questions.rationale': 'Rationale'
+};
+
+export default en;

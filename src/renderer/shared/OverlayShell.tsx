@@ -9,6 +9,7 @@ import {
   TooltipTrigger
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useT } from './i18n';
 
 interface OverlayShellProps {
   title: string;
@@ -21,6 +22,7 @@ interface OverlayShellProps {
 }
 
 function OpacityControl() {
+  const t = useT();
   const [opacity, setOpacity] = React.useState(1);
 
   React.useEffect(() => {
@@ -57,7 +59,7 @@ function OpacityControl() {
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        투명도 {Math.round(opacity * 100)}%
+        {t('common.opacity')} {Math.round(opacity * 100)}%
       </TooltipContent>
     </Tooltip>
   );
@@ -72,6 +74,7 @@ export function OverlayShell({
   hideMinimize = false,
   hideOpacity = false
 }: OverlayShellProps) {
+  const t = useT();
   return (
     <TooltipProvider delayDuration={150}>
       <div className={cn('overlay-shell dark', className)}>
@@ -85,7 +88,7 @@ export function OverlayShell({
               <Button
                 size="icon"
                 variant="ghost"
-                title="최소화"
+                title={t('common.minimize')}
                 className="h-7 w-7"
                 onClick={() => window.api.minimizeWindow()}
               >

@@ -6,15 +6,18 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { OverlayShell } from '../shared/OverlayShell';
 import { AnalyzeButton } from '../shared/AnalyzeButton';
 import { ANALYSIS_KEY } from '../shared/queryClient';
+import { useLang, useT } from '../shared/i18n';
 import type { AnalysisResult } from '../../shared/types';
 
-function confidenceLabel(c: number): string {
-  if (c >= 0.7) return '높음';
-  if (c >= 0.4) return '중간';
-  return '낮음';
+function confidenceLabel(c: number, lang: 'ko' | 'en'): string {
+  if (c >= 0.7) return lang === 'en' ? 'High' : '높음';
+  if (c >= 0.4) return lang === 'en' ? 'Medium' : '중간';
+  return lang === 'en' ? 'Low' : '낮음';
 }
 
 export default function DiagnosisApp() {
+  const t = useT();
+  const lang = useLang();
   const { data } = useQuery<AnalysisResult | null>({
     queryKey: ANALYSIS_KEY,
     queryFn: () => null
@@ -25,14 +28,14 @@ export default function DiagnosisApp() {
 
   return (
     <OverlayShell
-      title="감별진단"
+      title={t('window.diagnosis')}
       badge={
         <Badge variant="outline" className="gap-1">
           <Activity className="h-2.5 w-2.5" />
           {items.length}
         </Badge>
       }
-      actions={<AnalyzeButton label="분석" />}
+      actions={<AnalyzeButton label={lang === 'en' ? 'Analyze' : '분석'} />}
     >
       {redFlags.length > 0 && (
         <div className="m-2 mb-0 rounded-md border border-red-500/40 bg-red-500/15 p-2 text-xs">
@@ -51,7 +54,7 @@ export default function DiagnosisApp() {
         <div className="space-y-2 p-2">
           {items.length === 0 && (
             <p className="px-1 py-4 text-center text-xs text-muted-foreground">
-              아직 분석할 발화가 부족합니다.
+              {t('diagnosis.empty')}
             </p>
           )}
           {items.map((d, i) => (
@@ -71,7 +74,7 @@ export default function DiagnosisApp() {
                   )}
                 </div>
                 <Badge variant={d.confidence >= 0.7 ? 'default' : 'secondary'}>
-                  {confidenceLabel(d.confidence)} · {Math.round(d.confidence * 100)}%
+                  {confidenceLabel(d.confidence, lang)} · {Math.round(d.confidence * 100)}%
                 </Badge>
               </CardHeader>
               <CardContent>

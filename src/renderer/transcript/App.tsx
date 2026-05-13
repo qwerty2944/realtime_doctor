@@ -27,6 +27,7 @@ import type {
   TranscribeProviderInfo
 } from '../../shared/types';
 import { OverlayShell } from '../shared/OverlayShell';
+import { useLang, useT } from '../shared/i18n';
 import { useRealtime } from './useRealtime';
 
 function nextSpeaker(s: Speaker): Speaker {
@@ -35,28 +36,28 @@ function nextSpeaker(s: Speaker): Speaker {
   return 'doctor';
 }
 
-function speakerStyle(speaker: Speaker) {
+function speakerStyle(speaker: Speaker, t: ReturnType<typeof useT>) {
   switch (speaker) {
     case 'doctor':
       return {
         bubble: 'bg-sky-500/15 border border-sky-400/30',
         chip: 'bg-sky-500/30 text-sky-50',
         Icon: Stethoscope,
-        label: '의사'
+        label: t('transcript.speakerDoctor')
       };
     case 'patient':
       return {
         bubble: 'bg-emerald-500/15 border border-emerald-400/30',
         chip: 'bg-emerald-500/30 text-emerald-50',
         Icon: User,
-        label: '환자'
+        label: t('transcript.speakerPatient')
       };
     default:
       return {
         bubble: 'bg-white/5 border border-white/10',
         chip: 'bg-muted text-muted-foreground',
         Icon: User,
-        label: '분류 중…'
+        label: t('transcript.speakerUnknown')
       };
   }
 }
@@ -70,6 +71,8 @@ function formatTime(ts: number): string {
 }
 
 export default function TranscriptApp() {
+  const t = useT();
+  const lang = useLang();
   const {
     active,
     finishing,
@@ -77,6 +80,8 @@ export default function TranscriptApp() {
     partial,
     utterances,
     error,
+    fallbackBanner,
+    dismissFallbackBanner,
     isPending,
     start,
     stop,
@@ -139,12 +144,12 @@ export default function TranscriptApp() {
 
   return (
     <OverlayShell
-      title="Transcript"
+      title={t('window.transcript')}
       badge={
         currentProvider ? (
           <span
             className="rounded bg-white/10 px-1 py-px text-[8px] font-medium text-foreground/60"
-            title={`${currentProvider.label} · ${currentProvider.mode === 'stream' ? '실시간' : '청크'}`}
+            title={`${currentProvider.label} · ${currentProvider.mode === 'stream' ? t('transcript.modeStream') : t('transcript.modeChunk')}`}
           >
             {currentProvider.label.split(' ')[0]}
           </span>
@@ -159,14 +164,14 @@ export default function TranscriptApp() {
             onClick={() => (active ? stop() : start())}
           >
             {active ? <MicOff /> : <Mic />}
-            {active ? '정지' : '시작'}
+            {active ? t('common.stop') : t('common.start')}
           </Button>
           <Button
             size="icon"
             variant="ghost"
             disabled={isPending || utterances.length === 0}
             onClick={swapAll}
-            title="의사↔환자 전체 교체"
+            title={lang === 'en' ? 'Swap Doctor ↔ Patient' : '의사↔환자 전체 교체'}
           >
             <ArrowLeftRight />
           </Button>
@@ -175,10 +180,14 @@ export default function TranscriptApp() {
             variant="outline"
             disabled={isPending}
             onClick={reset}
-            title="현재 세션을 종료하고 새 세션을 시작합니다"
+            title={
+              lang === 'en'
+                ? 'End the current session and start a new one'
+                : '현재 세션을 종료하고 새 세션을 시작합니다'
+            }
           >
             <RotateCcw />
-            새 세션
+            {lang === 'en' ? 'New session' : '새 세션'}
           </Button>
           <Dialog open={loadOpen} onOpenChange={setLoadOpen}>
             <DialogTrigger asChild>
@@ -248,6 +257,18 @@ export default function TranscriptApp() {
         </div>
       }
     >
+      {fallbackBanner && (
+        <div className="flex items-center justify-between gap-2 border-b border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-[11px] text-yellow-100">
+          <span>{t('transcript.fallbackBanner')}</span>
+          <button
+            type="button"
+            onClick={dismissFallbackBanner}
+            className="text-yellow-200/70 hover:text-yellow-50"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {error && (
         <div className="px-3 pt-2 text-xs text-destructive">{error}</div>
       )}
@@ -256,12 +277,11 @@ export default function TranscriptApp() {
         <div className="space-y-2 px-3 py-2 text-sm leading-relaxed">
           {utterances.length === 0 && !partial && (
             <p className="text-xs text-muted-foreground">
-              "시작"을 눌러 마이크를 켜세요. 발화가 끝나면 화자를 자동 분류하고
-              감별진단을 갱신합니다. 화자 칩을 누르면 수동으로 바꿀 수 있습니다.
+              {t('transcript.empty')}
             </p>
           )}
           {utterances.map((u) => {
-            const style = speakerStyle(u.speaker);
+            const style = speakerStyle(u.speaker, t);
             const { Icon } = style;
             return (
               <div
@@ -301,12 +321,22 @@ export default function TranscriptApp() {
       <div className="flex items-center justify-between px-3 py-1.5 text-[10px] text-muted-foreground">
         <span>
           {active
-            ? '● 듣는 중'
+            ? lang === 'en'
+              ? '● Listening'
+              : '● 듣는 중'
             : finishing
-              ? `⌛ 정리 중… (${pendingCount} 발화 전사 중)`
-              : '○ 정지'}
+              ? lang === 'en'
+                ? `⌛ Finalizing… (${pendingCount} utterance${pendingCount === 1 ? '' : 's'} transcribing)`
+                : `⌛ 정리 중… (${pendingCount} 발화 전사 중)`
+              : lang === 'en'
+                ? '○ Stopped'
+                : '○ 정지'}
         </span>
-        <span>{utterances.length} 발화</span>
+        <span>
+          {lang === 'en'
+            ? `${utterances.length} utterance${utterances.length === 1 ? '' : 's'}`
+            : `${utterances.length} 발화`}
+        </span>
       </div>
     </OverlayShell>
   );

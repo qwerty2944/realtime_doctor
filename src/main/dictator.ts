@@ -8,8 +8,10 @@ import {
   extractText,
   getGeminiClient
 } from './geminiClient.js';
+import { speakerLabels } from './prompts.js';
+import { getLanguage } from './store.js';
 
-const SYSTEM = `당신은 한국 임상 의사를 위한 EMR 딕테이션 보조 도구입니다.
+const SYSTEM_KO = `당신은 한국 임상 의사를 위한 EMR 딕테이션 보조 도구입니다.
 의사 1인칭 의무기록 톤(서술형, 과거형, 객관적)으로 prose를 작성합니다.
 규칙:
 - transcript에 명시된 사실만 사용. 추정·창작 금지.
@@ -19,11 +21,107 @@ const SYSTEM = `당신은 한국 임상 의사를 위한 EMR 딕테이션 보조
 - 한 섹션은 1~5문장의 자연스러운 문단으로 작성합니다(불릿 X, 줄바꿈 최소).
 - 화자 라벨([의사]/[환자])은 출력에 포함하지 않습니다.`;
 
+const SYSTEM_EN = `You are an EMR dictation assistant for English-speaking clinicians.
+Write chart-note prose (narrative, past tense, objective).
+Rules:
+- Use only facts stated in the transcript. Do not infer or invent.
+- Use standard clinical terminology and abbreviations (e.g. "ECG", "BP 150/95").
+- Do not address the patient directly. Avoid definitive diagnostic language — phrase as "likelihood".
+- For empty sections, fill the body exactly as "(not mentioned)".
+- Each section is 1–5 sentences of natural prose (no bullets, minimal line breaks).
+- Do not include speaker tags ([Doctor]/[Patient]) in the output.`;
+
+function getDictatorSystemPrompt(lang: 'ko' | 'en'): string {
+  return lang === 'en' ? SYSTEM_EN : SYSTEM_KO;
+}
+
 interface TemplateSpec {
   name: string;
   sections: { heading: string; guidance: string }[];
   narrative?: boolean;
 }
+
+const TEMPLATES_EN: Record<DictationTemplate, TemplateSpec> = {
+  soap: {
+    name: 'SOAP',
+    sections: [
+      {
+        heading: 'S — Subjective',
+        guidance:
+          "Patient's complaints, symptoms, onset, exacerbating/alleviating factors, relevant PMH/social history — based on the patient's account."
+      },
+      {
+        heading: 'O — Objective',
+        guidance:
+          'Vital signs, physical exam findings, and any mentioned investigations (labs, imaging, ECG, etc.). Stick to objective facts.'
+      },
+      {
+        heading: 'A — Assessment',
+        guidance:
+          'Most likely clinical impression and differential (ranked). Avoid definitive wording — use "likely" / "possible".'
+      },
+      {
+        heading: 'P — Plan',
+        guidance:
+          'Further workup, prescriptions, procedures, patient education, follow-up. Record only what was mentioned.'
+      }
+    ]
+  },
+  apso: {
+    name: 'APSO',
+    sections: [
+      { heading: 'A — Assessment', guidance: 'Same as SOAP Assessment.' },
+      { heading: 'P — Plan', guidance: 'Same as SOAP Plan.' },
+      { heading: 'S — Subjective', guidance: 'Same as SOAP Subjective.' },
+      { heading: 'O — Objective', guidance: 'Same as SOAP Objective.' }
+    ]
+  },
+  hp: {
+    name: 'H&P (History & Physical)',
+    sections: [
+      { heading: 'CC — Chief Complaint', guidance: 'One-line reason for the encounter.' },
+      {
+        heading: 'HPI — History of Present Illness',
+        guidance:
+          'Onset, character, associated symptoms, exacerbating/alleviating factors, and timeline as a narrative.'
+      },
+      { heading: 'PMH — Past Medical History', guidance: 'Chronic conditions, surgical history, hospitalizations, known diagnoses.' },
+      { heading: 'Meds — Medications', guidance: 'Current medications (only those mentioned).' },
+      { heading: 'Allergies', guidance: 'Drug / food allergies.' },
+      {
+        heading: 'FH/SH — Family & Social History',
+        guidance: 'Family history; smoking / alcohol / occupation / lifestyle.'
+      },
+      {
+        heading: 'ROS — Review of Systems',
+        guidance: 'Pertinent positives and negatives across major systems (cardiac, respiratory, GI, etc.).'
+      },
+      {
+        heading: 'PE — Physical Exam',
+        guidance: 'Vital signs plus system-by-system exam findings.'
+      },
+      {
+        heading: 'Labs/Imaging',
+        guidance: 'Mentioned labs, imaging, functional tests.'
+      },
+      {
+        heading: 'A/P — Assessment & Plan',
+        guidance: 'Combined problem-based impression and plan.'
+      }
+    ]
+  },
+  narrative: {
+    name: 'Narrative',
+    narrative: true,
+    sections: [
+      {
+        heading: 'Clinical Note',
+        guidance:
+          'A single prose paragraph (no sub-sections) flowing from patient identifiers → complaints → exam/findings → clinical impression → plan.'
+      }
+    ]
+  }
+};
 
 const TEMPLATES: Record<DictationTemplate, TemplateSpec> = {
   soap: {
@@ -135,30 +233,54 @@ export async function generateDictation(
   history: { speaker: Speaker; text: string }[],
   template: DictationTemplate
 ): Promise<DictationResult> {
+  const lang = getLanguage() ?? 'ko';
   if (history.length === 0) {
-    throw new Error('정리할 대화가 아직 없습니다.');
+    throw new Error(
+      lang === 'en' ? 'No conversation to dictate yet.' : '정리할 대화가 아직 없습니다.'
+    );
   }
 
-  const spec = TEMPLATES[template];
+  const spec = (lang === 'en' ? TEMPLATES_EN : TEMPLATES)[template];
   const client = getGeminiClient();
   const model =
     process.env.GEMINI_DICTATOR_MODEL ??
     process.env.GEMINI_ANALYZER_MODEL ??
     'gemini-2.5-flash';
 
+  const labels = speakerLabels(lang);
   const transcript = history
     .map((h) => {
       const tag =
-        h.speaker === 'doctor' ? '의사' : h.speaker === 'patient' ? '환자' : '?';
+        h.speaker === 'doctor'
+          ? labels.doctor
+          : h.speaker === 'patient'
+            ? labels.patient
+            : labels.unknown;
       return `[${tag}] ${h.text}`;
     })
     .join('\n');
 
-  const sectionsList = spec.sections
-    .map((s, i) => `${i + 1}. ${s.heading}\n   가이드: ${s.guidance}`)
-    .join('\n');
+  const sectionsList =
+    lang === 'en'
+      ? spec.sections.map((s, i) => `${i + 1}. ${s.heading}\n   Guidance: ${s.guidance}`).join('\n')
+      : spec.sections.map((s, i) => `${i + 1}. ${s.heading}\n   가이드: ${s.guidance}`).join('\n');
 
-  const userMessage = `다음 진료 대화를 ${spec.name} 템플릿의 의무기록 prose로 정리합니다.
+  const userMessage =
+    lang === 'en'
+      ? `Convert the following patient encounter into a chart note using the ${spec.name} template.
+
+[Required sections — use this order and these exact headings]
+${sectionsList}
+
+[Speaker-tagged transcript]
+---
+${transcript}
+---
+
+Return the sections matching the JSON schema. Copy each heading verbatim from above; write body in chart-note prose.${
+          spec.narrative ? ' This template is a single narrative — return exactly one section.' : ''
+        }`
+      : `다음 진료 대화를 ${spec.name} 템플릿의 의무기록 prose로 정리합니다.
 
 [지정된 섹션 — 이 순서대로, 이 헤딩 그대로 사용하세요]
 ${sectionsList}
@@ -169,16 +291,16 @@ ${transcript}
 ---
 
 JSON 스키마에 맞춰 sections를 반환하세요. heading은 위에 명시된 그대로 복사하고, body는 의무기록 톤 prose로 작성합니다.${
-    spec.narrative
-      ? ' 이 템플릿은 단일 narrative이므로 sections는 1개만 반환합니다.'
-      : ''
-  }`;
+          spec.narrative
+            ? ' 이 템플릿은 단일 narrative이므로 sections는 1개만 반환합니다.'
+            : ''
+        }`;
 
   try {
     const { data } = await client.post(
       `/models/${encodeURIComponent(model)}:generateContent`,
       {
-        system_instruction: { parts: [{ text: SYSTEM }] },
+        system_instruction: { parts: [{ text: getDictatorSystemPrompt(lang) }] },
         contents: [
           {
             role: 'user',

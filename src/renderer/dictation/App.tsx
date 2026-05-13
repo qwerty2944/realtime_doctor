@@ -19,6 +19,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { OverlayShell } from '../shared/OverlayShell';
+import { useLang, useT } from '../shared/i18n';
 import type {
   DictationResult,
   DictationSection,
@@ -45,6 +46,8 @@ function sectionsToMarkdown(sections: DictationSection[]): string {
 }
 
 export default function DictationApp() {
+  const t = useT();
+  const lang = useLang();
   const [template, setTemplate] = useState<DictationTemplate>('soap');
   const [status, setStatus] = useState<DictationStatus>({ state: 'idle' });
   const [editing, setEditing] = useState(false);
@@ -75,7 +78,11 @@ export default function DictationApp() {
 
   const runMutation = useMutation({
     mutationFn: async () => {
-      if (dirty && !confirm('편집한 내용이 사라집니다. 계속할까요?')) {
+      const msg =
+        lang === 'en'
+          ? 'Your edits will be lost. Continue?'
+          : '편집한 내용이 사라집니다. 계속할까요?';
+      if (dirty && !confirm(msg)) {
         throw new Error('cancelled');
       }
       return window.api.requestDictation(template);
@@ -106,7 +113,11 @@ export default function DictationApp() {
 
   const revertEdits = () => {
     if (!serverResult) return;
-    if (!confirm('편집한 내용을 모두 버리고 원본으로 되돌릴까요?')) return;
+    const msg =
+      lang === 'en'
+        ? 'Discard your edits and restore the original?'
+        : '편집한 내용을 모두 버리고 원본으로 되돌릴까요?';
+    if (!confirm(msg)) return;
     setDraft(serverResult.sections);
     setDirty(false);
   };
@@ -118,7 +129,7 @@ export default function DictationApp() {
 
   return (
     <OverlayShell
-      title="Dictation"
+      title={t('window.dictation')}
       badge={
         serverResult ? (
           <Badge variant="outline" className="gap-1 font-mono tabular-nums">
@@ -146,7 +157,7 @@ export default function DictationApp() {
           </Select>
           <Button size="sm" disabled={pending} onClick={() => runMutation.mutate()}>
             {pending ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            정리
+            {t('dictation.run')}
           </Button>
           {hasContent && (
             <>
@@ -154,11 +165,24 @@ export default function DictationApp() {
                 size="icon"
                 variant={editing ? 'default' : 'ghost'}
                 onClick={() => setEditing((v) => !v)}
-                title={editing ? '편집 종료' : '편집'}
+                title={
+                  editing
+                    ? lang === 'en'
+                      ? 'Exit edit mode'
+                      : '편집 종료'
+                    : lang === 'en'
+                      ? 'Edit'
+                      : '편집'
+                }
               >
                 <Pencil />
               </Button>
-              <Button size="icon" variant="ghost" onClick={copy} title="복사">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={copy}
+                title={lang === 'en' ? 'Copy' : '복사'}
+              >
                 <ClipboardCopy />
               </Button>
             </>
@@ -170,27 +194,34 @@ export default function DictationApp() {
         <div className="space-y-3 p-3 text-sm leading-relaxed">
           {status.state === 'idle' && !pending && !hasContent && (
             <p className="text-xs text-muted-foreground">
-              템플릿을 고르고 "정리"를 누르면 EMR에 붙여 넣을 수 있는 의무기록 prose가
-              생성됩니다. 결과는 ✏️ 편집 버튼으로 직접 수정할 수 있습니다.
+              {lang === 'en'
+                ? 'Pick a template and press "Regenerate" to produce EMR-ready chart-note prose. You can edit the result with the ✏️ edit button.'
+                : '템플릿을 고르고 "정리"를 누르면 EMR에 붙여 넣을 수 있는 의무기록 prose가 생성됩니다. 결과는 ✏️ 편집 버튼으로 직접 수정할 수 있습니다.'}
             </p>
           )}
           {pending && (
             <p className="text-xs text-muted-foreground">
-              {TEMPLATE_LABELS[template]} 형식으로 정리 중…
+              {lang === 'en'
+                ? `Generating in ${TEMPLATE_LABELS[template]} format…`
+                : `${TEMPLATE_LABELS[template]} 형식으로 정리 중…`}
             </p>
           )}
           {status.state === 'error' && (
-            <p className="text-xs text-destructive">오류: {status.message}</p>
+            <p className="text-xs text-destructive">
+              {t('dictation.statusError')}: {status.message}
+            </p>
           )}
           {hasContent && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                 <span>
-                  템플릿 ·{' '}
+                  {lang === 'en' ? 'Template' : '템플릿'} ·{' '}
                   {TEMPLATE_LABELS[serverResult?.template ?? template] ??
                     template}
                   {dirty && (
-                    <span className="ml-2 text-yellow-300">편집됨 (저장 안 됨)</span>
+                    <span className="ml-2 text-yellow-300">
+                      {lang === 'en' ? 'Edited (unsaved)' : '편집됨 (저장 안 됨)'}
+                    </span>
                   )}
                 </span>
                 {dirty && (
@@ -198,7 +229,7 @@ export default function DictationApp() {
                     onClick={revertEdits}
                     className="text-xs underline-offset-2 hover:underline"
                   >
-                    원본 복원
+                    {lang === 'en' ? 'Revert' : '원본 복원'}
                   </button>
                 )}
               </div>

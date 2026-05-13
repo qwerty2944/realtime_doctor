@@ -4,6 +4,7 @@ import {
   SHORTCUT_IDS,
   type CloudSyncSettings,
   type DictationTemplate,
+  type Language,
   type ShortcutId,
   type TranscribeProviderId
 } from '../shared/types.js';
@@ -43,6 +44,7 @@ interface Schema {
   shortcuts?: Partial<Record<ShortcutId, string>>;
   firstLaunched?: boolean;
   windowsVisibility?: Partial<Record<WindowKey, boolean>>;
+  language?: Language;
 }
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {
@@ -146,4 +148,12 @@ export function saveWindowVisibility(key: WindowKey, visible: boolean): void {
     Record<WindowKey, boolean>
   >;
   store.set('windowsVisibility', { ...map, [key]: visible });
+}
+
+export function getLanguage(): Language | undefined {
+  return store.get('language');
+}
+
+export function setLanguage(lang: Language): void {
+  store.set('language', lang);
 }

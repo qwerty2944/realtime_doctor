@@ -8,6 +8,7 @@ import {
   type DictationStatus,
   type DictationTemplate,
   type EphemeralSession,
+  type Language,
   type LoadedSessionPayload,
   type SessionSummary,
   type ShortcutId,
@@ -286,6 +287,31 @@ const api = {
       ipcRenderer.on(IPC.ShortcutTrigger, listener);
       return () => ipcRenderer.removeListener(IPC.ShortcutTrigger, listener);
     }
+  },
+  language: {
+    get(): Promise<Language | null> {
+      return ipcRenderer.invoke(IPC.LanguageGet);
+    },
+    set(
+      lang: Language
+    ): Promise<{ ok: boolean; language: Language; provider: TranscribeProviderId }> {
+      return ipcRenderer.invoke(IPC.LanguageSet, lang);
+    },
+    onChange(handler: (lang: Language) => void): () => void {
+      const listener = (_e: unknown, lang: Language) => handler(lang);
+      ipcRenderer.on(IPC.LanguageChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.LanguageChanged, listener);
+    }
+  },
+  onTranscribeFallback(
+    handler: (evt: { reason: string; from: string; to: string }) => void
+  ): () => void {
+    const listener = (
+      _e: unknown,
+      payload: { reason: string; from: string; to: string }
+    ) => handler(payload);
+    ipcRenderer.on(IPC.TranscribeFallback, listener);
+    return () => ipcRenderer.removeListener(IPC.TranscribeFallback, listener);
   }
 };
 

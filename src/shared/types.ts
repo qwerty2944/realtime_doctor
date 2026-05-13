@@ -39,8 +39,14 @@ export const IPC = {
   ShortcutsSet: 'shortcuts:set',
   ShortcutsReset: 'shortcuts:reset',
   ShortcutTrigger: 'shortcut:trigger',
-  ShortcutsChanged: 'shortcuts:changed'
+  ShortcutsChanged: 'shortcuts:changed',
+  LanguageGet: 'language:get',
+  LanguageSet: 'language:set',
+  LanguageChanged: 'language:changed',
+  TranscribeFallback: 'transcribe:fallback'
 } as const;
+
+export type Language = 'ko' | 'en';
 
 export type ShortcutId =
   | 'toggleAll'

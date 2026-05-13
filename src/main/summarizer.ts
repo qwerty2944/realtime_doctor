@@ -4,8 +4,10 @@ import {
   extractText,
   getGeminiClient
 } from './geminiClient.js';
+import { speakerLabels } from './prompts.js';
+import { getLanguage } from './store.js';
 
-const SYSTEM = `당신은 한국 임상 의료진을 위한 진료 대화 요약 도우미입니다.
+const SYSTEM_KO = `당신은 한국 임상 의료진을 위한 진료 대화 요약 도우미입니다.
 [의사]/[환자] 라벨이 달린 transcript를 받아, 요청한 JSON 스키마에 맞게 임상 진료기록 형태로 요약합니다.
 
 규칙:
@@ -14,6 +16,20 @@ const SYSTEM = `당신은 한국 임상 의료진을 위한 진료 대화 요약
 - transcript에 명시되지 않은 사실은 추정하지 말고, 해당 필드는 "(언급 없음)"으로 채웁니다.
 - 진단을 확정하는 어조는 피하고, 임상 인상(impression)은 "가능성"으로 표현합니다.
 - 환자에게 직접 말하는 어조 대신 의무기록 톤(서술형, 객관적)으로 작성합니다.`;
+
+const SYSTEM_EN = `You are a clinical encounter summarization assistant for English-speaking clinicians.
+You receive a transcript labeled with [Doctor]/[Patient] tags and produce a chart-note style summary that conforms to the requested JSON schema.
+
+Rules:
+- Write in English. Use standard clinical phrasing (ICD-10 where useful).
+- Keep each field concise — one line to a short paragraph.
+- Do not infer facts not stated in the transcript; fill missing fields with "(not mentioned)".
+- Avoid definitive diagnostic language; phrase the clinical impression as "likelihood".
+- Use a chart-note tone (third person, objective) — do not address the patient.`;
+
+function getSummarizerSystemPrompt(lang: 'ko' | 'en'): string {
+  return lang === 'en' ? SYSTEM_EN : SYSTEM_KO;
+}
 
 const SCHEMA = {
   type: 'object',
@@ -38,8 +54,11 @@ const SCHEMA = {
 export async function summarizeConversation(
   history: { speaker: Speaker; text: string }[]
 ): Promise<SummaryResult> {
+  const lang = getLanguage() ?? 'ko';
   if (history.length === 0) {
-    throw new Error('요약할 대화가 아직 없습니다.');
+    throw new Error(
+      lang === 'en' ? 'No conversation to summarize yet.' : '요약할 대화가 아직 없습니다.'
+    );
   }
 
   const client = getGeminiClient();
@@ -48,31 +67,33 @@ export async function summarizeConversation(
     process.env.GEMINI_ANALYZER_MODEL ??
     'gemini-2.5-flash';
 
+  const labels = speakerLabels(lang);
   const transcript = history
     .map((h) => {
       const tag =
         h.speaker === 'doctor'
-          ? '의사'
+          ? labels.doctor
           : h.speaker === 'patient'
-            ? '환자'
-            : '?';
+            ? labels.patient
+            : labels.unknown;
       return `[${tag}] ${h.text}`;
     })
     .join('\n');
+
+  const userMessage =
+    lang === 'en'
+      ? `Summarize the following patient encounter into the requested JSON schema.\n\n---\n${transcript}\n---`
+      : `다음 진료 대화를 요청한 스키마대로 요약해 주세요.\n\n---\n${transcript}\n---`;
 
   try {
     const { data } = await client.post(
       `/models/${encodeURIComponent(model)}:generateContent`,
       {
-        system_instruction: { parts: [{ text: SYSTEM }] },
+        system_instruction: { parts: [{ text: getSummarizerSystemPrompt(lang) }] },
         contents: [
           {
             role: 'user',
-            parts: [
-              {
-                text: `다음 진료 대화를 요청한 스키마대로 요약해 주세요.\n\n---\n${transcript}\n---`
-              }
-            ]
+            parts: [{ text: userMessage }]
           }
         ],
         generationConfig: {
