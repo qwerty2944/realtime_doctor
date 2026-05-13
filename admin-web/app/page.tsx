@@ -11,34 +11,34 @@ export default function Landing() {
       <PublicNav />
 
       {/* Hero */}
-      <section className="mx-auto max-w-6xl px-6 py-20 text-center">
-        <div className="inline-block rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-accent">
+      <section className="mx-auto max-w-6xl px-4 py-12 text-center sm:px-6 sm:py-16 md:py-20">
+        <div className="inline-block rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-accent sm:text-[11px]">
           ALWAYS-ON-TOP CLINICAL OVERLAY · v{VERSION}
         </div>
-        <h1 className="mt-6 text-5xl font-bold leading-tight tracking-tight">
+        <h1 className="mt-5 text-3xl font-bold leading-[1.15] tracking-tight sm:mt-6 sm:text-4xl md:text-5xl">
           진료에 집중하세요.
           <br />
           <span className="bg-gradient-to-r from-accent via-cyan-300 to-emerald-200 bg-clip-text text-transparent">
             나머지는 실시간으로 정리됩니다.
           </span>
         </h1>
-        <p className="mt-6 text-base text-foreground/70">
+        <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-foreground/70 sm:mt-6 sm:text-base">
           마이크 하나로 환자-의사 대화를 실시간 전사·화자 분류·감별진단·의학용어·다음
           질문·요약·딕테이션까지 — 일곱 개의 글래스 오버레이가 진료실 화면 위에서
           조용히 도와줍니다.
         </p>
 
-        <div className="mt-10 flex flex-col items-center gap-3">
-          <div className="flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-8 flex flex-col items-center gap-3 sm:mt-10">
+          <div className="flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <Link
               href="/install"
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-background shadow-lg shadow-accent/20 transition-transform hover:scale-[1.02]"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-background shadow-lg shadow-accent/20 transition-transform hover:scale-[1.02]"
             >
               지금 설치 →
             </Link>
             <Link
               href="/guide"
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-semibold transition-colors hover:border-accent/60"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-semibold transition-colors hover:border-accent/60"
             >
               사용법 보기
             </Link>
@@ -51,7 +51,7 @@ export default function Landing() {
 
       {/* Features */}
       <section className="border-y border-border/40 bg-card/30">
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-px overflow-hidden md:grid-cols-3">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-px overflow-hidden sm:grid-cols-2 md:grid-cols-3">
           <Feature
             title="실시간 전사"
             body="환자-의사 대화가 화면에 실시간으로 받아 적혀 흐릅니다. 한국어/영어 혼용 발화도 자연스럽게 처리됩니다."
@@ -80,22 +80,22 @@ export default function Landing() {
       </section>
 
       {/* CTA */}
-      <section className="mx-auto max-w-3xl px-6 py-20 text-center">
-        <h2 className="text-3xl font-semibold">바로 사용해 보세요</h2>
-        <p className="mt-4 text-sm leading-relaxed text-foreground/70">
+      <section className="mx-auto max-w-3xl px-4 py-12 text-center sm:px-6 sm:py-16 md:py-20">
+        <h2 className="text-2xl font-semibold sm:text-3xl">바로 사용해 보세요</h2>
+        <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-foreground/70">
           마이크 권한과 Supabase 계정만 있으면 1분 안에 진료 보조 오버레이가 화면
           위에 뜹니다.
         </p>
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
+        <div className="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <Link
             href="/install"
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-background shadow-lg shadow-accent/20 transition-transform hover:scale-[1.02]"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-background shadow-lg shadow-accent/20 transition-transform hover:scale-[1.02]"
           >
             설치 페이지로
           </Link>
           <Link
             href="/guide"
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-semibold transition-colors hover:border-accent/60"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-semibold transition-colors hover:border-accent/60"
           >
             사용법 보기
           </Link>
@@ -109,7 +109,7 @@ export default function Landing() {
 
 function Feature({ title, body }: { title: string; body: string }) {
   return (
-    <div className="bg-background p-6">
+    <div className="bg-background p-5 sm:p-6">
       <h3 className="text-sm font-semibold text-accent">{title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-foreground/70">{body}</p>
     </div>

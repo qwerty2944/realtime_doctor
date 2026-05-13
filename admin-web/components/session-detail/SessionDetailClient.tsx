@@ -60,7 +60,7 @@ export function SessionDetailClient(props: SessionDetailProps) {
   const startedAtMs = useMemo(() => new Date(session.started_at).getTime(), [session.started_at]);
   const durationMs = session.ended_at ? new Date(session.ended_at).getTime() - startedAtMs : null;
 
-  const patchMeta = async (p: { alias?: string | null; color?: SessionColor | null; pinned?: boolean }) => {
+  const patchMeta = async (p: { alias?: string | null; color?: SessionColor | null; pinned?: boolean; ended_at?: string | null }) => {
     const prev = session;
     setSession((s) => ({ ...s, ...p }));
     const res = await updateSessionMeta({ sessionId: session.id, ...p });
@@ -135,7 +135,6 @@ export function SessionDetailClient(props: SessionDetailProps) {
             <p className="mt-0.5 text-[11px] text-foreground/50">
               {session.alias && <span>{fmtDate(session.started_at)} · </span>}
               {durationMs ? fmtDuration(durationMs) : '진행 중'} ·{' '}
-              {session.transcribe_provider ?? '—'} ·{' '}
               <span className="font-mono">{session.id.slice(0, 8)}</span>
             </p>
           </div>
@@ -164,8 +163,12 @@ export function SessionDetailClient(props: SessionDetailProps) {
             <MetaActions
               pinned={session.pinned}
               color={session.color}
+              inProgress={!session.ended_at}
               onTogglePin={() => patchMeta({ pinned: !session.pinned })}
               onSetColor={(c) => patchMeta({ color: c })}
+              onToggleInProgress={() =>
+                patchMeta({ ended_at: session.ended_at ? null : new Date().toISOString() })
+              }
             />
           </div>
         </div>
@@ -230,7 +233,9 @@ export function SessionDetailClient(props: SessionDetailProps) {
           />
         )}
         {tab === 'notes' && <NotesView summaries={summaries} />}
-        {tab === 'dictation' && <NotesView dictations={dictations} />}
+        {tab === 'dictation' && (
+          <NotesView sessionId={session.id} dictations={dictations} />
+        )}
       </div>
     </div>
   );
@@ -322,13 +327,17 @@ function AliasHeader({
 function MetaActions({
   pinned,
   color,
+  inProgress,
   onTogglePin,
-  onSetColor
+  onSetColor,
+  onToggleInProgress
 }: {
   pinned: boolean;
   color: SessionColor | null;
+  inProgress: boolean;
   onTogglePin: () => void;
   onSetColor: (c: SessionColor | null) => void;
+  onToggleInProgress: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -372,41 +381,51 @@ function MetaActions({
             <Pin className={`h-3.5 w-3.5 ${pinned ? 'fill-amber-400 text-amber-400' : ''}`} />
             {pinned ? '핀 해제' : '상단 고정'}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onToggleInProgress();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground"
+          >
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                inProgress ? 'bg-amber-400' : 'bg-emerald-400'
+              }`}
+            />
+            {inProgress ? '완료됨으로 표시' : '진행 중으로 표시'}
+          </button>
           <div className="my-1 border-t border-border/60" />
           <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/40">
             <Tag className="mr-1 inline h-3 w-3" />
             색상 라벨
           </div>
           <div className="grid grid-cols-4 gap-1 px-2 pb-1">
-            {SESSION_COLORS.map((c) => (
-              <button
-                key={c}
-                onClick={() => {
-                  setOpen(false);
-                  onSetColor(c);
-                }}
-                title={COLOR_LABEL[c]}
-                className={`relative flex h-7 items-center justify-center rounded-md ${COLOR_TOKEN[c].chip}`}
-              >
-                <span className={`h-3 w-3 rounded-full ${COLOR_TOKEN[c].dot}`} />
-                {color === c && (
-                  <Check className="absolute right-0.5 top-0.5 h-2.5 w-2.5 text-white" />
-                )}
-              </button>
-            ))}
+            {SESSION_COLORS.map((c) => {
+              const active = color === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => onSetColor(active ? null : c)}
+                  aria-pressed={active}
+                  title={active ? `${COLOR_LABEL[c]} — 다시 누르면 해제` : COLOR_LABEL[c]}
+                  className={`relative flex h-7 items-center justify-center rounded-md transition-all ${
+                    active ? `ring-2 ring-white/70 ${COLOR_TOKEN[c].chip}` : COLOR_TOKEN[c].chip
+                  }`}
+                >
+                  <span className={`h-3 w-3 rounded-full ${COLOR_TOKEN[c].dot}`} />
+                  {active && (
+                    <Check className="absolute right-0.5 top-0.5 h-2.5 w-2.5 text-white" />
+                  )}
+                </button>
+              );
+            })}
           </div>
-          {color && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onSetColor(null);
-              }}
-              className="mt-1 w-full rounded-md px-2 py-1 text-left text-xs text-foreground/60 hover:bg-muted"
-            >
-              색상 제거
-            </button>
-          )}
+          <div className="px-2 pb-1 text-[10px] text-foreground/40">
+            {color ? '선택된 색을 다시 누르면 해제됩니다' : '색을 골라 라벨링하세요'}
+          </div>
         </div>
       )}
     </div>

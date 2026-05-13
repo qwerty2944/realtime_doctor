@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getBrowserSupabase } from '@/lib/supabase/browser';
@@ -14,27 +14,33 @@ function LoginForm() {
 
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [navigating, startNavigation] = useTransition();
   const [err, setErr] = useState<string | null>(
     errorParam === 'forbidden' ? '관리자 권한이 없는 계정입니다.' : null
   );
+  const busy = signingIn || navigating;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    setBusy(true);
+    setSigningIn(true);
     const supabase = getBrowserSupabase();
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password: pw
     });
-    setBusy(false);
     if (error) {
+      setSigningIn(false);
       setErr(error.message);
       return;
     }
-    router.replace(next);
-    router.refresh();
+    // 라우팅이 끝날 때까지 스피너 유지: signingIn은 그대로 두고
+    // transition으로 감싸서 navigating까지 끝나면 페이지가 이동됨.
+    startNavigation(() => {
+      router.replace(next);
+      router.refresh();
+    });
   }
 
   return (
@@ -93,7 +99,7 @@ function LoginForm() {
             className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-background hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy && <Spinner />}
-            {busy ? '확인 중…' : '로그인'}
+            {signingIn ? '확인 중…' : navigating ? '이동 중…' : '로그인'}
           </button>
         </fieldset>
         <div className="text-center text-xs text-foreground/60">

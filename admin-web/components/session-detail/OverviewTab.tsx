@@ -1,6 +1,8 @@
 'use client';
 
-import { ClipboardCopy, Download } from 'lucide-react';
+import { useTransition } from 'react';
+import { ClipboardCopy, Download, RefreshCw } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { fmtDate } from '@/lib/format';
 import {
   copyMarkdown,
@@ -12,6 +14,8 @@ import {
   type SummaryLike
 } from '@/lib/exports';
 import { AnalysisView } from './AnalysisView';
+import { Spinner } from '../spinner';
+import { regenerateAnalysisAction } from '@/app/admin/users/[id]/sessions/[sessionId]/actions';
 
 export function OverviewTab({
   analysis,
@@ -32,6 +36,27 @@ export function OverviewTab({
   };
 }) {
   const fullMd = sessionToMarkdown({ session, analysis, summaries, dictations, chunks });
+  const router = useRouter();
+  const [regenerating, startRegen] = useTransition();
+  const hasChunks = chunks.length > 0;
+
+  const regenerate = () => {
+    if (!hasChunks) {
+      alert('전사 청크가 없어 분석을 다시 생성할 수 없습니다.');
+      return;
+    }
+    if (analysis && !confirm('기존 감별진단·용어·질문을 새로 생성한 결과로 덮어씁니다. 진행할까요?')) {
+      return;
+    }
+    startRegen(async () => {
+      const res = await regenerateAnalysisAction({ sessionId: session.id });
+      if (!res.ok) {
+        alert(`분석 재생성 실패: ${res.error ?? '알 수 없는 오류'}`);
+        return;
+      }
+      router.refresh();
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -55,17 +80,38 @@ export function OverviewTab({
 
       {analysis ? (
         <div className="rounded-2xl border border-border bg-card p-4">
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex items-center justify-between gap-2">
             <div className="text-sm font-semibold">분석</div>
-            <span className="text-[11px] text-foreground/40">
-              업데이트 {fmtDate(analysis.updated_at)}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-foreground/40">
+                업데이트 {fmtDate(analysis.updated_at)}
+              </span>
+              <button
+                onClick={regenerate}
+                disabled={regenerating || !hasChunks}
+                title="감별진단·용어·질문 다시 생성"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] text-foreground/70 hover:text-foreground disabled:opacity-50"
+              >
+                {regenerating ? <Spinner className="h-3 w-3" /> : <RefreshCw className="h-3 w-3" />}
+                {regenerating ? '생성 중…' : '다시 생성'}
+              </button>
+            </div>
           </div>
           <AnalysisView a={analysis} />
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-foreground/60">
-          아직 생성된 분석이 없습니다.
+          <div>아직 생성된 분석이 없습니다.</div>
+          {hasChunks && (
+            <button
+              onClick={regenerate}
+              disabled={regenerating}
+              className="mt-3 inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/80 hover:text-foreground disabled:opacity-50"
+            >
+              {regenerating ? <Spinner className="h-3 w-3" /> : <RefreshCw className="h-3 w-3" />}
+              {regenerating ? '분석 생성 중…' : '지금 생성'}
+            </button>
+          )}
         </div>
       )}
     </div>

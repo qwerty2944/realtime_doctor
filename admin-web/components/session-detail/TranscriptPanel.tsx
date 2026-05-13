@@ -1,8 +1,9 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
-import { ArrowLeftRight, ClipboardCopy, Download, Search } from 'lucide-react';
+import { ClipboardCopy, Download, Search } from 'lucide-react';
 import { fmtTime } from '@/lib/format';
+import { Spinner } from '../spinner';
 import {
   copyMarkdown,
   downloadMarkdown,
@@ -14,13 +15,6 @@ import { relabelChunkAction } from '@/app/admin/users/[id]/sessions/[sessionId]/
 type Speaker = 'doctor' | 'patient' | 'unknown';
 const SPEAKERS: Speaker[] = ['doctor', 'patient', 'unknown'];
 
-function nextSpeaker(s: Speaker): Speaker {
-  // 토글: 의사 ↔ 환자, 미확인은 의사로 시작
-  if (s === 'doctor') return 'patient';
-  if (s === 'patient') return 'doctor';
-  return 'doctor';
-}
-
 const SPEAKER_LABEL: Record<Speaker, string> = {
   doctor: '의사',
   patient: '환자',
@@ -31,6 +25,12 @@ const SPEAKER_TONE: Record<Speaker, string> = {
   doctor: 'bg-sky-500/25 text-sky-100 border-sky-500/40',
   patient: 'bg-emerald-500/25 text-emerald-100 border-emerald-500/40',
   unknown: 'bg-white/10 text-foreground/70 border-white/20'
+};
+
+const SPEAKER_INACTIVE: Record<Speaker, string> = {
+  doctor: 'border-border bg-transparent text-foreground/45 hover:border-sky-500/40 hover:text-sky-200',
+  patient: 'border-border bg-transparent text-foreground/45 hover:border-emerald-500/40 hover:text-emerald-200',
+  unknown: 'border-border bg-transparent text-foreground/45 hover:text-foreground/70'
 };
 
 interface ChunkRow extends ChunkLike {
@@ -61,45 +61,35 @@ export function TranscriptPanel({
     unknown: true
   });
 
-  const swapSpeaker = (rowId: string) => {
-    setChunks((prev) => {
-      const next = prev.map((c) => {
-        if (c.id !== rowId) return c;
-        const cur = (SPEAKERS.includes(c.speaker as Speaker) ? c.speaker : 'unknown') as Speaker;
-        return { ...c, speaker: nextSpeaker(cur) };
+  const setSpeaker = (rowId: string, target: Speaker) => {
+    const prevRow = chunks.find((c) => c.id === rowId);
+    if (!prevRow) return;
+    const prevSpeaker = (SPEAKERS.includes(prevRow.speaker as Speaker)
+      ? prevRow.speaker
+      : 'unknown') as Speaker;
+    if (prevSpeaker === target) return;
+
+    setChunks((prev) =>
+      prev.map((c) => (c.id === rowId ? { ...c, speaker: target } : c))
+    );
+    setBusyIds((b) => new Set(b).add(rowId));
+    startTransition(async () => {
+      const res = await relabelChunkAction({
+        sessionId,
+        chunkRowId: rowId,
+        speaker: target
       });
-      const after = next.find((c) => c.id === rowId);
-      if (!after) return prev;
-      setBusyIds((b) => new Set(b).add(rowId));
-      startTransition(async () => {
-        const res = await relabelChunkAction({
-          sessionId,
-          chunkRowId: rowId,
-          speaker: after.speaker as Speaker
-        });
-        setBusyIds((b) => {
-          const n = new Set(b);
-          n.delete(rowId);
-          return n;
-        });
-        if (!res.ok) {
-          // revert on failure
-          setChunks((p) =>
-            p.map((c) =>
-              c.id === rowId
-                ? {
-                    ...c,
-                    speaker: (SPEAKERS.includes(prev.find((x) => x.id === rowId)?.speaker as Speaker)
-                      ? prev.find((x) => x.id === rowId)!.speaker
-                      : 'unknown')
-                  }
-                : c
-            )
-          );
-          alert(`화자 변경 실패: ${res.error ?? '알 수 없는 오류'}`);
-        }
+      setBusyIds((b) => {
+        const n = new Set(b);
+        n.delete(rowId);
+        return n;
       });
-      return next;
+      if (!res.ok) {
+        setChunks((p) =>
+          p.map((c) => (c.id === rowId ? { ...c, speaker: prevSpeaker } : c))
+        );
+        alert(`화자 변경 실패: ${res.error ?? '알 수 없는 오류'}`);
+      }
     });
   };
 
@@ -200,18 +190,37 @@ export function TranscriptPanel({
               key={c.id}
               className="rounded-md border border-border/40 bg-muted/30 p-3"
             >
-              <div className="mb-1 flex items-center gap-2 text-[11px] text-foreground/50">
-                <span className={`rounded px-1.5 py-0.5 ${SPEAKER_TONE[sp].split(' ')[0]} ${SPEAKER_TONE[sp].split(' ')[1]}`}>
-                  {SPEAKER_LABEL[sp]}
-                </span>
-                <button
-                  onClick={() => swapSpeaker(c.id)}
-                  disabled={busy}
-                  title="화자 바꾸기 (의사 ↔ 환자)"
-                  className="rounded p-0.5 text-foreground/40 hover:text-foreground disabled:opacity-40"
+              <div className="mb-1 flex items-center gap-1.5 text-[11px] text-foreground/50">
+                <div
+                  role="group"
+                  aria-label="화자 선택"
+                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 bg-background/40 p-0.5"
                 >
-                  <ArrowLeftRight className="h-3 w-3" />
-                </button>
+                  {(['doctor', 'patient'] as const).map((target) => {
+                    const active = sp === target;
+                    return (
+                      <button
+                        key={target}
+                        type="button"
+                        onClick={() => setSpeaker(c.id, target)}
+                        disabled={busy}
+                        aria-pressed={active}
+                        title={`${SPEAKER_LABEL[target]}로 변경`}
+                        className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${
+                          active ? SPEAKER_TONE[target] : SPEAKER_INACTIVE[target]
+                        }`}
+                      >
+                        {SPEAKER_LABEL[target]}
+                      </button>
+                    );
+                  })}
+                </div>
+                {sp === 'unknown' && (
+                  <span className={`rounded px-1.5 py-0.5 ${SPEAKER_TONE.unknown}`}>
+                    미확인
+                  </span>
+                )}
+                {busy && <Spinner className="h-3 w-3 text-foreground/40" />}
                 {onSeek ? (
                   <button
                     onClick={() => onSeek(c.timestamp_ms)}
