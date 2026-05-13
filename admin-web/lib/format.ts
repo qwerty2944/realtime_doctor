@@ -37,3 +37,14 @@ export function fmtTime(iso: string | number | Date): string {
   const d = iso instanceof Date ? iso : new Date(iso);
   return d.toLocaleTimeString('ko-KR', { timeZone: KST });
 }
+
+export function fmtDuration(ms: number | null | undefined): string {
+  if (!ms || ms < 0) return '—';
+  const total = Math.round(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}시간 ${m}분`;
+  if (m > 0) return `${m}분 ${s}초`;
+  return `${s}초`;
+}

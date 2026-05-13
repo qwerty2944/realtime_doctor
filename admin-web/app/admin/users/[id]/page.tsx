@@ -5,18 +5,24 @@ import { requireAdmin } from '@/lib/admin-gate';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtDate, fmtInt, fmtUsd } from '@/lib/format';
 import { DailyCostLine, TaskCostBar } from '@/components/usage-charts';
+import { SessionCard } from '@/components/session-card';
+import { SessionListToolbar } from '@/components/session-list-toolbar';
+import { fetchSessionCards } from '@/lib/sessions-fetch';
 
 export const dynamic = 'force-dynamic';
 
 const DAYS = 30;
 
 export default async function UserDetail({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ q?: string; sort?: string; range?: string }>;
 }) {
   await requireAdmin();
   const { id } = await params;
+  const sp = await searchParams;
   const supabase = await getCookieSupabase();
 
   const { data: profile, error: profileErr } = await supabase
@@ -31,7 +37,7 @@ export default async function UserDetail({
   since.setDate(since.getDate() - DAYS);
   const sinceIso = since.toISOString();
 
-  const [{ data: events = [] }, { data: sessions = [] }] = await Promise.all([
+  const [{ data: events = [] }, allCards, filteredCards] = await Promise.all([
     supabase
       .from('usage_events')
       .select(
@@ -41,22 +47,16 @@ export default async function UserDetail({
       .gte('ts', sinceIso)
       .order('ts', { ascending: false })
       .limit(20_000),
-    supabase
-      .from('sessions')
-      .select('id, started_at, ended_at, transcribe_provider')
-      .eq('user_id', id)
-      .order('started_at', { ascending: false })
-      .limit(100)
+    fetchSessionCards(supabase, { userId: id }),
+    fetchSessionCards(supabase, {
+      userId: id,
+      q: sp.q,
+      sort: (sp.sort as 'recent' | 'oldest' | 'duration' | 'chunks') ?? 'recent',
+      range: (sp.range as '7' | '30' | 'all') ?? 'all'
+    })
   ]);
 
   const rows = (events ?? []) as Array<UsageRow & { ts: string }>;
-  const sessionRows = (sessions ?? []) as Array<{
-    id: string;
-    started_at: string;
-    ended_at: string | null;
-    transcribe_provider: string | null;
-  }>;
-
   const total = rows.reduce((s, r) => s + costForRow(r), 0);
 
   const byDay = new Map<string, number>();
@@ -97,7 +97,7 @@ export default async function UserDetail({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card title="최근 30일 비용" value={fmtUsd(total)} />
         <Card title="이벤트 수" value={fmtInt(rows.length)} sub="최근 30일" />
-        <Card title="세션" value={fmtInt(sessionRows.length)} sub="전체" />
+        <Card title="세션" value={fmtInt(allCards.length)} sub="전체" />
       </div>
 
       <Section title="일별 비용 (USD, 최근 30일)">
@@ -112,56 +112,25 @@ export default async function UserDetail({
         )}
       </Section>
 
-      <Section title="세션 (최근 100건)">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-xs uppercase tracking-wider text-foreground/50">
-                <th className="px-3 py-2 text-left">시작</th>
-                <th className="px-3 py-2 text-left">종료</th>
-                <th className="px-3 py-2 text-left">공급자</th>
-                <th className="px-3 py-2 text-left font-mono">id</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessionRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-3 py-4 text-center text-foreground/50"
-                  >
-                    세션 없음
-                  </td>
-                </tr>
-              )}
-              {sessionRows.map((s) => (
-                <tr
-                  key={s.id}
-                  className="border-b border-border/40 last:border-0 hover:bg-muted/40"
-                >
-                  <td className="px-3 py-2 text-foreground/80">
-                    <Link
-                      href={`/admin/users/${id}/sessions/${s.id}`}
-                      className="hover:text-accent"
-                    >
-                      {fmtDate(s.started_at)}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-foreground/60">
-                    {fmtDate(s.ended_at)}
-                  </td>
-                  <td className="px-3 py-2 text-foreground/60">
-                    {s.transcribe_provider ?? '—'}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-foreground/50">
-                    {s.id.slice(0, 8)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="space-y-4">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-semibold">세션</h2>
         </div>
-      </Section>
+        <SessionListToolbar total={allCards.length} shown={filteredCards.length} />
+        {filteredCards.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-foreground/60">
+            조건에 맞는 세션이 없습니다.
+          </div>
+        ) : (
+          <ul className="space-y-3">
+            {filteredCards.map((c) => (
+              <li key={c.id}>
+                <SessionCard s={c} href={`/admin/users/${id}/sessions/${c.id}`} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

@@ -34,8 +34,67 @@ export const IPC = {
   CloudSyncSet: 'cloudSync:set',
   SessionsListMine: 'sessions:list-mine',
   SessionsLoad: 'sessions:load',
-  SessionLoaded: 'session:loaded'
+  SessionLoaded: 'session:loaded',
+  ShortcutsGet: 'shortcuts:get',
+  ShortcutsSet: 'shortcuts:set',
+  ShortcutsReset: 'shortcuts:reset',
+  ShortcutTrigger: 'shortcut:trigger'
 } as const;
+
+export type ShortcutId =
+  | 'toggleAll'
+  | 'toggleTranscript'
+  | 'toggleDiagnosis'
+  | 'toggleTerms'
+  | 'toggleQuestions'
+  | 'toggleSummary'
+  | 'toggleDictation'
+  | 'recordStartStop'
+  | 'runAnalyze'
+  | 'runSummary'
+  | 'runDictation';
+
+export const SHORTCUT_IDS: ShortcutId[] = [
+  'toggleAll',
+  'toggleTranscript',
+  'toggleDiagnosis',
+  'toggleTerms',
+  'toggleQuestions',
+  'toggleSummary',
+  'toggleDictation',
+  'recordStartStop',
+  'runAnalyze',
+  'runSummary',
+  'runDictation'
+];
+
+export const SHORTCUT_DEFAULTS: Record<ShortcutId, string> = {
+  toggleAll: 'CommandOrControl+Shift+H',
+  toggleTranscript: 'CommandOrControl+Shift+1',
+  toggleDiagnosis: 'CommandOrControl+Shift+2',
+  toggleTerms: 'CommandOrControl+Shift+3',
+  toggleQuestions: 'CommandOrControl+Shift+4',
+  toggleSummary: 'CommandOrControl+Shift+5',
+  toggleDictation: 'CommandOrControl+Shift+6',
+  recordStartStop: 'CommandOrControl+Shift+R',
+  runAnalyze: 'CommandOrControl+Shift+A',
+  runSummary: 'CommandOrControl+Shift+E',
+  runDictation: 'CommandOrControl+Shift+W'
+};
+
+export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
+  toggleAll: '전체 창 보이기/숨기기',
+  toggleTranscript: '트랜스크라이브 창',
+  toggleDiagnosis: '감별진단 창',
+  toggleTerms: '의학용어 창',
+  toggleQuestions: '다음 질문 창',
+  toggleSummary: '요약 창',
+  toggleDictation: '받아쓰기 창',
+  recordStartStop: '녹음 시작/정지',
+  runAnalyze: '감별 분석 새로 실행',
+  runSummary: '요약 새로 생성',
+  runDictation: '받아쓰기 새로 생성'
+};
 
 export interface SessionSummary {
   id: string;

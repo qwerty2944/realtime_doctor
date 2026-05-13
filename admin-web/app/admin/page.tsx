@@ -1,14 +1,27 @@
 import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { costForRow, type UsageRow } from '@/lib/pricing';
-import { fmtDate, fmtInt, fmtUsd } from '@/lib/format';
-import { DailyCostLine, ProviderCallsBar } from '@/components/usage-charts';
+import { fmtDuration, fmtInt, fmtUsd } from '@/lib/format';
+import {
+  DailyCostLine,
+  DailySessionsLine,
+  ProviderCallsBar
+} from '@/components/usage-charts';
+import { SessionCard } from '@/components/session-card';
+import { SessionListToolbar } from '@/components/session-list-toolbar';
+import { fetchSessionCards } from '@/lib/sessions-fetch';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
 const DAYS = 30;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
-export default async function AdminOverview() {
+export default async function AdminOverview({
+  searchParams
+}: {
+  searchParams: Promise<{ q?: string; sort?: string; range?: string }>;
+}) {
+  const sp = await searchParams;
   const supabase = await getCookieSupabase();
   const {
     data: { user }
@@ -22,7 +35,7 @@ export default async function AdminOverview() {
   const isAdmin = !!profile?.is_admin;
 
   if (!isAdmin) {
-    return <UserDashboard userId={user!.id} />;
+    return <UserDashboard userId={user!.id} searchParams={sp} />;
   }
 
   return <AdminDashboard supabase={supabase} />;
@@ -32,49 +45,67 @@ export default async function AdminOverview() {
 // 일반 사용자: 본인 진료 기록
 // ──────────────────────────────────────────────────────────────
 
-async function UserDashboard({ userId }: { userId: string }) {
+async function UserDashboard({
+  userId,
+  searchParams
+}: {
+  userId: string;
+  searchParams: { q?: string; sort?: string; range?: string };
+}) {
   const supabase = await getCookieSupabase();
 
-  const [{ data: sessions = [] }, { data: chunks = [] }] = await Promise.all([
-    supabase
-      .from('sessions')
-      .select('id, started_at, ended_at, transcribe_provider, audio_path')
-      .order('started_at', { ascending: false }),
-    supabase
-      .from('transcript_chunks')
-      .select('session_id, text, timestamp_ms')
-      .order('timestamp_ms', { ascending: true })
+  const [allCards, filteredCards] = await Promise.all([
+    fetchSessionCards(supabase, { userId }),
+    fetchSessionCards(supabase, {
+      userId,
+      q: searchParams.q,
+      sort: (searchParams.sort as 'recent' | 'oldest' | 'duration' | 'chunks') ?? 'recent',
+      range: (searchParams.range as '7' | '30' | 'all') ?? 'all'
+    })
   ]);
 
-  const sessionRows = (sessions ?? []) as Array<{
-    id: string;
-    started_at: string;
-    ended_at: string | null;
-    transcribe_provider: string | null;
-    audio_path: string | null;
-  }>;
-  const chunkRows = (chunks ?? []) as Array<{
-    session_id: string;
-    text: string;
-  }>;
-
-  const byId = new Map<string, { count: number; first: string }>();
-  for (const c of chunkRows) {
-    const cur = byId.get(c.session_id);
-    if (!cur) byId.set(c.session_id, { count: 1, first: c.text });
-    else cur.count += 1;
+  // Stats
+  const total = allCards.length;
+  let totalChunks = 0;
+  let totalDurationMs = 0;
+  let durationCount = 0;
+  let thisWeek = 0;
+  const weekStart = startOfWeekKstUtcMs();
+  for (const c of allCards) {
+    totalChunks += c.chunk_count;
+    const start = new Date(c.started_at).getTime();
+    if (start >= weekStart) thisWeek += 1;
+    if (c.ended_at) {
+      totalDurationMs += new Date(c.ended_at).getTime() - start;
+      durationCount += 1;
+    }
   }
+  const avgDuration = durationCount > 0 ? totalDurationMs / durationCount : 0;
+
+  // Daily sessions (last 14 days, KST buckets)
+  const days = 14;
+  const buckets = new Map<string, number>();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() + KST_OFFSET_MS - i * 24 * 60 * 60 * 1000);
+    buckets.set(d.toISOString().slice(5, 10), 0);
+  }
+  for (const c of allCards) {
+    const d = new Date(new Date(c.started_at).getTime() + KST_OFFSET_MS);
+    const key = d.toISOString().slice(5, 10);
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  const lineData = Array.from(buckets, ([date, sessions]) => ({ date, sessions }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <h1 className="text-lg font-semibold">내 진료 기록</h1>
         <p className="mt-1 text-sm text-foreground/60">
-          저장된 진료 세션을 시간순으로 확인할 수 있습니다.
+          저장된 진료 세션과 통계를 한눈에 확인할 수 있습니다.
         </p>
       </div>
 
-      {sessionRows.length === 0 ? (
+      {total === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card/50 p-10 text-center">
           <p className="text-sm text-foreground/70">아직 저장된 세션이 없습니다.</p>
           <p className="mt-2 text-xs text-foreground/50">
@@ -82,43 +113,55 @@ async function UserDashboard({ userId }: { userId: string }) {
           </p>
         </div>
       ) : (
-        <ul className="space-y-3">
-          {sessionRows.map((s) => {
-            const meta = byId.get(s.id);
-            return (
-              <li key={s.id}>
-                <Link
-                  href={`/admin/users/${userId}/sessions/${s.id}`}
-                  className="block rounded-2xl border border-border bg-card p-5 transition-colors hover:border-accent/60"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-semibold">
-                      {fmtDate(s.started_at)}
-                    </div>
-                    <div className="text-[11px] text-foreground/50">
-                      {meta?.count ?? 0} 발화
-                      {s.audio_path ? ' · 음성 보관' : ''}
-                    </div>
-                  </div>
-                  {meta?.first && (
-                    <div className="mt-2 line-clamp-2 text-sm text-foreground/70">
-                      {meta.first}
-                    </div>
-                  )}
-                  <div className="mt-3 flex items-center justify-between text-[11px] text-foreground/40">
-                    <span>
-                      {s.ended_at ? '종료됨' : '진행 중'}
-                    </span>
-                    <span className="font-mono">{s.id.slice(0, 8)}</span>
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <Card title="총 진료" value={fmtInt(total)} />
+            <Card title="이번 주" value={fmtInt(thisWeek)} sub="월~일 (KST)" />
+            <Card title="평균 진료 시간" value={fmtDuration(avgDuration)} />
+            <Card title="총 발화" value={fmtInt(totalChunks)} />
+          </div>
+
+          <Section title="일별 진료 (최근 14일, KST)">
+            <DailySessionsLine data={lineData} />
+          </Section>
+
+          <div className="space-y-4">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold">세션</h2>
+            </div>
+            <SessionListToolbar total={total} shown={filteredCards.length} />
+            {filteredCards.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-foreground/60">
+                조건에 맞는 세션이 없습니다.
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {filteredCards.map((c) => (
+                  <li key={c.id}>
+                    <SessionCard
+                      s={c}
+                      href={`/admin/users/${userId}/sessions/${c.id}`}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
+}
+
+// Monday start of week in KST, returned as UTC ms
+function startOfWeekKstUtcMs(): number {
+  const nowKst = new Date(Date.now() + KST_OFFSET_MS);
+  const day = nowKst.getUTCDay(); // 0 = Sun in KST since we shifted
+  const daysSinceMonday = (day + 6) % 7;
+  const monKst = new Date(nowKst);
+  monKst.setUTCHours(0, 0, 0, 0);
+  monKst.setUTCDate(monKst.getUTCDate() - daysSinceMonday);
+  return monKst.getTime() - KST_OFFSET_MS;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -222,9 +265,7 @@ async function AdminDashboard({
                   >
                     {emailById[id] || id}
                   </Link>
-                  <span className="font-mono text-foreground/80">
-                    {fmtUsd(cost)}
-                  </span>
+                  <span className="font-mono text-foreground/80">{fmtUsd(cost)}</span>
                 </li>
               ))}
             </ul>

@@ -1,8 +1,11 @@
 import Store from 'electron-store';
-import type {
-  CloudSyncSettings,
-  DictationTemplate,
-  TranscribeProviderId
+import {
+  SHORTCUT_DEFAULTS,
+  SHORTCUT_IDS,
+  type CloudSyncSettings,
+  type DictationTemplate,
+  type ShortcutId,
+  type TranscribeProviderId
 } from '../shared/types.js';
 
 export type WindowKey =
@@ -37,6 +40,7 @@ interface Schema {
   transcribeProvider?: TranscribeProviderId;
   cloudSync: CloudSyncSettings;
   sbAuth?: Record<string, unknown>;
+  shortcuts?: Partial<Record<ShortcutId, string>>;
 }
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {
@@ -98,4 +102,25 @@ export function setCloudSync(patch: Partial<CloudSyncSettings>): CloudSyncSettin
   }
   store.set('cloudSync', next);
   return next;
+}
+
+export function getShortcuts(): Record<ShortcutId, string> {
+  const saved = (store.get('shortcuts') ?? {}) as Partial<Record<ShortcutId, string>>;
+  const out = {} as Record<ShortcutId, string>;
+  for (const id of SHORTCUT_IDS) {
+    out[id] = saved[id] ?? SHORTCUT_DEFAULTS[id];
+  }
+  return out;
+}
+
+export function setShortcut(id: ShortcutId, accel: string): Record<ShortcutId, string> {
+  const saved = (store.get('shortcuts') ?? {}) as Partial<Record<ShortcutId, string>>;
+  const next = { ...saved, [id]: accel };
+  store.set('shortcuts', next);
+  return getShortcuts();
+}
+
+export function resetShortcuts(): Record<ShortcutId, string> {
+  store.set('shortcuts', {});
+  return getShortcuts();
 }

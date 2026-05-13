@@ -74,6 +74,38 @@ export function ProviderCallsBar({
   );
 }
 
+export function DailySessionsLine({
+  data
+}: {
+  data: { date: string; sessions: number }[];
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={180}>
+      <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+        <CartesianGrid stroke="#22304a" strokeDasharray="3 3" />
+        <XAxis dataKey="date" stroke="#7a8aa8" tickLine={false} fontSize={11} />
+        <YAxis stroke="#7a8aa8" tickLine={false} fontSize={11} width={36} allowDecimals={false} />
+        <Tooltip
+          contentStyle={{
+            background: '#101a2f',
+            border: '1px solid #22304a',
+            borderRadius: 6,
+            fontSize: 12
+          }}
+          formatter={(v: number) => `${v} 세션`}
+        />
+        <Line
+          type="monotone"
+          dataKey="sessions"
+          stroke="#a78bfa"
+          strokeWidth={2}
+          dot={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function TaskCostBar({
   data
 }: {
