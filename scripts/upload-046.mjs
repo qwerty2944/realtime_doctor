@@ -1,5 +1,5 @@
-// Upload v0.4.6 DMG + NSIS exe to Supabase `downloads` bucket
-// and delete the older v0.4.5 artifacts.
+// Upload v__OLDVER__ DMG + NSIS exe to Supabase `downloads` bucket
+// and delete the older v__OLDVER__ artifacts.
 //
 // Requires the bucket's TEMP anon-insert/delete policy to be active
 // (see downloads_anon_write_temp).
@@ -19,8 +19,8 @@ const supabase = createClient(URL, KEY, {
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
-const OLD = '0.4.5';
-const NEW = '0.4.6';
+const OLD = '0.4.6';
+const NEW = '0.4.7';
 
 const toDelete = [
   `mac/Realtime-Doctor-${OLD}-arm64.dmg`,

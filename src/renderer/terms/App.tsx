@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { OverlayShell } from '../shared/OverlayShell';
+import { AnalyzeButton } from '../shared/AnalyzeButton';
 import { ANALYSIS_KEY } from '../shared/queryClient';
 import type { AnalysisResult } from '../../shared/types';
 
@@ -24,6 +25,7 @@ export default function TermsApp() {
           {items.length}
         </Badge>
       }
+      actions={<AnalyzeButton label="추출" />}
     >
       <ScrollArea className="flex-1">
         <div className="space-y-2 p-2">

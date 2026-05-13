@@ -226,6 +226,11 @@ ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate)
 
 ipcMain.handle('dictation:get-last-template', () => getLastDictationTemplate());
 
+ipcMain.handle(IPC.AnalysisRequest, () => {
+  analyzer.runNow();
+  return { ok: true };
+});
+
 ipcMain.handle(IPC.SummaryRequest, async () => {
   broadcast(IPC.SummaryUpdate, { state: 'pending' });
   try {

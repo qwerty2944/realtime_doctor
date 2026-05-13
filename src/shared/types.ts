@@ -5,6 +5,7 @@ export const IPC = {
   TranscriptLabel: 'transcript:label',
   TranscriptRelabel: 'transcript:relabel',
   AnalysisUpdate: 'analysis:update',
+  AnalysisRequest: 'analysis:request',
   SummaryRequest: 'summary:request',
   SummaryUpdate: 'summary:update',
   DictationRequest: 'dictation:request',

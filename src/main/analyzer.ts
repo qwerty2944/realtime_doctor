@@ -11,6 +11,10 @@ import {
 import { ANALYSIS_RESPONSE_SCHEMA, ANALYZER_SYSTEM_PROMPT } from './prompts.js';
 
 const DEBOUNCE_MS = 2500;
+// Cap total wait so continuous chunks (each <DEBOUNCE_MS apart) don't starve
+// the analyzer. After this much time has elapsed since the first chunk in
+// this batch, fire immediately even if more chunks keep arriving.
+const MAX_WAIT_MS = 12_000;
 const MAX_TRANSCRIPT_CHARS = 18_000;
 
 type Listener = (result: AnalysisResult) => void;
@@ -24,6 +28,7 @@ class Analyzer {
   private timer: NodeJS.Timeout | null = null;
   private inflight: AbortController | null = null;
   private listeners = new Set<Listener>();
+  private firstChunkSinceRunAt = 0;
 
   on(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -32,6 +37,7 @@ class Analyzer {
 
   push(chunk: TranscriptChunk): void {
     this.chunks.push({ ...chunk, speaker: chunk.speaker ?? 'unknown' });
+    if (this.firstChunkSinceRunAt === 0) this.firstChunkSinceRunAt = Date.now();
     this.schedule();
   }
 
@@ -56,11 +62,22 @@ class Analyzer {
     this.timer = null;
     if (this.inflight) this.inflight.abort();
     this.inflight = null;
+    this.firstChunkSinceRunAt = 0;
+  }
+
+  runNow(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    void this.run();
   }
 
   private schedule(): void {
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.run(), DEBOUNCE_MS);
+    const remainingMaxWait = this.firstChunkSinceRunAt
+      ? Math.max(0, MAX_WAIT_MS - (Date.now() - this.firstChunkSinceRunAt))
+      : DEBOUNCE_MS;
+    const delay = Math.min(DEBOUNCE_MS, remainingMaxWait);
+    this.timer = setTimeout(() => void this.run(), delay);
   }
 
   private buildTranscript(): string {
@@ -119,6 +136,7 @@ class Analyzer {
       if (!text) throw new Error('Analyzer returned no content');
       const parsed = JSON.parse(text) as Omit<AnalysisResult, 'updatedAt'>;
       const result: AnalysisResult = { ...parsed, updatedAt: Date.now() };
+      this.firstChunkSinceRunAt = 0;
       for (const listener of this.listeners) listener(result);
     } catch (err) {
       if (axiosAborted(err)) return;

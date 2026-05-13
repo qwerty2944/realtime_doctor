@@ -122,6 +122,9 @@ const api = {
     ipcRenderer.on(IPC.AnalysisUpdate, listener);
     return () => ipcRenderer.removeListener(IPC.AnalysisUpdate, listener);
   },
+  requestAnalysis(): Promise<{ ok: boolean }> {
+    return ipcRenderer.invoke(IPC.AnalysisRequest);
+  },
   requestSummary(): Promise<SummaryStatus> {
     return ipcRenderer.invoke(IPC.SummaryRequest);
   },

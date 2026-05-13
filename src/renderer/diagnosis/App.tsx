@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { OverlayShell } from '../shared/OverlayShell';
+import { AnalyzeButton } from '../shared/AnalyzeButton';
 import { ANALYSIS_KEY } from '../shared/queryClient';
 import type { AnalysisResult } from '../../shared/types';
 
@@ -31,6 +32,7 @@ export default function DiagnosisApp() {
           {items.length}
         </Badge>
       }
+      actions={<AnalyzeButton label="분석" />}
     >
       {redFlags.length > 0 && (
         <div className="m-2 mb-0 rounded-md border border-red-500/40 bg-red-500/15 p-2 text-xs">
