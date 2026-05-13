@@ -1,6 +1,21 @@
+'use client';
+
 import Link from 'next/link';
-import { ArrowRight, FileText, Mic, NotebookPen, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ArrowRight,
+  Check,
+  FileText,
+  MoreHorizontal,
+  Mic,
+  NotebookPen,
+  Pin,
+  Sparkles,
+  Tag
+} from 'lucide-react';
 import { fmtDate, fmtDuration } from '@/lib/format';
+import { COLOR_LABEL, COLOR_TOKEN, SESSION_COLORS, type SessionColor } from '@/lib/session-colors';
+import { updateSessionMeta } from '@/app/admin/users/[id]/sessions/[sessionId]/actions';
 
 export interface SessionCardData {
   id: string;
@@ -17,97 +32,331 @@ export interface SessionCardData {
   has_analysis: boolean;
   has_summary: boolean;
   has_dictation: boolean;
+  alias: string | null;
+  color: SessionColor | null;
+  pinned: boolean;
 }
 
 function providerTone(p: string | null): string {
   switch (p) {
     case 'gemini':
-      return 'bg-violet-500/20 text-violet-100 border-violet-500/40';
+      return 'bg-violet-500/15 text-violet-200 border-violet-500/30';
     case 'openai':
-      return 'bg-emerald-500/20 text-emerald-100 border-emerald-500/40';
+      return 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30';
     case 'clova-csr':
-      return 'bg-sky-500/20 text-sky-100 border-sky-500/40';
+      return 'bg-sky-500/15 text-sky-200 border-sky-500/30';
     case 'clova-stream':
-      return 'bg-cyan-500/20 text-cyan-100 border-cyan-500/40';
+      return 'bg-cyan-500/15 text-cyan-200 border-cyan-500/30';
     default:
-      return 'bg-white/10 text-foreground/70 border-white/20';
+      return 'bg-white/5 text-foreground/60 border-white/10';
   }
 }
 
 export function SessionCard({
-  s,
+  s: initialS,
   href
 }: {
   s: SessionCardData;
   href: string;
 }) {
-  const durationMs = s.ended_at ? new Date(s.ended_at).getTime() - new Date(s.started_at).getTime() : null;
+  const [s, setS] = useState(initialS);
+  const durationMs = s.ended_at
+    ? new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()
+    : null;
   const total = s.doctor_count + s.patient_count;
   const drPct = total > 0 ? (s.doctor_count / total) * 100 : 0;
   const preview = (s.chief_complaint?.trim() || s.first_text || '').slice(0, 140);
 
+  const patch = async (p: { alias?: string | null; color?: SessionColor | null; pinned?: boolean }) => {
+    const prev = s;
+    setS((c) => ({ ...c, ...p }));
+    const res = await updateSessionMeta({ sessionId: s.id, ...p });
+    if (!res.ok) {
+      setS(prev);
+      alert(`저장 실패: ${res.error ?? ''}`);
+    }
+  };
+
+  const colorBar = s.color ? COLOR_TOKEN[s.color].bar : 'bg-transparent';
+
   return (
-    <Link
-      href={href}
-      className="block rounded-2xl border border-border bg-card p-5 transition-colors hover:border-accent/60"
+    <div
+      className={`group relative overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-accent/50 hover:shadow-lg ${
+        s.color ? COLOR_TOKEN[s.color].tint : 'hover:bg-muted/20'
+      }`}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="text-sm font-semibold">{fmtDate(s.started_at)}</div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          {s.transcribe_provider && (
-            <span
-              className={`rounded-full border px-2 py-0.5 font-mono ${providerTone(
-                s.transcribe_provider
-              )}`}
-            >
-              {s.transcribe_provider}
-            </span>
-          )}
-          <span className="text-foreground/60">{fmtDuration(durationMs)}</span>
-          <span className="text-foreground/60">발화 {s.chunk_count}</span>
-        </div>
-      </div>
+      {/* 좌측 컬러 바 */}
+      <div className={`absolute inset-y-0 left-0 w-1 ${colorBar}`} />
 
-      {preview && (
-        <div className="mt-2 line-clamp-2 text-sm text-foreground/80">
-          {s.chief_complaint ? (
-            <>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/40">
-                CC ·{' '}
+      <div className="flex items-start gap-3 p-5 pl-6">
+        <div className="min-w-0 flex-1">
+          {/* 헤더: 핀 + 알리아스 (편집 가능) */}
+          <div className="flex items-center gap-2">
+            {s.pinned && (
+              <Pin className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" />
+            )}
+            <AliasInline
+              alias={s.alias}
+              onCommit={(v) => patch({ alias: v })}
+              fallback={fmtDate(s.started_at)}
+            />
+          </div>
+
+          {/* 메타 라인 */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-foreground/55">
+            {s.color && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${COLOR_TOKEN[s.color].chip}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${COLOR_TOKEN[s.color].dot}`} />
+                {COLOR_LABEL[s.color]}
               </span>
+            )}
+            {s.alias && <span>{fmtDate(s.started_at)}</span>}
+            {s.transcribe_provider && (
+              <span className={`rounded-full border px-2 py-0.5 font-mono ${providerTone(s.transcribe_provider)}`}>
+                {s.transcribe_provider}
+              </span>
+            )}
+            <span>{fmtDuration(durationMs)}</span>
+            <span>발화 {s.chunk_count}</span>
+          </div>
+
+          {/* 주호소 / 첫 발화 preview */}
+          {preview && (
+            <div className="mt-2 line-clamp-2 text-sm text-foreground/80">
+              {s.chief_complaint && (
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground/40">
+                  주호소 ·{' '}
+                </span>
+              )}
               {preview}
-            </>
-          ) : (
-            preview
+            </div>
+          )}
+
+          {/* 화자 비율 */}
+          {total > 0 && (
+            <div className="mt-3 max-w-md">
+              <div className="h-1 overflow-hidden rounded-full bg-emerald-500/30">
+                <div className="h-full bg-sky-500/80" style={{ width: `${drPct}%` }} />
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[10px] text-foreground/40">
+                <span>의사 {s.doctor_count}</span>
+                <span>환자 {s.patient_count}</span>
+              </div>
+            </div>
+          )}
+
+          {/* 상태 chips + 진입 링크 */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-foreground/50">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {s.has_analysis && <Chip icon={<Sparkles className="h-3 w-3" />}>분석</Chip>}
+              {s.has_summary && <Chip icon={<FileText className="h-3 w-3" />}>요약</Chip>}
+              {s.has_dictation && <Chip icon={<NotebookPen className="h-3 w-3" />}>받아쓰기</Chip>}
+              {s.audio_path && <Chip icon={<Mic className="h-3 w-3" />}>음성</Chip>}
+              {!s.ended_at && (
+                <Chip className="border-amber-500/40 bg-amber-500/10 text-amber-200">진행 중</Chip>
+              )}
+            </div>
+            <Link
+              href={href}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1 text-foreground/70 hover:bg-muted hover:text-foreground"
+            >
+              열기 <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </div>
+
+        {/* 우상단 액션 메뉴 */}
+        <div className="relative flex-shrink-0 opacity-60 group-hover:opacity-100">
+          <ActionsMenu
+            pinned={s.pinned}
+            color={s.color}
+            onTogglePin={() => patch({ pinned: !s.pinned })}
+            onSetColor={(c) => patch({ color: c })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AliasInline({
+  alias,
+  onCommit,
+  fallback
+}: {
+  alias: string | null;
+  onCommit: (next: string | null) => void;
+  fallback: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(alias ?? '');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if ((next || null) === (alias ?? null)) return;
+    onCommit(next || null);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setDraft(alias ?? '');
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        maxLength={80}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+        placeholder="별명 입력…"
+        className="min-w-0 flex-1 rounded border border-accent/60 bg-background px-2 py-0.5 text-base font-semibold outline-none"
+      />
+    );
+  }
+
+  if (alias) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(alias);
+          setEditing(true);
+        }}
+        className="truncate text-left text-base font-semibold hover:text-accent"
+        title="클릭해서 별명 수정"
+      >
+        {alias}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="flex items-center gap-1.5 text-left"
+      title="별명 추가"
+    >
+      <span className="text-base font-semibold text-foreground/90">{fallback}</span>
+      <span className="rounded border border-dashed border-foreground/20 px-1.5 py-0.5 text-[10px] text-foreground/40 opacity-0 transition-opacity group-hover:opacity-100">
+        + 별명
+      </span>
+    </button>
+  );
+}
+
+function ActionsMenu({
+  pinned,
+  color,
+  onTogglePin,
+  onSetColor
+}: {
+  pinned: boolean;
+  color: SessionColor | null;
+  onTogglePin: () => void;
+  onSetColor: (c: SessionColor | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-md p-1.5 text-foreground/60 hover:bg-muted hover:text-foreground"
+        title="더 보기"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-border bg-card p-1.5 shadow-2xl">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onTogglePin();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground"
+          >
+            <Pin className={`h-3.5 w-3.5 ${pinned ? 'fill-amber-400 text-amber-400' : ''}`} />
+            {pinned ? '핀 해제' : '상단 고정'}
+          </button>
+
+          <div className="my-1 border-t border-border/60" />
+
+          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/40">
+            <Tag className="mr-1 inline h-3 w-3" />
+            색상 라벨
+          </div>
+          <div className="grid grid-cols-4 gap-1 px-2 pb-1">
+            {SESSION_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  setOpen(false);
+                  onSetColor(c);
+                }}
+                title={COLOR_LABEL[c]}
+                className={`relative flex h-7 items-center justify-center rounded-md ${COLOR_TOKEN[c].chip}`}
+              >
+                <span className={`h-3 w-3 rounded-full ${COLOR_TOKEN[c].dot}`} />
+                {color === c && (
+                  <Check className="absolute right-0.5 top-0.5 h-2.5 w-2.5 text-white" />
+                )}
+              </button>
+            ))}
+          </div>
+          {color && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSetColor(null);
+              }}
+              className="mt-1 w-full rounded-md px-2 py-1 text-left text-xs text-foreground/60 hover:bg-muted"
+            >
+              색상 제거
+            </button>
           )}
         </div>
       )}
-
-      {total > 0 && (
-        <div className="mt-3">
-          <div className="h-1 overflow-hidden rounded-full bg-emerald-500/30">
-            <div className="h-full bg-sky-500/80" style={{ width: `${drPct}%` }} />
-          </div>
-          <div className="mt-1 flex items-center justify-between text-[10px] text-foreground/40">
-            <span>의사 {s.doctor_count}</span>
-            <span>환자 {s.patient_count}</span>
-          </div>
-        </div>
-      )}
-
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-foreground/50">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {s.has_analysis && <Chip icon={<Sparkles className="h-3 w-3" />}>분석</Chip>}
-          {s.has_summary && <Chip icon={<FileText className="h-3 w-3" />}>요약</Chip>}
-          {s.has_dictation && <Chip icon={<NotebookPen className="h-3 w-3" />}>받아쓰기</Chip>}
-          {s.audio_path && <Chip icon={<Mic className="h-3 w-3" />}>음성</Chip>}
-          {!s.ended_at && <Chip className="border-amber-500/40 text-amber-200">진행 중</Chip>}
-        </div>
-        <span className="font-mono text-foreground/30">
-          {s.id.slice(0, 8)} <ArrowRight className="inline h-3 w-3" />
-        </span>
-      </div>
-    </Link>
+    </div>
   );
 }
 

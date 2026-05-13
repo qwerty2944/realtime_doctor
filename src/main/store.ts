@@ -41,6 +41,8 @@ interface Schema {
   cloudSync: CloudSyncSettings;
   sbAuth?: Record<string, unknown>;
   shortcuts?: Partial<Record<ShortcutId, string>>;
+  firstLaunched?: boolean;
+  windowsVisibility?: Partial<Record<WindowKey, boolean>>;
 }
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {
@@ -123,4 +125,25 @@ export function setShortcut(id: ShortcutId, accel: string): Record<ShortcutId, s
 export function resetShortcuts(): Record<ShortcutId, string> {
   store.set('shortcuts', {});
   return getShortcuts();
+}
+
+export function isFirstLaunch(): boolean {
+  return !store.get('firstLaunched');
+}
+
+export function markLaunched(): void {
+  store.set('firstLaunched', true);
+}
+
+export function getWindowVisibility(key: WindowKey): boolean {
+  const map = store.get('windowsVisibility') ?? {};
+  // default: visible. Dock is always visible.
+  return map[key] ?? true;
+}
+
+export function saveWindowVisibility(key: WindowKey, visible: boolean): void {
+  const map = (store.get('windowsVisibility') ?? {}) as Partial<
+    Record<WindowKey, boolean>
+  >;
+  store.set('windowsVisibility', { ...map, [key]: visible });
 }

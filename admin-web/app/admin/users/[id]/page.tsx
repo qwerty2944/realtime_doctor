@@ -5,9 +5,10 @@ import { requireAdmin } from '@/lib/admin-gate';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtDate, fmtInt, fmtUsd } from '@/lib/format';
 import { DailyCostLine, TaskCostBar } from '@/components/usage-charts';
-import { SessionCard } from '@/components/session-card';
 import { SessionListToolbar } from '@/components/session-list-toolbar';
+import { SessionList } from '@/components/session-list';
 import { fetchSessionCards } from '@/lib/sessions-fetch';
+import { SESSION_COLORS, type SessionColor } from '@/lib/session-colors';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,12 +19,23 @@ export default async function UserDetail({
   searchParams
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ q?: string; sort?: string; range?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    sort?: string;
+    range?: string;
+    colors?: string;
+    pinned?: string;
+  }>;
 }) {
   await requireAdmin();
   const { id } = await params;
   const sp = await searchParams;
   const supabase = await getCookieSupabase();
+
+  const selectedColors = (sp.colors ?? '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c): c is SessionColor => (SESSION_COLORS as readonly string[]).includes(c));
 
   const { data: profile, error: profileErr } = await supabase
     .from('profiles')
@@ -52,7 +64,9 @@ export default async function UserDetail({
       userId: id,
       q: sp.q,
       sort: (sp.sort as 'recent' | 'oldest' | 'duration' | 'chunks') ?? 'recent',
-      range: (sp.range as '7' | '30' | 'all') ?? 'all'
+      range: (sp.range as '7' | '30' | 'all') ?? 'all',
+      colors: selectedColors.length > 0 ? selectedColors : undefined,
+      pinnedOnly: sp.pinned === '1'
     })
   ]);
 
@@ -122,13 +136,10 @@ export default async function UserDetail({
             조건에 맞는 세션이 없습니다.
           </div>
         ) : (
-          <ul className="space-y-3">
-            {filteredCards.map((c) => (
-              <li key={c.id}>
-                <SessionCard s={c} href={`/admin/users/${id}/sessions/${c.id}`} />
-              </li>
-            ))}
-          </ul>
+          <SessionList
+            cards={filteredCards}
+            hrefPrefix={`/admin/users/${id}/sessions`}
+          />
         )}
       </div>
     </div>

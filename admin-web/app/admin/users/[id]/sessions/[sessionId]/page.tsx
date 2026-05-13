@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { SessionDetailClient } from '@/components/session-detail/SessionDetailClient';
+import { isSessionColor } from '@/lib/session-colors';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +29,9 @@ export default async function SessionDetail({
 
   const { data: session } = await supabase
     .from('sessions')
-    .select('id, user_id, started_at, ended_at, transcribe_provider, audio_path')
+    .select(
+      'id, user_id, started_at, ended_at, transcribe_provider, audio_path, title, color, pinned'
+    )
     .eq('id', sessionId)
     .maybeSingle();
   if (!session) notFound();
@@ -101,7 +104,12 @@ export default async function SessionDetail({
         id: session.id,
         started_at: session.started_at,
         ended_at: session.ended_at,
-        transcribe_provider: session.transcribe_provider
+        transcribe_provider: session.transcribe_provider,
+        alias: (session as { title?: string | null }).title ?? null,
+        color: isSessionColor((session as { color?: unknown }).color)
+          ? ((session as { color: import('@/lib/session-colors').SessionColor }).color)
+          : null,
+        pinned: !!(session as { pinned?: boolean }).pinned
       }}
       audioUrl={audioUrl}
       analysis={(analysis as never) ?? null}

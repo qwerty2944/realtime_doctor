@@ -6,9 +6,10 @@ import {
   DailySessionsLine,
   ProviderCallsBar
 } from '@/components/usage-charts';
-import { SessionCard } from '@/components/session-card';
 import { SessionListToolbar } from '@/components/session-list-toolbar';
+import { SessionList } from '@/components/session-list';
 import { fetchSessionCards } from '@/lib/sessions-fetch';
+import { SESSION_COLORS, type SessionColor } from '@/lib/session-colors';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,13 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 export default async function AdminOverview({
   searchParams
 }: {
-  searchParams: Promise<{ q?: string; sort?: string; range?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    sort?: string;
+    range?: string;
+    colors?: string;
+    pinned?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const supabase = await getCookieSupabase();
@@ -50,9 +57,20 @@ async function UserDashboard({
   searchParams
 }: {
   userId: string;
-  searchParams: { q?: string; sort?: string; range?: string };
+  searchParams: {
+    q?: string;
+    sort?: string;
+    range?: string;
+    colors?: string;
+    pinned?: string;
+  };
 }) {
   const supabase = await getCookieSupabase();
+
+  const selectedColors = (searchParams.colors ?? '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c): c is SessionColor => (SESSION_COLORS as readonly string[]).includes(c));
 
   const [allCards, filteredCards] = await Promise.all([
     fetchSessionCards(supabase, { userId }),
@@ -60,7 +78,9 @@ async function UserDashboard({
       userId,
       q: searchParams.q,
       sort: (searchParams.sort as 'recent' | 'oldest' | 'duration' | 'chunks') ?? 'recent',
-      range: (searchParams.range as '7' | '30' | 'all') ?? 'all'
+      range: (searchParams.range as '7' | '30' | 'all') ?? 'all',
+      colors: selectedColors.length > 0 ? selectedColors : undefined,
+      pinnedOnly: searchParams.pinned === '1'
     })
   ]);
 
@@ -135,16 +155,10 @@ async function UserDashboard({
                 조건에 맞는 세션이 없습니다.
               </div>
             ) : (
-              <ul className="space-y-3">
-                {filteredCards.map((c) => (
-                  <li key={c.id}>
-                    <SessionCard
-                      s={c}
-                      href={`/admin/users/${userId}/sessions/${c.id}`}
-                    />
-                  </li>
-                ))}
-              </ul>
+              <SessionList
+                cards={filteredCards}
+                hrefPrefix={`/admin/users/${userId}/sessions`}
+              />
             )}
           </div>
         </>

@@ -1,5 +1,6 @@
 import type { SessionCardData } from '@/components/session-card';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isSessionColor, type SessionColor } from './session-colors';
 
 interface RawSession {
   id: string;
@@ -8,6 +9,10 @@ interface RawSession {
   ended_at: string | null;
   transcribe_provider: string | null;
   audio_path: string | null;
+  title: string | null;
+  color: string | null;
+  pinned: boolean | null;
+  pinned_at: string | null;
 }
 
 export interface SessionsParams {
@@ -15,6 +20,8 @@ export interface SessionsParams {
   q?: string;
   sort?: 'recent' | 'oldest' | 'duration' | 'chunks';
   range?: '7' | '30' | 'all';
+  colors?: SessionColor[];
+  pinnedOnly?: boolean;
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -23,17 +30,32 @@ export async function fetchSessionCards(
   supabase: SupabaseClient,
   params: SessionsParams = {}
 ): Promise<SessionCardData[]> {
-  const { userId, q = '', sort = 'recent', range = 'all' } = params;
+  const {
+    userId,
+    q = '',
+    sort = 'recent',
+    range = 'all',
+    colors,
+    pinnedOnly
+  } = params;
 
   let query = supabase
     .from('sessions')
-    .select('id, user_id, started_at, ended_at, transcribe_provider, audio_path')
+    .select(
+      'id, user_id, started_at, ended_at, transcribe_provider, audio_path, title, color, pinned, pinned_at'
+    )
     .order('started_at', { ascending: false })
     .limit(500);
   if (userId) query = query.eq('user_id', userId);
   if (range !== 'all') {
     const since = new Date(Date.now() - Number(range) * DAY).toISOString();
     query = query.gte('started_at', since);
+  }
+  if (colors && colors.length > 0) {
+    query = query.in('color', colors);
+  }
+  if (pinnedOnly) {
+    query = query.eq('pinned', true);
   }
   const { data: sessions = [] } = await query;
   const sessionRows = (sessions ?? []) as RawSession[];
@@ -56,7 +78,12 @@ export async function fetchSessionCards(
     supabase.from('dictations').select('session_id').in('session_id', sids)
   ]);
 
-  type RawChunk = { session_id: string; speaker: string; text: string; timestamp_ms: number };
+  type RawChunk = {
+    session_id: string;
+    speaker: string;
+    text: string;
+    timestamp_ms: number;
+  };
   const chunks = (chunkRes.data ?? []) as RawChunk[];
 
   type ChunkAgg = {
@@ -114,21 +141,25 @@ export async function fetchSessionCards(
       chief_complaint: summaryBy.get(s.id) ?? null,
       has_analysis: hasAna.has(s.id),
       has_summary: summaryBy.has(s.id),
-      has_dictation: hasDict.has(s.id)
+      has_dictation: hasDict.has(s.id),
+      alias: s.title,
+      color: isSessionColor(s.color) ? s.color : null,
+      pinned: !!s.pinned
     };
   });
 
-  // keyword filter
+  // keyword filter (alias 도 검색 대상에 추가)
   const needle = q.trim().toLowerCase();
   if (needle) {
     cards = cards.filter((c) => {
-      const hay = `${c.chief_complaint ?? ''}\n${c.first_text}`.toLowerCase();
+      const hay = `${c.alias ?? ''}\n${c.chief_complaint ?? ''}\n${c.first_text}`.toLowerCase();
       return hay.includes(needle);
     });
   }
 
-  // sort
+  // sort: 핀 먼저, 그 다음 선택된 정렬
   cards.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     switch (sort) {
       case 'oldest':
         return new Date(a.started_at).getTime() - new Date(b.started_at).getTime();

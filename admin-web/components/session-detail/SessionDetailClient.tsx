@@ -2,8 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Mic } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  Mic,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  Tag
+} from 'lucide-react';
 import { fmtDate, fmtDuration } from '@/lib/format';
+import {
+  COLOR_LABEL,
+  COLOR_TOKEN,
+  SESSION_COLORS,
+  type SessionColor
+} from '@/lib/session-colors';
+import { updateSessionMeta } from '@/app/admin/users/[id]/sessions/[sessionId]/actions';
 import { AnalysisView } from './AnalysisView';
 import { NotesView } from './NotesView';
 import { TranscriptPanel } from './TranscriptPanel';
@@ -18,6 +33,9 @@ export interface SessionDetailProps {
     started_at: string;
     ended_at: string | null;
     transcribe_provider: string | null;
+    alias: string | null;
+    color: SessionColor | null;
+    pinned: boolean;
   };
   audioUrl: string | null;
   analysis: import('@/lib/exports').AnalysisLike | null;
@@ -34,12 +52,23 @@ export interface SessionDetailProps {
 }
 
 export function SessionDetailClient(props: SessionDetailProps) {
-  const { backHref, session, audioUrl, analysis, summaries, dictations, chunks, chunkAudioUrls, truncated } =
+  const { backHref, session: initialSession, audioUrl, analysis, summaries, dictations, chunks, chunkAudioUrls, truncated } =
     props;
+  const [session, setSession] = useState(initialSession);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const startedAtMs = useMemo(() => new Date(session.started_at).getTime(), [session.started_at]);
   const durationMs = session.ended_at ? new Date(session.ended_at).getTime() - startedAtMs : null;
+
+  const patchMeta = async (p: { alias?: string | null; color?: SessionColor | null; pinned?: boolean }) => {
+    const prev = session;
+    setSession((s) => ({ ...s, ...p }));
+    const res = await updateSessionMeta({ sessionId: session.id, ...p });
+    if (!res.ok) {
+      setSession(prev);
+      alert(`저장 실패: ${res.error ?? ''}`);
+    }
+  };
 
   const doctorCount = chunks.filter((c) => c.speaker === 'doctor').length;
   const patientCount = chunks.filter((c) => c.speaker === 'patient').length;
@@ -87,17 +116,36 @@ export function SessionDetailClient(props: SessionDetailProps) {
       </div>
 
       {/* Sticky meta header */}
-      <div className="sticky top-0 z-10 -mx-1 rounded-2xl border border-border bg-card/95 px-5 py-4 shadow-sm backdrop-blur">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-          <div>
-            <h1 className="text-base font-semibold">{fmtDate(session.started_at)}</h1>
+      <div className="sticky top-0 z-10 -mx-1 overflow-hidden rounded-2xl border border-border bg-card/95 shadow-sm backdrop-blur">
+        {session.color && (
+          <div className={`absolute inset-y-0 left-0 w-1 ${COLOR_TOKEN[session.color].bar}`} />
+        )}
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 px-5 py-4 pl-6">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              {session.pinned && (
+                <Pin className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" />
+              )}
+              <AliasHeader
+                alias={session.alias}
+                fallback={fmtDate(session.started_at)}
+                onCommit={(v) => patchMeta({ alias: v })}
+              />
+            </div>
             <p className="mt-0.5 text-[11px] text-foreground/50">
+              {session.alias && <span>{fmtDate(session.started_at)} · </span>}
               {durationMs ? fmtDuration(durationMs) : '진행 중'} ·{' '}
               {session.transcribe_provider ?? '—'} ·{' '}
               <span className="font-mono">{session.id.slice(0, 8)}</span>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-foreground/70">
+            {session.color && (
+              <Pill className={COLOR_TOKEN[session.color].chip}>
+                <span className={`h-1.5 w-1.5 rounded-full ${COLOR_TOKEN[session.color].dot}`} />
+                {COLOR_LABEL[session.color]}
+              </Pill>
+            )}
             <Pill className="bg-sky-500/15 text-sky-200">의사 {doctorCount}</Pill>
             <Pill className="bg-emerald-500/15 text-emerald-200">환자 {patientCount}</Pill>
             {unknownCount > 0 && <Pill className="bg-white/10">미확인 {unknownCount}</Pill>}
@@ -113,6 +161,12 @@ export function SessionDetailClient(props: SessionDetailProps) {
                 <Mic className="h-3 w-3" /> 음성
               </Pill>
             )}
+            <MetaActions
+              pinned={session.pinned}
+              color={session.color}
+              onTogglePin={() => patchMeta({ pinned: !session.pinned })}
+              onSetColor={(c) => patchMeta({ color: c })}
+            />
           </div>
         </div>
       </div>
@@ -195,6 +249,167 @@ function Pill({
     >
       {children}
     </span>
+  );
+}
+
+function AliasHeader({
+  alias,
+  fallback,
+  onCommit
+}: {
+  alias: string | null;
+  fallback: string;
+  onCommit: (next: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(alias ?? '');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+  useEffect(() => {
+    setDraft(alias ?? '');
+  }, [alias]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if ((next || null) === (alias ?? null)) return;
+    onCommit(next || null);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setDraft(alias ?? '');
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        maxLength={80}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+        placeholder="별명 입력…"
+        className="min-w-0 flex-1 rounded border border-accent/60 bg-background px-2 py-0.5 text-base font-semibold outline-none"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="flex items-center gap-2 text-left hover:text-accent"
+      title={alias ? '별명 수정' : '별명 추가'}
+    >
+      <span className="text-base font-semibold">{alias || fallback}</span>
+      <Pencil className="h-3 w-3 text-foreground/30 opacity-0 transition-opacity group-hover:opacity-100" />
+    </button>
+  );
+}
+
+function MetaActions({
+  pinned,
+  color,
+  onTogglePin,
+  onSetColor
+}: {
+  pinned: boolean;
+  color: SessionColor | null;
+  onTogglePin: () => void;
+  onSetColor: (c: SessionColor | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-md p-1.5 text-foreground/60 hover:bg-muted hover:text-foreground"
+        title="더 보기"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-border bg-card p-1.5 shadow-2xl">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onTogglePin();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/80 hover:bg-muted hover:text-foreground"
+          >
+            <Pin className={`h-3.5 w-3.5 ${pinned ? 'fill-amber-400 text-amber-400' : ''}`} />
+            {pinned ? '핀 해제' : '상단 고정'}
+          </button>
+          <div className="my-1 border-t border-border/60" />
+          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-foreground/40">
+            <Tag className="mr-1 inline h-3 w-3" />
+            색상 라벨
+          </div>
+          <div className="grid grid-cols-4 gap-1 px-2 pb-1">
+            {SESSION_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  setOpen(false);
+                  onSetColor(c);
+                }}
+                title={COLOR_LABEL[c]}
+                className={`relative flex h-7 items-center justify-center rounded-md ${COLOR_TOKEN[c].chip}`}
+              >
+                <span className={`h-3 w-3 rounded-full ${COLOR_TOKEN[c].dot}`} />
+                {color === c && (
+                  <Check className="absolute right-0.5 top-0.5 h-2.5 w-2.5 text-white" />
+                )}
+              </button>
+            ))}
+          </div>
+          {color && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSetColor(null);
+              }}
+              className="mt-1 w-full rounded-md px-2 py-1 text-left text-xs text-foreground/60 hover:bg-muted"
+            >
+              색상 제거
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
