@@ -368,16 +368,21 @@ export async function uploadChunkAudio(
   }
 }
 
-/** 스트림 모드 세션 전체 PCM → WAV 업로드 + sessions.audio_path 업데이트. */
+/**
+ * 스트림 모드 세션 전체 PCM → WAV 업로드 + sessions.audio_path 업데이트.
+ * 같은 세션에서 시작/정지가 여러 번 반복되면 모든 구간이 하나의 WAV 로 이어
+ * 붙어 마지막에 한 번만 업로드된다 (PCM 버퍼는 세션 종료 시점에만 flush).
+ */
 export async function uploadSessionAudio(
   sessionId: string,
   wavBuffer: Buffer
-): Promise<void> {
-  if (!canPersist()) return;
-  if (!getCloudSync().saveAudio) return;
+): Promise<string | null> {
+  if (!canPersist()) return null;
+  if (!getCloudSync().saveAudio) return null;
+  if (!wavBuffer || wavBuffer.length <= 44) return null;
   const user = getCurrentUser();
   const supabase = getSupabase();
-  if (!user || !supabase) return;
+  if (!user || !supabase) return null;
   const path = `${user.id}/${sessionId}/session.wav`;
   try {
     const { error: upErr } = await supabase.storage
@@ -385,15 +390,17 @@ export async function uploadSessionAudio(
       .upload(path, wavBuffer, { contentType: 'audio/wav', upsert: true });
     if (upErr) {
       warn('uploadSessionAudio:upload', upErr.message);
-      return;
+      return null;
     }
     const { error: dbErr } = await supabase
       .from('sessions')
       .update({ audio_path: path })
       .eq('id', sessionId);
     if (dbErr) warn('uploadSessionAudio:update', dbErr.message);
+    return path;
   } catch (err) {
     warn('uploadSessionAudio', err);
+    return null;
   }
 }
 

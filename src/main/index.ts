@@ -559,7 +559,9 @@ ipcMain.on(IPC.ClovaStreamClose, () => {
     clovaStreamSession = null;
   }
   clovaStreamSenderId = null;
-  void flushStreamSessionAudio();
+  // 정지(mic 종료) 시점에는 flush 하지 않는다. 같은 세션에서 사용자가
+  // 다시 시작을 누르면 PCM 이 이어 붙어 한 파일로 업로드된다. 세션이
+  // 실제로 끝날 때(TranscriptReset, signout, before-quit) flush.
 });
 
 // silence unused warning

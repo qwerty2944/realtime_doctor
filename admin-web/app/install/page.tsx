@@ -5,7 +5,7 @@ export const dynamic = 'force-static';
 
 const SUPABASE_PUBLIC =
   'https://yqdzxitlmtawznzwpkra.supabase.co/storage/v1/object/public/downloads';
-const VERSION = '0.4.7';
+const VERSION = '0.4.8';
 
 const MAC_DMG = `${SUPABASE_PUBLIC}/mac/Realtime-Doctor-${VERSION}-arm64.dmg`;
 const WIN_EXE = `${SUPABASE_PUBLIC}/win/Realtime-Doctor-Setup-${VERSION}.exe`;
@@ -52,7 +52,7 @@ export default function InstallPage() {
           </div>
           <Steps
             steps={[
-              '다운로드한 Setup 0.4.7.exe 더블클릭',
+              '다운로드한 Setup 0.4.8.exe 더블클릭',
               '⚠️ SmartScreen 경고: "추가 정보" → "실행" 클릭',
               '설치 마법사 진행 → 설치 완료',
               '시작 메뉴에서 Realtime Doctor 실행',
