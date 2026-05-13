@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCookieSupabase } from '@/lib/supabase/ssr';
+import { requireAdmin } from '@/lib/admin-gate';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtDate, fmtInt, fmtUsd } from '@/lib/format';
 import { DailyCostLine, TaskCostBar } from '@/components/usage-charts';
@@ -14,6 +15,7 @@ export default async function UserDetail({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireAdmin();
   const { id } = await params;
   const supabase = await getCookieSupabase();
 

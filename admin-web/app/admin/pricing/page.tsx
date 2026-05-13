@@ -1,8 +1,10 @@
 import { PRICING } from '@/lib/pricing';
+import { requireAdmin } from '@/lib/admin-gate';
 
 export const dynamic = 'force-dynamic';
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  await requireAdmin();
   return (
     <div className="space-y-6">
       <div>

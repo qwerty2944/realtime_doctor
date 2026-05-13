@@ -14,11 +14,14 @@ export function PublicNav() {
           <Link href="/guide" className="hover:text-foreground">
             사용법
           </Link>
-          <Link
-            href="/login"
-            className="text-foreground/50 hover:text-foreground"
-          >
+          <Link href="/login" className="hover:text-foreground">
             로그인
+          </Link>
+          <Link
+            href="/signup"
+            className="rounded-md bg-accent/15 px-3 py-1.5 text-accent hover:bg-accent/25"
+          >
+            회원가입
           </Link>
         </nav>
       </div>

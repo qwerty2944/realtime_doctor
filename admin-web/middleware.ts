@@ -39,19 +39,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // profiles 테이블이 RLS off라 anon 쿼리로 조회 가능.
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_admin')
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (!profile?.is_admin) {
-    const url = req.nextUrl.clone();
-    url.pathname = '/login';
-    url.searchParams.set('error', 'forbidden');
-    return NextResponse.redirect(url);
-  }
-
+  // 로그인된 누구든 /admin/* 진입 가능.
+  // 데이터 격리는 RLS (user_id = auth.uid() OR public.is_admin()) 가 자동 처리.
+  // qwerty.2944 같은 is_admin=true 계정만 전체 row, 나머지는 본인 row 만 봄.
   return res;
 }

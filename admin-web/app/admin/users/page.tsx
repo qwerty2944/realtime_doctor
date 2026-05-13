@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import { getCookieSupabase } from '@/lib/supabase/ssr';
+import { requireAdmin } from '@/lib/admin-gate';
 import { costForRow, type UsageRow } from '@/lib/pricing';
 import { fmtInt, fmtUsd, fmtDate } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
 export default async function UsersPage() {
+  await requireAdmin();
   const supabase = await getCookieSupabase();
 
   const [

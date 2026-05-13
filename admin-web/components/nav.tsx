@@ -1,16 +1,25 @@
 import Link from 'next/link';
 
-export function Nav({ email }: { email: string | null }) {
-  const links = [
-    { href: '/admin', label: '개요' },
-    { href: '/admin/users', label: '사용자' },
-    { href: '/admin/pricing', label: '가격' }
-  ];
+export function Nav({
+  email,
+  isAdmin
+}: {
+  email: string | null;
+  isAdmin: boolean;
+}) {
+  const links = isAdmin
+    ? [
+        { href: '/admin', label: '개요' },
+        { href: '/admin/users', label: '사용자' },
+        { href: '/admin/pricing', label: '가격' }
+      ]
+    : [{ href: '/admin', label: '내 진료 기록' }];
   return (
     <nav className="border-b border-border bg-card/60 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3">
         <Link href="/admin" className="text-sm font-semibold">
-          Realtime Doctor <span className="text-accent">Admin</span>
+          Realtime Doctor{' '}
+          {isAdmin && <span className="text-accent">Admin</span>}
         </Link>
         <div className="flex flex-1 gap-4">
           {links.map((l) => (

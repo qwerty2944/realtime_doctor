@@ -1,38 +1,54 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { getBrowserSupabase } from '@/lib/supabase/browser';
 
-function LoginForm() {
+export default function SignupPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  const errorParam = params.get('error');
-  const next = params.get('next') ?? '/admin';
-
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(
-    errorParam === 'forbidden' ? '관리자 권한이 없는 계정입니다.' : null
-  );
+  const [err, setErr] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    if (!email.trim()) return setErr('이메일을 입력하세요.');
+    if (pw.length < 6) return setErr('비밀번호는 6자 이상이어야 합니다.');
+    if (pw !== pw2) return setErr('비밀번호 확인이 일치하지 않습니다.');
+
     setBusy(true);
     const supabase = getBrowserSupabase();
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password: pw
     });
-    setBusy(false);
     if (error) {
-      setErr(error.message);
+      setBusy(false);
+      const m = error.message.toLowerCase();
+      if (m.includes('user already registered'))
+        setErr('이미 가입된 이메일입니다.');
+      else if (m.includes('invalid email')) setErr('이메일 형식이 올바르지 않습니다.');
+      else setErr(error.message);
       return;
     }
-    router.replace(next);
+    if (!data.session) {
+      // 즉시 세션 미발급 — 자격 그대로 로그인 시도
+      const signIn = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: pw
+      });
+      if (signIn.error) {
+        setBusy(false);
+        setErr(signIn.error.message);
+        return;
+      }
+    }
+    setBusy(false);
+    router.replace('/admin');
     router.refresh();
   }
 
@@ -49,9 +65,9 @@ function LoginForm() {
           >
             ← 메인
           </Link>
-          <h1 className="mt-1 text-xl font-semibold">로그인</h1>
+          <h1 className="mt-1 text-xl font-semibold">회원가입</h1>
           <p className="mt-1 text-sm text-foreground/60">
-            Realtime Doctor 계정으로 로그인하세요.
+            가입하면 본인 진료 기록이 안전하게 저장됩니다.
           </p>
         </div>
         <div className="space-y-2">
@@ -76,8 +92,22 @@ function LoginForm() {
             type="password"
             value={pw}
             onChange={(e) => setPw(e.target.value)}
-            autoComplete="current-password"
+            autoComplete="new-password"
             className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm outline-none focus:border-accent"
+            placeholder="6자 이상"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-foreground/60">
+            비밀번호 확인
+          </label>
+          <input
+            type="password"
+            value={pw2}
+            onChange={(e) => setPw2(e.target.value)}
+            autoComplete="new-password"
+            className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm outline-none focus:border-accent"
+            placeholder="다시 입력"
           />
         </div>
         {err && (
@@ -90,23 +120,15 @@ function LoginForm() {
           disabled={busy}
           className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-background hover:bg-accent/90 disabled:opacity-50"
         >
-          {busy ? '확인 중…' : '로그인'}
+          {busy ? '처리 중…' : '회원가입'}
         </button>
         <div className="text-center text-xs text-foreground/60">
-          계정이 없으세요?{' '}
-          <Link href="/signup" className="text-accent hover:underline">
-            회원가입
+          이미 계정이 있으세요?{' '}
+          <Link href="/login" className="text-accent hover:underline">
+            로그인
           </Link>
         </div>
       </form>
     </div>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={null}>
-      <LoginForm />
-    </Suspense>
   );
 }
