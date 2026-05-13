@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCookieSupabase } from '@/lib/supabase/ssr';
-import { fmtDate } from '@/lib/format';
+import { fmtDate, fmtTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -184,7 +184,7 @@ export default async function SessionDetail({
                   >
                     {c.speaker === 'doctor' ? '의사' : c.speaker === 'patient' ? '환자' : '?'}
                   </span>
-                  <span>{new Date(c.timestamp_ms).toLocaleTimeString('ko-KR')}</span>
+                  <span>{fmtTime(c.timestamp_ms)}</span>
                 </div>
                 <div className="text-sm text-foreground/90">{c.text}</div>
                 {c.audio_path && chunkAudioUrls[c.audio_path] && (

@@ -19,8 +19,8 @@ const supabase = createClient(URL, KEY, {
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
-const OLD = '0.4.7';
-const NEW = '0.4.8';
+const OLD = '0.4.8';
+const NEW = '0.4.9';
 
 const toDelete = [
   `mac/Realtime-Doctor-${OLD}-arm64.dmg`,

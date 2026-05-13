@@ -443,11 +443,11 @@ function pcm16ToWav(pcm: Buffer, sampleRate: number, channels = 1): Buffer {
   return Buffer.concat([header, pcm]);
 }
 
-async function flushStreamSessionAudio(): Promise<void> {
+async function flushStreamSessionAudio(opts: { resetBuffer: boolean } = { resetBuffer: true }): Promise<void> {
   if (streamPcmChunks.length === 0) return;
   const sessionId = streamSessionIdAtStart ?? getCurrentSessionId();
   const pcm = Buffer.concat(streamPcmChunks);
-  resetStreamPcm();
+  if (opts.resetBuffer) resetStreamPcm();
   if (!sessionId) return;
   const wav = pcm16ToWav(pcm, CLOVA_SAMPLE_RATE);
   await uploadSessionAudio(sessionId, wav);
@@ -559,9 +559,11 @@ ipcMain.on(IPC.ClovaStreamClose, () => {
     clovaStreamSession = null;
   }
   clovaStreamSenderId = null;
-  // 정지(mic 종료) 시점에는 flush 하지 않는다. 같은 세션에서 사용자가
-  // 다시 시작을 누르면 PCM 이 이어 붙어 한 파일로 업로드된다. 세션이
-  // 실제로 끝날 때(TranscriptReset, signout, before-quit) flush.
+  // 정지 시점에 누적된 PCM 을 upsert 업로드한다. 버퍼는 비우지 않아서
+  // 사용자가 같은 세션에서 다시 시작을 누르면 추가 PCM 이 이어 붙고
+  // 다음 정지 때 더 긴 WAV 로 같은 경로에 덮어쓴다. 같은 세션 내
+  // 다중 녹음이 하나의 session.wav 로 누적되는 결과.
+  void flushStreamSessionAudio({ resetBuffer: false });
 });
 
 // silence unused warning

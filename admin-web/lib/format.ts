@@ -21,8 +21,19 @@ export function fmtInt(n: number | null | undefined): string {
   return INT.format(n ?? 0);
 }
 
+const KST = 'Asia/Seoul';
+
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return d.toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
+  return d.toLocaleString('ko-KR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: KST
+  });
+}
+
+export function fmtTime(iso: string | number | Date): string {
+  const d = iso instanceof Date ? iso : new Date(iso);
+  return d.toLocaleTimeString('ko-KR', { timeZone: KST });
 }
