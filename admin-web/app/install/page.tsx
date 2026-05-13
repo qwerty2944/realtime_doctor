@@ -8,8 +8,7 @@ const SUPABASE_PUBLIC =
 const VERSION = '0.4.5';
 
 const MAC_DMG = `${SUPABASE_PUBLIC}/mac/Realtime-Doctor-${VERSION}-arm64.dmg`;
-const MAC_DMG_ZIP = `${SUPABASE_PUBLIC}/mac/Realtime-Doctor-${VERSION}-arm64-dmg.zip`;
-const WIN_ZIP = `${SUPABASE_PUBLIC}/win/Realtime-Doctor-${VERSION}-win.zip`;
+const WIN_EXE = `${SUPABASE_PUBLIC}/win/Realtime-Doctor-Setup-${VERSION}.exe`;
 
 export default function InstallPage() {
   return (
@@ -32,33 +31,33 @@ export default function InstallPage() {
             <DownloadButton href={MAC_DMG} primary>
               DMG 다운로드
             </DownloadButton>
-            <DownloadButton href={MAC_DMG_ZIP}>DMG.zip (메신저 첨부용)</DownloadButton>
           </div>
           <Steps
             steps={[
               'DMG 더블클릭 → Realtime Doctor.app 을 Applications 폴더로 드래그',
-              '⚠️ 첫 실행: Finder 에서 앱 우클릭 → "열기" → 다시 "열기" (Gatekeeper 우회. 코드 사이닝 미적용 빌드)',
+              '⚠️ 첫 실행: Finder 에서 앱 우클릭 → "열기" → 다시 "열기"',
               '시스템 설정 → 개인정보 보호 → 마이크 권한 허용',
-              'Dock 의 톱니바퀴(계정) → 회원가입 / 로그인'
+              'Dock 의 계정 아이콘 → 회원가입 / 로그인'
             ]}
           />
         </Card>
 
         {/* Win */}
         <Card>
-          <CardHeader title="Windows · x64 portable" subtitle="Windows 10/11 · 약 114MB" />
+          <CardHeader title="Windows · x64" subtitle="Windows 10/11 · 약 83MB" />
           <div className="flex flex-wrap gap-2">
-            <DownloadButton href={WIN_ZIP} primary>
-              Windows ZIP 다운로드
+            <DownloadButton href={WIN_EXE} primary>
+              인스톨러 다운로드 (.exe)
             </DownloadButton>
           </div>
           <Steps
             steps={[
-              'ZIP 압축 해제 (Realtime Doctor 폴더가 만들어집니다)',
-              'Realtime Doctor.exe 더블클릭',
-              '⚠️ SmartScreen 경고: "추가 정보" → "실행" 클릭 (코드 사이닝 미적용 빌드)',
+              '다운로드한 Setup 0.4.5.exe 더블클릭',
+              '⚠️ SmartScreen 경고: "추가 정보" → "실행" 클릭',
+              '설치 마법사 진행 → 설치 완료',
+              '시작 메뉴에서 Realtime Doctor 실행',
               '마이크 권한 허용',
-              'Dock 의 톱니바퀴(계정) → 회원가입 / 로그인'
+              'Dock 의 계정 아이콘 → 회원가입 / 로그인'
             ]}
           />
         </Card>

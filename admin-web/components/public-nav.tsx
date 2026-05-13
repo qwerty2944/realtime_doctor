@@ -18,7 +18,7 @@ export function PublicNav() {
             href="/login"
             className="text-foreground/50 hover:text-foreground"
           >
-            관리자 로그인
+            로그인
           </Link>
         </nav>
       </div>
@@ -39,7 +39,7 @@ export function PublicFooter() {
             사용법
           </Link>
           <Link href="/login" className="hover:text-foreground">
-            관리자 로그인
+            로그인
           </Link>
         </div>
       </div>

@@ -54,27 +54,27 @@ export default function Landing() {
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-px overflow-hidden md:grid-cols-3">
           <Feature
             title="실시간 전사"
-            body="Gemini · OpenAI Realtime · CLOVA CSR · CLOVA Speech Streaming — 한 클릭으로 전환. 한국어/영어 혼용 발화도 그대로 받아 적습니다."
+            body="환자-의사 대화가 화면에 실시간으로 받아 적혀 흐릅니다. 한국어/영어 혼용 발화도 자연스럽게 처리됩니다."
           />
           <Feature
             title="감별·용어·질문"
-            body="발화가 누적될 때마다 ICD-10 코드 포함 Top 5 감별진단, 등장·인접 의학용어, 감별을 좁히는 다음 질문이 자동 갱신됩니다."
+            body="발화가 누적될 때마다 가능성 높은 감별진단, 등장한 의학용어, 감별을 좁히는 다음 질문이 자동으로 갱신됩니다."
           />
           <Feature
             title="요약·딕테이션"
-            body="6-필드 임상 노트와 SOAP/APSO/H&P/Narrative 의무기록 prose를 한 번에. 인라인 편집 · markdown 복사."
+            body="진료 마무리에 임상 노트와 의무기록 prose를 한 번에. 인라인 편집과 클립보드 복사를 지원합니다."
           />
           <Feature
             title="화자 자동 분류"
-            body="발화 내용 기반 의사/환자 분류. 칩 클릭으로 즉시 정정, ↔ 버튼으로 전체 swap."
+            body="발화 내용을 분석해 의사/환자를 자동 분류. 잘못 잡혔으면 클릭 한 번으로 즉시 정정할 수 있습니다."
           />
           <Feature
-            title="진료 기록 클라우드 동기화"
-            body="세션·요약·딕테이션·분석을 자동으로 안전한 DB에 저장. 다음 진료에서 같은 세션을 불러와 이어서 진행할 수 있습니다."
+            title="진료 기록 보관"
+            body="진료 세션과 산출물을 안전하게 보관. 다음 진료에서 같은 세션을 불러와 이어서 진행할 수 있습니다."
           />
           <Feature
-            title="음성 원본 보관 (옵션)"
-            body="원하면 진료 음성 파일까지 함께 저장. 사후 검증/재청취 가능. PHI 위험 인지 후 별도 토글로만 활성화."
+            title="유연한 오버레이"
+            body="일곱 개의 글래스 창이 항상 위에 떠 있어 진료 화면과 동시에 봅니다. 위치·투명도·레이아웃을 자유롭게 조절."
           />
         </div>
       </section>

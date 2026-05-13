@@ -31,26 +31,13 @@ export default function GuidePage() {
 
         <Step
           n={2}
-          title="전사(STT) 공급자 선택"
+          title="전사 방식 선택"
           body={
             <>
-              Dock 의 <Pill>⚙ Transcribe Provider</Pill> 아이콘 → 공급자 선택.
-              <ul className="ml-5 mt-3 list-disc space-y-1 text-sm text-foreground/70">
-                <li>
-                  <b>Gemini (청크)</b> — 발화 후 1–2 초 지연. 기본값.
-                </li>
-                <li>
-                  <b>OpenAI Realtime (실시간)</b> — partial 즉시 표시. 정확도
-                  높음.
-                </li>
-                <li>
-                  <b>CLOVA CSR (청크)</b> — 한국어 단문.
-                </li>
-                <li>
-                  <b>CLOVA Speech Streaming (실시간)</b> — 한국어 장문 실시간.
-                  권장.
-                </li>
-              </ul>
+              Dock 의 <Pill>⚙ 슬라이더</Pill> 아이콘 → 환경에 맞는 전사 방식 선택.
+              실시간 모드는 말하는 도중 자막이 따라오고, 청크 모드는 발화가 끝난
+              뒤 1–2 초 안에 자막이 표시됩니다. 한국어 진료에는 한국어 실시간
+              모드를 권장합니다.
             </>
           }
         />
