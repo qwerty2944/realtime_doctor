@@ -17,7 +17,7 @@ export default function InstallPage() {
 
       <section className="mx-auto max-w-3xl px-6 py-16">
         <p className="text-xs font-semibold uppercase tracking-wider text-accent">
-          DOWNLOAD · v{VERSION}
+          다운로드 · v{VERSION}
         </p>
         <h1 className="mt-2 text-4xl font-bold tracking-tight">설치</h1>
         <p className="mt-3 text-sm text-foreground/70">

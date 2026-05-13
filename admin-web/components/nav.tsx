@@ -18,8 +18,8 @@ export function Nav({
     <nav className="border-b border-border bg-card/60 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3">
         <Link href="/admin" className="text-sm font-semibold">
-          Realtime Doctor{' '}
-          {isAdmin && <span className="text-accent">Admin</span>}
+          리얼타임 닥터{' '}
+          {isAdmin && <span className="text-accent">어드민</span>}
         </Link>
         <div className="flex flex-1 gap-4">
           {links.map((l) => (

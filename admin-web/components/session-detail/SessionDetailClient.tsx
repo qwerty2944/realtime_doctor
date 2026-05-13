@@ -168,6 +168,7 @@ export function SessionDetailClient(props: SessionDetailProps) {
         )}
         {tab === 'transcript' && (
           <TranscriptPanel
+            sessionId={session.id}
             chunks={chunks}
             chunkAudioUrls={chunkAudioUrls}
             onSeek={audioUrl ? seekTo : null}

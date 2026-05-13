@@ -59,12 +59,12 @@ function SummaryCards({ rows }: { rows: SummaryRow[] }) {
 
 function SummaryGrid({ s }: { s: SummaryRow }) {
   const rows: [string, string][] = [
-    ['주호소 (CC)', s.chief_complaint],
-    ['현병력 (HPI)', s.history_of_present_illness],
+    ['주호소', s.chief_complaint],
+    ['현병력', s.history_of_present_illness],
     ['관련 소견', s.pertinent_findings],
     ['검사·약물 언급', s.investigations_mentioned],
-    ['임상 인상 (Impression)', s.clinical_impression],
-    ['계획 (Plan)', s.plan]
+    ['임상 인상', s.clinical_impression],
+    ['계획', s.plan]
   ];
   return (
     <div className="mt-3 space-y-3 text-sm">

@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { ClipboardCopy, Download, Search } from 'lucide-react';
+import { useMemo, useState, useTransition } from 'react';
+import { ArrowLeftRight, ClipboardCopy, Download, Search } from 'lucide-react';
 import { fmtTime } from '@/lib/format';
 import {
   copyMarkdown,
@@ -9,9 +9,17 @@ import {
   transcriptToMarkdown,
   type ChunkLike
 } from '@/lib/exports';
+import { relabelChunkAction } from '@/app/admin/users/[id]/sessions/[sessionId]/actions';
 
 type Speaker = 'doctor' | 'patient' | 'unknown';
 const SPEAKERS: Speaker[] = ['doctor', 'patient', 'unknown'];
+
+function nextSpeaker(s: Speaker): Speaker {
+  // 토글: 의사 ↔ 환자, 미확인은 의사로 시작
+  if (s === 'doctor') return 'patient';
+  if (s === 'patient') return 'doctor';
+  return 'doctor';
+}
 
 const SPEAKER_LABEL: Record<Speaker, string> = {
   doctor: '의사',
@@ -31,22 +39,69 @@ interface ChunkRow extends ChunkLike {
 }
 
 export function TranscriptPanel({
-  chunks,
+  sessionId,
+  chunks: initialChunks,
   chunkAudioUrls,
   onSeek,
   truncated
 }: {
+  sessionId: string;
   chunks: ChunkRow[];
   chunkAudioUrls: Record<string, string>;
   onSeek: ((timestampMs: number) => void) | null;
   truncated: boolean;
 }) {
+  const [chunks, setChunks] = useState(initialChunks);
   const [q, setQ] = useState('');
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [, startTransition] = useTransition();
   const [enabled, setEnabled] = useState<Record<Speaker, boolean>>({
     doctor: true,
     patient: true,
     unknown: true
   });
+
+  const swapSpeaker = (rowId: string) => {
+    setChunks((prev) => {
+      const next = prev.map((c) => {
+        if (c.id !== rowId) return c;
+        const cur = (SPEAKERS.includes(c.speaker as Speaker) ? c.speaker : 'unknown') as Speaker;
+        return { ...c, speaker: nextSpeaker(cur) };
+      });
+      const after = next.find((c) => c.id === rowId);
+      if (!after) return prev;
+      setBusyIds((b) => new Set(b).add(rowId));
+      startTransition(async () => {
+        const res = await relabelChunkAction({
+          sessionId,
+          chunkRowId: rowId,
+          speaker: after.speaker as Speaker
+        });
+        setBusyIds((b) => {
+          const n = new Set(b);
+          n.delete(rowId);
+          return n;
+        });
+        if (!res.ok) {
+          // revert on failure
+          setChunks((p) =>
+            p.map((c) =>
+              c.id === rowId
+                ? {
+                    ...c,
+                    speaker: (SPEAKERS.includes(prev.find((x) => x.id === rowId)?.speaker as Speaker)
+                      ? prev.find((x) => x.id === rowId)!.speaker
+                      : 'unknown')
+                  }
+                : c
+            )
+          );
+          alert(`화자 변경 실패: ${res.error ?? '알 수 없는 오류'}`);
+        }
+      });
+      return next;
+    });
+  };
 
   const counts = useMemo(() => {
     const c: Record<Speaker, number> = { doctor: 0, patient: 0, unknown: 0 };
@@ -139,6 +194,7 @@ export function TranscriptPanel({
             ? c.speaker
             : 'unknown') as Speaker;
           const chunkUrl = c.audio_path ? chunkAudioUrls[c.audio_path] ?? null : null;
+          const busy = busyIds.has(c.id);
           return (
             <li
               key={c.id}
@@ -148,6 +204,14 @@ export function TranscriptPanel({
                 <span className={`rounded px-1.5 py-0.5 ${SPEAKER_TONE[sp].split(' ')[0]} ${SPEAKER_TONE[sp].split(' ')[1]}`}>
                   {SPEAKER_LABEL[sp]}
                 </span>
+                <button
+                  onClick={() => swapSpeaker(c.id)}
+                  disabled={busy}
+                  title="화자 바꾸기 (의사 ↔ 환자)"
+                  className="rounded p-0.5 text-foreground/40 hover:text-foreground disabled:opacity-40"
+                >
+                  <ArrowLeftRight className="h-3 w-3" />
+                </button>
                 {onSeek ? (
                   <button
                     onClick={() => onSeek(c.timestamp_ms)}

@@ -10,7 +10,7 @@ export default function GuidePage() {
 
       <section className="mx-auto max-w-3xl px-6 py-16">
         <p className="text-xs font-semibold uppercase tracking-wider text-accent">
-          USER GUIDE
+          사용자 가이드
         </p>
         <h1 className="mt-2 text-4xl font-bold tracking-tight">사용법</h1>
         <p className="mt-3 text-sm text-foreground/70">
@@ -22,7 +22,7 @@ export default function GuidePage() {
           title="회원가입 / 로그인"
           body={
             <>
-              앱 실행 후 Dock 의 <Pill>👤 계정</Pill> 아이콘 클릭 → 회원가입 또는
+              앱 실행 후 상단 막대의 <Pill>👤 계정</Pill> 아이콘 클릭 → 회원가입 또는
               로그인. 첫 가입 시 비밀번호 6자 이상. 로그인 전에는 다른 6 개 창이
               표시되지 않습니다.
             </>
@@ -34,7 +34,7 @@ export default function GuidePage() {
           title="전사 방식 선택"
           body={
             <>
-              Dock 의 <Pill>⚙ 슬라이더</Pill> 아이콘 → 환경에 맞는 전사 방식 선택.
+              상단 막대의 <Pill>⚙ 설정</Pill> 아이콘 → 환경에 맞는 전사 방식 선택.
               실시간 모드는 말하는 도중 자막이 따라오고, 청크 모드는 발화가 끝난
               뒤 1–2 초 안에 자막이 표시됩니다. 한국어 진료에는 한국어 실시간
               모드를 권장합니다.
@@ -47,7 +47,7 @@ export default function GuidePage() {
           title="진료 시작"
           body={
             <>
-              Transcript 창 헤더의 <Pill>🎙 시작</Pill> 버튼 → 마이크가 켜지고
+              전사 창 헤더의 <Pill>🎙 시작</Pill> 버튼 → 마이크가 켜지고
               발화가 누적됩니다. 발화가 끝나면 자동으로 의사/환자가 분류되고,
               감별진단·의학용어·다음 질문이 옆 창들에 갱신됩니다.
             </>
@@ -60,7 +60,7 @@ export default function GuidePage() {
           body={
             <>
               잘못 분류된 발화의 <Pill>의사</Pill> / <Pill>환자</Pill> 칩을
-              클릭하면 즉시 토글됩니다. Transcript 헤더의 <Pill>↔</Pill> 버튼은
+              클릭하면 즉시 토글됩니다. 전사 헤더의 <Pill>↔</Pill> 버튼은
               전체 의사 ↔ 환자 일괄 교체.
             </>
           }
@@ -71,12 +71,12 @@ export default function GuidePage() {
           title="요약 · 딕테이션 생성"
           body={
             <>
-              Summary 창의 <Pill>생성</Pill> 버튼 → 6 필드 임상 노트 (CC / HPI /
-              소견 / 검사·약물 / Impression / Plan).
+              요약 창의 <Pill>생성</Pill> 버튼 → 6 필드 임상 노트 (주호소 / 현병력 /
+              관련 소견 / 검사·약물 / 임상 인상 / 계획).
               <br />
-              Dictation 창의 템플릿 선택 (SOAP / APSO / H&P / Narrative) →{' '}
+              받아쓰기 창의 템플릿 선택 (SOAP / APSO / H&P / 서술형) →{' '}
               <Pill>생성</Pill>. 결과 인라인 편집 · 우측 상단 <Pill>📋</Pill> 로
-              markdown 복사.
+              마크다운 복사.
             </>
           }
         />
