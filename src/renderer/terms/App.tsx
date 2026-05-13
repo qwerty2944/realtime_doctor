@@ -22,6 +22,7 @@ export default function TermsApp() {
   return (
     <OverlayShell
       title={t('window.terms')}
+      shortcutId="toggleTerms"
       badge={
         <Badge variant="outline" className="gap-1">
           <BookOpen className="h-2.5 w-2.5" />

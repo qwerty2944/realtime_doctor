@@ -36,12 +36,20 @@ export async function startStreamSession(
   stream.getAudioTracks().forEach((t) => pc.addTrack(t, stream));
 
   const dc = pc.createDataChannel('oai-events');
+  // 서버 VAD 가 발화 시작을 감지한 적이 있는지 추적 — stop 시 commit 결정에 사용.
+  let hasReceivedSpeech = false;
   dc.addEventListener('message', (ev: MessageEvent<string>) => {
     try {
       const event = JSON.parse(ev.data) as RealtimeEvent;
       switch (event.type) {
+        case 'input_audio_buffer.speech_started':
         case 'conversation.item.input_audio_transcription.delta':
-          if (event.item_id && typeof event.delta === 'string') {
+          hasReceivedSpeech = true;
+          if (
+            event.type === 'conversation.item.input_audio_transcription.delta' &&
+            event.item_id &&
+            typeof event.delta === 'string'
+          ) {
             cb.onDelta(event.item_id, event.delta);
           }
           break;
@@ -50,13 +58,20 @@ export async function startStreamSession(
             cb.onCompleted(event.item_id, event.transcript);
           }
           break;
-        case 'error':
+        case 'error': {
+          // empty-buffer 에러는 무시 — 사용자가 발화 없이 정지했을 때 흔히 발생.
+          const errObj =
+            event.error && typeof event.error === 'object'
+              ? (event.error as { code?: string })
+              : null;
+          if (errObj?.code === 'input_audio_buffer_commit_empty') break;
           cb.onError(
             event.error instanceof Object
               ? JSON.stringify(event.error)
               : String(event.error ?? event)
           );
           break;
+        }
       }
     } catch (err) {
       console.warn('[stream] failed to parse event', err);
@@ -93,11 +108,14 @@ export async function startStreamSession(
       } catch {
         /* ignore */
       }
-      // Nudge the server to commit any buffered input so the tail isn't lost.
-      try {
-        dc.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
-      } catch {
-        /* ignore */
+      // 사용자가 한 번이라도 발화한 경우에만 commit. 그렇지 않으면 OpenAI 가
+      // input_audio_buffer_commit_empty (buffer too small) 에러 반환.
+      if (hasReceivedSpeech) {
+        try {
+          dc.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+        } catch {
+          /* ignore */
+        }
       }
       // Keep the peer connection alive briefly so the final completion event
       // can arrive before we close.

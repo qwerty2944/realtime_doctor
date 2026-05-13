@@ -135,6 +135,7 @@ export default function DockApp() {
     SHORTCUT_DEFAULTS
   );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [s, l, d, a, c, sc, lang] = await Promise.all([
@@ -169,11 +170,13 @@ export default function DockApp() {
     });
     const offShortcuts = window.api.shortcuts.onChange((map) => setShortcuts(map));
     const offLang = window.api.language.onChange((l) => setLanguageState(l));
+    const offFocus = window.api.onWindowFocusChange((key) => setFocusedKey(key));
     return () => {
       offWindows();
       offAuth();
       offShortcuts();
       offLang();
+      offFocus();
     };
   }, [refresh]);
 
@@ -187,17 +190,17 @@ export default function DockApp() {
   const handleSignIn = async () => {
     setAuthError(null);
     if (!emailInput.trim()) {
-      setAuthError('이메일을 입력하세요.');
+      setAuthError(t('auth.errorEmailRequired'));
       return;
     }
     if (!pwInput) {
-      setAuthError('비밀번호를 입력하세요.');
+      setAuthError(t('auth.errorPasswordRequired'));
       return;
     }
     setAuthBusy(true);
     try {
       const res = await window.api.auth.signIn(emailInput.trim(), pwInput);
-      if (!res.ok) setAuthError(res.error ?? '로그인 실패');
+      if (!res.ok) setAuthError(res.error ?? t('auth.errorLoginFailed'));
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -208,21 +211,21 @@ export default function DockApp() {
   const handleSignUp = async () => {
     setAuthError(null);
     if (!emailInput.trim()) {
-      setAuthError('이메일을 입력하세요.');
+      setAuthError(t('auth.errorEmailRequired'));
       return;
     }
     if (pwInput.length < 6) {
-      setAuthError('비밀번호는 6자 이상이어야 합니다.');
+      setAuthError(t('auth.errorPasswordTooShort'));
       return;
     }
     if (pwInput !== pwConfirm) {
-      setAuthError('비밀번호 확인이 일치하지 않습니다.');
+      setAuthError(t('auth.errorPasswordMismatch'));
       return;
     }
     setAuthBusy(true);
     try {
       const res = await window.api.auth.signUp(emailInput.trim(), pwInput);
-      if (!res.ok) setAuthError(res.error ?? '회원가입 실패');
+      if (!res.ok) setAuthError(res.error ?? t('auth.errorSignupFailed'));
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -335,6 +338,7 @@ export default function DockApp() {
             const m = META[k];
             const Icon = m.Icon;
             const minimized = s.minimized || !s.visible;
+            const isFocused = focusedKey === k;
             const accel = shortcuts[TOGGLE_ID[k]];
             return (
               <Tooltip key={k}>
@@ -343,10 +347,11 @@ export default function DockApp() {
                     type="button"
                     onClick={() => window.api.toggleWindow(k)}
                     className={cn(
-                      'flex h-9 w-9 items-center justify-center rounded-md border transition-colors',
+                      'dock-button flex h-9 w-9 items-center justify-center rounded-md border transition-all',
                       minimized
                         ? 'border-white/10 bg-white/5 text-muted-foreground hover:bg-white/10'
-                        : 'border-primary/40 bg-primary/30 text-primary-foreground hover:bg-primary/40'
+                        : 'dock-button-visible',
+                      isFocused && 'dock-button-focused'
                     )}
                   >
                     <Icon className="h-4 w-4" />
@@ -369,8 +374,11 @@ export default function DockApp() {
         <Dialog
           open={accountOpen}
           onOpenChange={(next) => {
-            // 미로그인일 때는 로그인 게이트라 닫지 못함.
-            if (!next && authState.status === 'signed-out') return;
+            // 미로그인일 때 X 누르면 LanguagePicker 로 돌아간다.
+            if (!next && authState.status === 'signed-out') {
+              void window.api.language.clear();
+              return;
+            }
             setAccountOpen(next);
           }}
         >
@@ -379,7 +387,7 @@ export default function DockApp() {
               size="icon"
               variant="outline"
               className="h-9 w-9 shrink-0"
-              title="계정"
+              title={t('dock.account')}
             >
               <UserRound className="h-4 w-4" />
             </Button>
@@ -388,15 +396,15 @@ export default function DockApp() {
             <DialogHeader>
               <DialogTitle>
                 {authState.status === 'signed-in'
-                  ? '계정'
+                  ? t('dock.accountTitleSignedIn')
                   : authMode === 'login'
-                    ? '로그인'
-                    : '회원가입'}
+                    ? t('dock.signIn')
+                    : t('dock.signUp')}
               </DialogTitle>
               <DialogDescription>
                 {authState.status === 'signed-in'
-                  ? '계정 정보와 클라우드 동기화 설정.'
-                  : '로그인하면 진료 기록을 DB에 저장합니다.'}
+                  ? t('dock.accountDescSignedIn')
+                  : t('dock.accountDescSignedOut')}
               </DialogDescription>
             </DialogHeader>
 
@@ -423,7 +431,7 @@ export default function DockApp() {
                         : 'text-muted-foreground hover:text-foreground'
                     )}
                   >
-                    로그인
+                    {t('dock.signIn')}
                   </button>
                   <button
                     type="button"
@@ -438,13 +446,13 @@ export default function DockApp() {
                         : 'text-muted-foreground hover:text-foreground'
                     )}
                   >
-                    회원가입
+                    {t('dock.signUp')}
                   </button>
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    이메일
+                    {t('dock.email')}
                   </label>
                   <Input
                     type="email"
@@ -458,7 +466,7 @@ export default function DockApp() {
 
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    비밀번호
+                    {t('dock.password')}
                   </label>
                   <div className="relative">
                     <Input
@@ -468,7 +476,7 @@ export default function DockApp() {
                       }
                       value={pwInput}
                       onChange={(e) => setPwInput(e.target.value)}
-                      placeholder="6자 이상"
+                      placeholder={t('dock.passwordPlaceholderSignup')}
                       className="pr-9"
                     />
                     <button
@@ -476,7 +484,9 @@ export default function DockApp() {
                       onClick={() => setShowPw((v) => !v)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       tabIndex={-1}
-                      aria-label={showPw ? '비밀번호 숨기기' : '비밀번호 보기'}
+                      aria-label={
+                        showPw ? t('auth.hidePassword') : t('auth.showPassword')
+                      }
                     >
                       {showPw ? (
                         <EyeOff className="h-4 w-4" />
@@ -490,7 +500,7 @@ export default function DockApp() {
                 {authMode === 'signup' && (
                   <div className="space-y-2">
                     <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      비밀번호 확인
+                      {t('dock.passwordConfirm')}
                     </label>
                     <div className="relative">
                       <Input
@@ -498,7 +508,7 @@ export default function DockApp() {
                         autoComplete="new-password"
                         value={pwConfirm}
                         onChange={(e) => setPwConfirm(e.target.value)}
-                        placeholder="다시 입력"
+                        placeholder={t('dock.passwordPlaceholderConfirm')}
                         className="pr-9"
                       />
                       <button
@@ -506,7 +516,9 @@ export default function DockApp() {
                         onClick={() => setShowPw((v) => !v)}
                         className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         tabIndex={-1}
-                        aria-label={showPw ? '비밀번호 숨기기' : '비밀번호 보기'}
+                        aria-label={
+                          showPw ? t('auth.hidePassword') : t('auth.showPassword')
+                        }
                       >
                         {showPw ? (
                           <EyeOff className="h-4 w-4" />
@@ -526,10 +538,10 @@ export default function DockApp() {
 
                 <Button type="submit" className="w-full" disabled={authBusy}>
                   {authBusy
-                    ? '처리 중…'
+                    ? t('auth.processing')
                     : authMode === 'login'
-                      ? '로그인'
-                      : '회원가입'}
+                      ? t('dock.signIn')
+                      : t('dock.signUp')}
                 </Button>
               </form>
             )}
@@ -547,7 +559,7 @@ export default function DockApp() {
                     size="sm"
                     onClick={handleSignOut}
                     disabled={authBusy}
-                    title="로그아웃"
+                    title={t('dock.signOutTooltip')}
                   >
                     <LogOut className="h-3.5 w-3.5" />
                   </Button>
@@ -556,9 +568,9 @@ export default function DockApp() {
                 <div className="space-y-3 rounded-md border border-white/10 bg-white/5 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-0.5">
-                      <div className="text-sm font-medium">클라우드 동기화</div>
+                      <div className="text-sm font-medium">{t('dock.cloudSyncTitle')}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        세션·분석·요약·딕테이션을 DB에 저장합니다. 기본 켜짐.
+                        {t('dock.cloudSyncDesc')}
                       </div>
                     </div>
                     <Switch
@@ -574,10 +586,10 @@ export default function DockApp() {
                           !cloud.enabled && 'text-muted-foreground'
                         )}
                       >
-                        전사 원문 저장
+                        {t('dock.saveTranscriptsTitle')}
                       </div>
                       <div className="text-[11px] text-yellow-300">
-                        원본 대화가 DB에 저장됩니다. 환자 식별 정보(PHI) 포함 가능.
+                        {t('dock.saveTranscriptsDesc')}
                       </div>
                     </div>
                     <Switch
@@ -594,10 +606,10 @@ export default function DockApp() {
                           !cloud.enabled && 'text-muted-foreground'
                         )}
                       >
-                        음성 파일 업로드
+                        {t('dock.saveAudioTitle')}
                       </div>
                       <div className="text-[11px] text-yellow-300">
-                        진료 중 녹음된 음성 원본이 Supabase Storage에 저장됩니다.
+                        {t('dock.saveAudioDesc')}
                       </div>
                     </div>
                     <Switch

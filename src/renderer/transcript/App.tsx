@@ -20,12 +20,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import type {
-  SessionSummary,
-  Speaker,
-  TranscribeProviderId,
-  TranscribeProviderInfo
-} from '../../shared/types';
+import type { DictationTemplate, SessionSummary, Speaker } from '../../shared/types';
 import { OverlayShell } from '../shared/OverlayShell';
 import { useLang, useT } from '../shared/i18n';
 import { useRealtime } from './useRealtime';
@@ -91,33 +86,29 @@ export default function TranscriptApp() {
   } = useRealtime();
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [providerId, setProviderId] = useState<TranscribeProviderId | null>(null);
-  const [providerInfos, setProviderInfos] = useState<TranscribeProviderInfo[]>([]);
   const [loadOpen, setLoadOpen] = useState(false);
   const [sessionList, setSessionList] = useState<SessionSummary[] | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const [id, list] = await Promise.all([
-        window.api.getTranscribeProvider(),
-        window.api.listTranscribeProviders()
+  // 정지 시 자동으로 분석 / 요약 / 받아쓰기 트리거 — 각자 pending 브로드캐스트로
+  // 모든 창의 spinner 가 즉시 돌도록.
+  const stopAndAnalyzeAll = async () => {
+    stop();
+    if (utterances.length === 0) return;
+    try {
+      const template: DictationTemplate =
+        (await window.api.getLastDictationTemplate()) ?? 'soap';
+      // fire-and-await in parallel. 각 IPC 핸들러가 pending 을 먼저 브로드캐스트해서
+      // 각 윈도우의 spinner 가 즉시 돈다.
+      await Promise.allSettled([
+        window.api.requestAnalysis(),
+        window.api.requestSummary(),
+        window.api.requestDictation(template)
       ]);
-      if (cancelled) return;
-      setProviderId(id);
-      setProviderInfos(list);
-    })();
-    const off = window.api.onTranscribeProviderChange((id) => {
-      setProviderId(id);
-    });
-    return () => {
-      cancelled = true;
-      off();
-    };
-  }, []);
-
-  const currentProvider = providerInfos.find((p) => p.id === providerId);
+    } catch {
+      // 개별 실패는 각 창의 상태 머신이 처리.
+    }
+  };
 
   const openLoadDialog = async () => {
     setLoadOpen(true);
@@ -145,23 +136,14 @@ export default function TranscriptApp() {
   return (
     <OverlayShell
       title={t('window.transcript')}
-      badge={
-        currentProvider ? (
-          <span
-            className="rounded bg-white/10 px-1 py-px text-[8px] font-medium text-foreground/60"
-            title={`${currentProvider.label} · ${currentProvider.mode === 'stream' ? t('transcript.modeStream') : t('transcript.modeChunk')}`}
-          >
-            {currentProvider.label.split(' ')[0]}
-          </span>
-        ) : null
-      }
+      shortcutId="toggleTranscript"
       actions={
         <div className="flex items-center gap-1" data-no-drag>
           <Button
             size="sm"
             variant={active ? 'destructive' : 'default'}
             disabled={isPending}
-            onClick={() => (active ? stop() : start())}
+            onClick={() => (active ? void stopAndAnalyzeAll() : start())}
           >
             {active ? <MicOff /> : <Mic />}
             {active ? t('common.stop') : t('common.start')}
@@ -239,8 +221,8 @@ export default function TranscriptApp() {
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{started}</span>
                         <span className="text-[10px] text-muted-foreground">
-                          {s.chunk_count} 발화 ·{' '}
-                          {s.transcribe_provider ?? '—'}
+                          {s.chunk_count}
+                          {lang === 'en' ? ' utterances' : ' 발화'}
                         </span>
                       </div>
                       {s.preview && (

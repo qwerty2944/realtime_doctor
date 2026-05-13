@@ -76,16 +76,19 @@ const BUILTINS: Record<string, BuiltinPreset> = {
     }
   },
   'wide-grid': {
-    description: '상단 2x3 격자',
+    description: '상단 2×3 격자 + Dock 중앙 하단 (기본)',
     compute: () => {
       const wa = screen.getPrimaryDisplay().workArea;
       const cols = 3;
       const rows = 2;
       const margin = 16;
+      const dockHeight = HEIGHTS.dock;
+      const dockWidth = 460;
+      const dockGap = 12;
+      // 위 격자는 dock 자리 + gap 을 빼고 계산.
+      const gridAvailH = wa.height - margin * (rows + 1) - dockHeight - dockGap;
       const cellW = Math.floor((wa.width - margin * (cols + 1)) / cols);
-      const cellH = Math.floor(
-        Math.min(360, (wa.height - margin * (rows + 1)) / rows)
-      );
+      const cellH = Math.floor(Math.min(360, gridAvailH / rows));
       const result: Layout = {};
       KEYS.forEach((k, i) => {
         const c = i % cols;
@@ -97,6 +100,13 @@ const BUILTINS: Record<string, BuiltinPreset> = {
           height: cellH
         };
       });
+      // Dock 은 가운데 아래.
+      result.dock = {
+        x: wa.x + Math.floor((wa.width - dockWidth) / 2),
+        y: wa.y + wa.height - dockHeight - margin,
+        width: dockWidth,
+        height: dockHeight
+      };
       return result;
     }
   },

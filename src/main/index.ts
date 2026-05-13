@@ -65,6 +65,7 @@ import {
   transcribeAudio
 } from './transcribers.js';
 import {
+  clearLanguage,
   getCloudSync,
   getLanguage,
   getLastDictationTemplate,
@@ -150,6 +151,7 @@ function broadcast(channel: string, payload: unknown): void {
 
 analyzer.on((result: AnalysisResult) => {
   broadcast(IPC.AnalysisUpdate, result);
+  broadcast(IPC.AnalysisPending, false);
   void upsertAnalysis(result);
 });
 
@@ -157,7 +159,19 @@ ipcMain.handle(
   IPC.TranscribeAudio,
   async (_event, payload: { id: string; base64Wav: string }) => {
     if (!payload?.base64Wav) return '';
+    const before = getTranscribeProvider();
     const text = await transcribeAudio(payload.base64Wav);
+    const after = getTranscribeProvider();
+    if (before !== after) {
+      // transcribeAudio 가 stream-only provider 를 chunk 호환 provider 로 강등.
+      // 다른 창의 UI 상태를 동기화하고 fallback 배너를 띄운다.
+      broadcast(IPC.ProviderChanged, after);
+      broadcast(IPC.TranscribeFallback, {
+        reason: `${before} stream session failed before producing transcripts — switched to ${after} chunk mode`,
+        from: 'realtime',
+        to: `${after}-chunk`
+      });
+    }
     if (!text) return '';
     const chunk: TranscriptChunk = {
       id: payload.id,
@@ -264,6 +278,7 @@ ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate)
 ipcMain.handle('dictation:get-last-template', () => getLastDictationTemplate());
 
 ipcMain.handle(IPC.AnalysisRequest, () => {
+  broadcast(IPC.AnalysisPending, true);
   analyzer.runNow();
   return { ok: true };
 });
@@ -454,6 +469,12 @@ ipcMain.handle(IPC.LanguageSet, (_event, lang: Language) => {
   broadcast(IPC.LanguageChanged, lang);
   broadcast(IPC.ProviderChanged, provider);
   return { ok: true, language: lang, provider };
+});
+ipcMain.handle(IPC.LanguageClear, () => {
+  clearLanguage();
+  // LanguagePicker 로 돌아가도록 null 브로드캐스트.
+  broadcast(IPC.LanguageChanged, null);
+  return { ok: true };
 });
 
 ipcMain.handle(IPC.CloudSyncGet, () => getCloudSync());
@@ -821,14 +842,26 @@ app.whenReady().then(() => {
     win.on('restore', () => broadcastWindowState());
     win.on('show', () => broadcastWindowState());
     win.on('hide', () => broadcastWindowState());
+    win.on('focus', () => broadcast(IPC.WindowFocusChange, spec.key));
+    win.on('blur', () => {
+      // 다음 윈도우가 곧 focus 잡지 않으면 null 로 클리어.
+      setTimeout(() => {
+        const anyFocused = [...windows.values()].some(
+          (w) => !w.isDestroyed() && w.isFocused()
+        );
+        if (!anyFocused) broadcast(IPC.WindowFocusChange, null);
+      }, 30);
+    });
   }
 
-  // Only auto-apply a layout if the user has explicitly set one; otherwise
-  // rely on per-window saved bounds so dragged positions persist.
+  // 기본 레이아웃 — 사용자가 명시한 defaultLayout 이 있으면 그것을, 없으면
+  // 'wide-grid' (2×3 격자 + Dock 중앙 하단) 를 적용. 격자 + dock 을 함께
+  // 재배치하므로 시작 화면이 일관됨.
   const explicitDefault = store.get('defaultLayout');
-  if (explicitDefault) {
-    applyLayout(explicitDefault, windows as Map<WindowKey, BrowserWindow>);
-  }
+  applyLayout(
+    explicitDefault ?? 'wide-grid',
+    windows as Map<WindowKey, BrowserWindow>
+  );
 
   setShortcutDispatch(dispatchShortcut);
 

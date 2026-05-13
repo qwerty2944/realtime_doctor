@@ -29,6 +29,7 @@ export default function DiagnosisApp() {
   return (
     <OverlayShell
       title={t('window.diagnosis')}
+      shortcutId="toggleDiagnosis"
       badge={
         <Badge variant="outline" className="gap-1">
           <Activity className="h-2.5 w-2.5" />

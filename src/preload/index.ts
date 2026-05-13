@@ -95,6 +95,11 @@ const api = {
   setOpacityOf(key: string, value: number): void {
     ipcRenderer.send('windows:set-opacity-of', key, value);
   },
+  onWindowFocusChange(handler: (key: string | null) => void): () => void {
+    const listener = (_e: unknown, key: string | null) => handler(key);
+    ipcRenderer.on(IPC.WindowFocusChange, listener);
+    return () => ipcRenderer.removeListener(IPC.WindowFocusChange, listener);
+  },
   onWindowsStateChange(
     handler: (
       payload: Array<{
@@ -123,6 +128,11 @@ const api = {
     const listener = (_e: unknown, payload: AnalysisResult) => handler(payload);
     ipcRenderer.on(IPC.AnalysisUpdate, listener);
     return () => ipcRenderer.removeListener(IPC.AnalysisUpdate, listener);
+  },
+  onAnalysisPending(handler: (pending: boolean) => void): () => void {
+    const listener = (_e: unknown, pending: boolean) => handler(pending);
+    ipcRenderer.on(IPC.AnalysisPending, listener);
+    return () => ipcRenderer.removeListener(IPC.AnalysisPending, listener);
   },
   requestAnalysis(): Promise<{ ok: boolean }> {
     return ipcRenderer.invoke(IPC.AnalysisRequest);
@@ -297,8 +307,11 @@ const api = {
     ): Promise<{ ok: boolean; language: Language; provider: TranscribeProviderId }> {
       return ipcRenderer.invoke(IPC.LanguageSet, lang);
     },
-    onChange(handler: (lang: Language) => void): () => void {
-      const listener = (_e: unknown, lang: Language) => handler(lang);
+    clear(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke(IPC.LanguageClear);
+    },
+    onChange(handler: (lang: Language | null) => void): () => void {
+      const listener = (_e: unknown, lang: Language | null) => handler(lang);
       ipcRenderer.on(IPC.LanguageChanged, listener);
       return () => ipcRenderer.removeListener(IPC.LanguageChanged, listener);
     }

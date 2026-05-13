@@ -31,7 +31,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         if (!cancelled && l) setLang(l);
       })
       .catch(() => {});
-    const off = window.api.language.onChange((l) => setLang(l));
+    const off = window.api.language.onChange((l) => setLang(l ?? 'ko'));
     return () => {
       cancelled = true;
       off();

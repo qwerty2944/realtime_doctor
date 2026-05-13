@@ -22,6 +22,7 @@ export default function QuestionsApp() {
   return (
     <OverlayShell
       title={t('window.questions')}
+      shortcutId="toggleQuestions"
       badge={
         <Badge variant="outline" className="gap-1">
           <HelpCircle className="h-2.5 w-2.5" />

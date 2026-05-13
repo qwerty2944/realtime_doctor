@@ -57,6 +57,7 @@ export default function SummaryApp() {
   return (
     <OverlayShell
       title={t('window.summary')}
+      shortcutId="toggleSummary"
       badge={
         result ? (
           <Badge variant="outline" className="gap-1 font-mono tabular-nums">

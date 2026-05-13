@@ -74,6 +74,41 @@
 @layer components {
   .overlay-shell {
     @apply flex h-full w-full flex-col rounded-2xl border border-white/10 bg-card/70 text-card-foreground backdrop-blur-2xl backdrop-saturate-150 shadow-xl shadow-black/30 overflow-hidden;
+    transition: box-shadow 180ms ease, border-color 180ms ease;
+  }
+
+  /* 포어그라운드 (focused) 창 — 형광 네온 글로우 */
+  .overlay-focused {
+    border-color: rgba(74, 222, 222, 0.85);
+    box-shadow:
+      0 0 0 1px rgba(74, 222, 222, 0.65),
+      0 0 14px rgba(74, 222, 222, 0.55),
+      0 0 32px rgba(74, 222, 222, 0.35),
+      0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Dock 의 보이는 윈도우 버튼 — 은은한 형광 글로우 */
+  .dock-button-visible {
+    color: hsl(var(--accent));
+    border-color: rgba(74, 222, 222, 0.6);
+    background-color: rgba(74, 222, 222, 0.18);
+    box-shadow:
+      0 0 0 1px rgba(74, 222, 222, 0.35),
+      0 0 8px rgba(74, 222, 222, 0.35);
+  }
+  .dock-button-visible:hover {
+    background-color: rgba(74, 222, 222, 0.28);
+  }
+
+  /* Dock 의 포커스된 윈도우 버튼 — 더 강한 네온 (포어그라운드) */
+  .dock-button-focused {
+    color: rgb(180, 255, 240);
+    border-color: rgba(74, 222, 222, 1);
+    background-color: rgba(74, 222, 222, 0.32);
+    box-shadow:
+      0 0 0 1px rgba(74, 222, 222, 0.95),
+      0 0 12px rgba(74, 222, 222, 0.75),
+      0 0 24px rgba(74, 222, 222, 0.55);
   }
 
   .overlay-titlebar {

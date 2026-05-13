@@ -6,6 +6,7 @@ export const IPC = {
   TranscriptRelabel: 'transcript:relabel',
   AnalysisUpdate: 'analysis:update',
   AnalysisRequest: 'analysis:request',
+  AnalysisPending: 'analysis:pending',
   SummaryRequest: 'summary:request',
   SummaryUpdate: 'summary:update',
   DictationRequest: 'dictation:request',
@@ -25,6 +26,7 @@ export const IPC = {
   ClovaStreamMarkHandled: 'clova-stream:mark-handled',
   WindowToggleClickThrough: 'window:toggle-click-through',
   WindowSetAlwaysOnTop: 'window:set-always-on-top',
+  WindowFocusChange: 'window:focus-change',
   AuthSignUp: 'auth:signUp',
   AuthSignIn: 'auth:signIn',
   AuthSignOut: 'auth:signOut',
@@ -42,6 +44,7 @@ export const IPC = {
   ShortcutsChanged: 'shortcuts:changed',
   LanguageGet: 'language:get',
   LanguageSet: 'language:set',
+  LanguageClear: 'language:clear',
   LanguageChanged: 'language:changed',
   TranscribeFallback: 'transcribe:fallback'
 } as const;
@@ -75,18 +78,20 @@ export const SHORTCUT_IDS: ShortcutId[] = [
   'runDictation'
 ];
 
+// macOS 위주 디자인: Cmd 단일 모디파이어. Win/Linux 에서는 Ctrl 로 매핑되어
+// 일부 기본 단축키(Ctrl+W 닫기 등) 와 겹칠 수 있음 — 설정 UI 에서 사용자 변경 가능.
 export const SHORTCUT_DEFAULTS: Record<ShortcutId, string> = {
-  toggleAll: 'CommandOrControl+Shift+H',
-  toggleTranscript: 'CommandOrControl+Shift+1',
-  toggleDiagnosis: 'CommandOrControl+Shift+2',
-  toggleTerms: 'CommandOrControl+Shift+3',
-  toggleQuestions: 'CommandOrControl+Shift+4',
-  toggleSummary: 'CommandOrControl+Shift+5',
-  toggleDictation: 'CommandOrControl+Shift+6',
-  recordStartStop: 'CommandOrControl+Shift+R',
-  runAnalyze: 'CommandOrControl+Shift+A',
-  runSummary: 'CommandOrControl+Shift+E',
-  runDictation: 'CommandOrControl+Shift+W'
+  toggleAll: 'CommandOrControl+0',
+  toggleTranscript: 'CommandOrControl+1',
+  toggleDiagnosis: 'CommandOrControl+2',
+  toggleTerms: 'CommandOrControl+3',
+  toggleQuestions: 'CommandOrControl+4',
+  toggleSummary: 'CommandOrControl+5',
+  toggleDictation: 'CommandOrControl+6',
+  recordStartStop: 'CommandOrControl+R',
+  runAnalyze: 'CommandOrControl+A',
+  runSummary: 'CommandOrControl+E',
+  runDictation: 'CommandOrControl+D'
 };
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {

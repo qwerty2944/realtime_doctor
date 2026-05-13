@@ -10,7 +10,7 @@ import {
 import { hasClovaSpeechSecret } from './clovaStream.js';
 import { transcribeWithGemini } from './geminiTranscriber.js';
 import { mintOpenAIRealtimeSession } from './openaiStream.js';
-import { getTranscribeProvider } from './store.js';
+import { getTranscribeProvider, setTranscribeProvider } from './store.js';
 
 export function listProviders(): TranscribeProviderInfo[] {
   return [
@@ -53,11 +53,23 @@ function currentInfo(): TranscribeProviderInfo {
 }
 
 export async function transcribeAudio(base64Wav: string): Promise<string> {
-  const info = currentInfo();
+  let info = currentInfo();
+  // 렌더러가 stream 실패로 chunk fallback 으로 전환했는데 main 의 provider 가 아직
+  // stream mode 인 경우(예: openai mint 는 성공했으나 WebRTC offer 가 실패한 케이스).
+  // 여기서 자동으로 gemini chunk 로 강등해 청크 전사를 끊김 없이 이어간다.
   if (info.mode !== 'chunk') {
-    throw new Error(
-      `현재 선택된 공급자(${info.id})는 chunk 모드를 지원하지 않습니다. 스트리밍 세션을 사용하세요.`
-    );
+    const gemini = listProviders().find((p) => p.id === 'gemini');
+    if (gemini?.available) {
+      console.warn(
+        `[transcribe] provider ${info.id} is stream-only — auto-fallback to gemini chunk`
+      );
+      setTranscribeProvider('gemini');
+      info = currentInfo();
+    } else {
+      throw new Error(
+        `현재 선택된 공급자(${info.id})는 chunk 모드를 지원하지 않으며, Gemini fallback 도 사용할 수 없습니다.`
+      );
+    }
   }
   switch (info.id) {
     case 'gemini':

@@ -130,6 +130,7 @@ export default function DictationApp() {
   return (
     <OverlayShell
       title={t('window.dictation')}
+      shortcutId="toggleDictation"
       badge={
         serverResult ? (
           <Badge variant="outline" className="gap-1 font-mono tabular-nums">

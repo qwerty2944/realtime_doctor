@@ -157,3 +157,8 @@ export function getLanguage(): Language | undefined {
 export function setLanguage(lang: Language): void {
   store.set('language', lang);
 }
+
+export function clearLanguage(): void {
+  // delete 가 electron-store 의 union 시그너처와 안 맞아 빈 객체 캐스팅으로 우회.
+  (store as { delete: (key: keyof Schema) => void }).delete('language');
+}
