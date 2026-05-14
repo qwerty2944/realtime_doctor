@@ -774,6 +774,16 @@ ipcMain.on('windows:set-opacity-of', (_event, key: WindowKey, value: number) => 
   broadcastWindowState();
 });
 
+// Cmd/Ctrl 누름 상태를 모든 창의 ShortcutHint 에 동기화. 포커스된 창에서만
+// keydown/keyup 이 들어오므로, 한 창이 메인에 알리면 메인이 전 창에 재방송한다.
+let modifierHeld = false;
+ipcMain.on(IPC.ModifierHoldSet, (_event, held: boolean) => {
+  const next = !!held;
+  if (modifierHeld === next) return;
+  modifierHeld = next;
+  broadcast(IPC.ModifierHoldChanged, next);
+});
+
 function revealOverlays(): void {
   for (const key of MAIN_WINDOW_KEYS) {
     const win = windows.get(key);

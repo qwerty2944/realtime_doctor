@@ -71,22 +71,38 @@ function OpacityControl() {
 
 function ShortcutHint({ shortcutId }: { shortcutId: ShortcutId }) {
   const [accel, setAccel] = React.useState<string>(SHORTCUT_DEFAULTS[shortcutId]);
-  const [show, setShow] = React.useState(false);
+  // 포커스된 창의 로컬 키 이벤트로 잡힌 상태와, 다른 창에서 메인을 통해 받은
+  // 브로드캐스트 상태 둘 다 본다. 둘 중 하나라도 true 면 hint 를 띄운다.
+  const [localHeld, setLocalHeld] = React.useState(false);
+  const [remoteHeld, setRemoteHeld] = React.useState(false);
+  const show = localHeld || remoteHeld;
 
   React.useEffect(() => {
     void window.api.shortcuts.get().then((map) => setAccel(map[shortcutId]));
     return window.api.shortcuts.onChange((map) => setAccel(map[shortcutId]));
   }, [shortcutId]);
 
+  // 메인이 재방송하는 modifier 상태 구독 — 포커스가 다른 창에 있어도 받음.
   React.useEffect(() => {
+    return window.api.modifier.onChange(setRemoteHeld);
+  }, []);
+
+  // 이 창에서 직접 잡히는 키 이벤트 → 로컬 즉시 표시 + 메인에 알려서 전 창에 전파.
+  React.useEffect(() => {
+    const publish = (held: boolean) => {
+      setLocalHeld(held);
+      window.api.modifier.setHeld(held);
+    };
     const onKeyDown = (e: KeyboardEvent) => {
-      // Mac 의 Cmd 또는 Win/Linux 의 Ctrl 만 holding → hint 표시.
-      if (e.metaKey || e.ctrlKey) setShow(true);
+      if (e.metaKey || e.ctrlKey) publish(true);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (!e.metaKey && !e.ctrlKey) setShow(false);
+      if (!e.metaKey && !e.ctrlKey) publish(false);
     };
-    const onBlur = () => setShow(false);
+    // 포커스 잃으면 이 창 로컬은 끄지만, 메인의 hold 상태는 그대로 유지(다른 창이
+    // 아직 누르고 있을 수 있음). 새 창 keydown 이 들어오기 전까지는 remoteHeld 만
+    // 반영한다.
+    const onBlur = () => setLocalHeld(false);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);

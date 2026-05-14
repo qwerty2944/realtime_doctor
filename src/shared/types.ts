@@ -46,7 +46,9 @@ export const IPC = {
   LanguageSet: 'language:set',
   LanguageClear: 'language:clear',
   LanguageChanged: 'language:changed',
-  TranscribeFallback: 'transcribe:fallback'
+  TranscribeFallback: 'transcribe:fallback',
+  ModifierHoldSet: 'modifier:hold-set',
+  ModifierHoldChanged: 'modifier:hold-changed'
 } as const;
 
 export type Language = 'ko' | 'en';

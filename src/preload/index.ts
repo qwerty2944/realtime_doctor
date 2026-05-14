@@ -325,6 +325,16 @@ const api = {
     ) => handler(payload);
     ipcRenderer.on(IPC.TranscribeFallback, listener);
     return () => ipcRenderer.removeListener(IPC.TranscribeFallback, listener);
+  },
+  modifier: {
+    setHeld(held: boolean): void {
+      ipcRenderer.send(IPC.ModifierHoldSet, held);
+    },
+    onChange(handler: (held: boolean) => void): () => void {
+      const listener = (_e: unknown, held: boolean) => handler(held);
+      ipcRenderer.on(IPC.ModifierHoldChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.ModifierHoldChanged, listener);
+    }
   }
 };
 
