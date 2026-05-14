@@ -136,7 +136,9 @@ export function createOverlayWindow(
     }
   });
 
-  win.setAlwaysOnTop(true, 'screen-saver');
+  // Dock 은 다른 오버레이보다도 항상 위. 같은 screen-saver 레벨이라도
+  // relativeLevel 을 +1 해서 z-order 우선순위를 더 높인다.
+  win.setAlwaysOnTop(true, 'screen-saver', spec.key === 'dock' ? 1 : 0);
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   const savedOpacity = getOpacity(spec.key);

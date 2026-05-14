@@ -300,7 +300,7 @@ export default function DockApp() {
   }
 
   return (
-    <OverlayShell title="Dock">
+    <OverlayShell title="Dock" shortcutId="toggleAll">
       <div className="flex flex-wrap items-center justify-center gap-2 p-3">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -641,17 +641,13 @@ export default function DockApp() {
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel>{t('dock.languageTitle')}</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => pickLanguage('ko')}>
-              <span className="flex-1">🇰🇷 한국어 (CLOVA)</span>
+              <span className="flex-1">🇰🇷 한국어</span>
               {language === 'ko' && <Star className="h-3 w-3 text-yellow-400" />}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => pickLanguage('en')}>
-              <span className="flex-1">🇺🇸 English (OpenAI Realtime)</span>
+              <span className="flex-1">🇺🇸 English</span>
               {language === 'en' && <Star className="h-3 w-3 text-yellow-400" />}
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-              {t('dock.languageFallback')}
-            </div>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -888,9 +884,7 @@ function LanguagePicker({ onPick }: { onPick: (l: Language) => void }) {
     <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-5 bg-background p-6 text-center">
       <h1 className="text-xl font-semibold">언어를 선택하세요 / Choose language</h1>
       <p className="max-w-md text-xs text-muted-foreground">
-        한국어 → CLOVA, 영어 → OpenAI Realtime 실시간 전사.
-        <br />
-        Gemini 는 실패 시 자동 폴백으로만 사용됩니다.
+        진료 대화에 사용할 언어를 선택하세요. 나중에 Dock 에서 변경할 수 있습니다.
       </p>
       <div className="flex gap-3">
         <Button size="lg" onClick={() => onPick('ko')}>

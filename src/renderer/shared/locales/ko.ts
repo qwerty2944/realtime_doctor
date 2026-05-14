@@ -30,9 +30,9 @@ const ko = {
   'dock.shortcutsTitle': '단축키 설정',
   'dock.shortcutsHint': '전역 단축키 — 앱이 백그라운드여도 동작합니다. 행을 클릭하여 키 조합을 다시 누르세요.',
   'dock.languageTitle': '언어',
-  'dock.languageHintKo': '한국어 → CLOVA 실시간 전사를 사용합니다.',
-  'dock.languageHintEn': '영어 → OpenAI Realtime 전사를 사용합니다.',
-  'dock.languageFallback': 'Gemini 는 실시간 전사가 실패했을 때만 자동으로 사용됩니다.',
+  'dock.languageHintKo': '한국어 진료 대화 모드입니다.',
+  'dock.languageHintEn': '영어 진료 대화 모드입니다.',
+  'dock.languageFallback': '',
   'dock.layoutsTitle': '레이아웃',
   'dock.layoutSave': '현재 레이아웃 저장',
   'dock.layoutDefault': '기본으로 지정',
@@ -61,13 +61,13 @@ const ko = {
 
   // language picker (first launch)
   'picker.title': '언어를 선택하세요 / Choose language',
-  'picker.subtitle': '한국어 → CLOVA, 영어 → OpenAI Realtime. Gemini 는 실패 시 자동 폴백.',
+  'picker.subtitle': '진료 대화에 사용할 언어를 선택하세요. 나중에 Dock 에서 변경할 수 있습니다.',
   'picker.ko': '🇰🇷 한국어',
   'picker.en': '🇺🇸 English',
 
   // transcript
   'transcript.empty': '아직 발화가 없습니다.',
-  'transcript.fallbackBanner': '실시간 전사 실패 — Gemini 청크 모드로 전환되었습니다.',
+  'transcript.fallbackBanner': '실시간 전사가 일시적으로 실패해 청크 모드로 전환되었습니다.',
   'transcript.recording': '녹음 중',
   'transcript.paused': '일시정지',
   'transcript.modeStream': '실시간',

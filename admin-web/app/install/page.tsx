@@ -5,7 +5,7 @@ export const dynamic = 'force-static';
 
 const SUPABASE_PUBLIC =
   'https://yqdzxitlmtawznzwpkra.supabase.co/storage/v1/object/public/downloads';
-const VERSION = '0.5.3';
+const VERSION = '0.5.4';
 
 const MAC_DMG = `${SUPABASE_PUBLIC}/mac/Realtime-Doctor-${VERSION}-arm64.dmg`;
 const WIN_EXE = `${SUPABASE_PUBLIC}/win/Realtime-Doctor-Setup-${VERSION}.exe`;
