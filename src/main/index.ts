@@ -1,5 +1,5 @@
 import './wsPolyfill.js';
-import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, screen } from 'electron';
 
 app.setName('Realtime Doctor');
 if (process.platform === 'darwin') {
@@ -413,6 +413,43 @@ function broadcastWindowState(): void {
 ipcMain.on('window:minimize', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   win?.minimize();
+});
+
+// 팝오버(dropdown/dialog) 가 열릴 때 창이 작아서 잘리지 않도록 일시적으로
+// 창 크기를 확장. 닫히면 원래 크기로 복귀. 같은 창에서 여러 팝오버가 중첩
+// 되어도 안전하게 동작하도록 마지막 enter 의 원래 bounds 를 기억한다.
+const popoverPreBounds = new Map<number, Electron.Rectangle>();
+const POPOVER_MIN_W = 520;
+const POPOVER_MIN_H = 560;
+ipcMain.on('window:popover-enter', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  if (popoverPreBounds.has(win.id)) return; // 이미 확장됨
+  const prev = win.getBounds();
+  popoverPreBounds.set(win.id, prev);
+  const display = screen.getDisplayMatching(prev);
+  const wa = display.workArea;
+  const targetW = Math.min(POPOVER_MIN_W, wa.width - 32);
+  const targetH = Math.min(POPOVER_MIN_H, wa.height - 32);
+  if (prev.width >= targetW && prev.height >= targetH) return;
+  const nextW = Math.max(prev.width, targetW);
+  const nextH = Math.max(prev.height, targetH);
+  // 화면 밖으로 나가지 않게 클램프.
+  let nextX = prev.x;
+  let nextY = prev.y;
+  if (nextX + nextW > wa.x + wa.width) nextX = wa.x + wa.width - nextW - 8;
+  if (nextY + nextH > wa.y + wa.height) nextY = wa.y + wa.height - nextH - 8;
+  if (nextX < wa.x) nextX = wa.x + 8;
+  if (nextY < wa.y) nextY = wa.y + 8;
+  win.setBounds({ x: nextX, y: nextY, width: nextW, height: nextH });
+});
+ipcMain.on('window:popover-leave', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  const prev = popoverPreBounds.get(win.id);
+  if (!prev) return;
+  popoverPreBounds.delete(win.id);
+  win.setBounds(prev);
 });
 
 ipcMain.on('window:set-opacity', (event, value: number) => {

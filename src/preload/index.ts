@@ -43,6 +43,12 @@ const api = {
   minimizeWindow(): void {
     ipcRenderer.send('window:minimize');
   },
+  popoverEnter(): void {
+    ipcRenderer.send('window:popover-enter');
+  },
+  popoverLeave(): void {
+    ipcRenderer.send('window:popover-leave');
+  },
   setOpacity(value: number): void {
     ipcRenderer.send('window:set-opacity', value);
   },

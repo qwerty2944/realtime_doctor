@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   BookOpen,
@@ -136,6 +136,18 @@ export default function DockApp() {
   );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
+
+  // Dock 창이 작아서 dropdown/dialog 가 잘리지 않게, 어느 팝오버라도 열려 있는
+  // 동안은 dock window 를 일시적으로 크게 확장한다. 여러 개가 동시에 열려도
+  // 마지막이 닫힐 때만 줄어들도록 ref-count.
+  const popoverCountRef = useRef(0);
+  const onPopoverOpenChange = useCallback((open: boolean) => {
+    const prev = popoverCountRef.current;
+    const next = Math.max(0, prev + (open ? 1 : -1));
+    popoverCountRef.current = next;
+    if (prev === 0 && next > 0) window.api.popoverEnter();
+    else if (prev > 0 && next === 0) window.api.popoverLeave();
+  }, []);
 
   const refresh = useCallback(async () => {
     const [s, l, d, a, c, sc, lang] = await Promise.all([
@@ -308,16 +320,18 @@ export default function DockApp() {
               type="button"
               onClick={() => window.api.toggleAllWindows()}
               className={cn(
-                'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 transition-colors',
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition-colors',
+                // 개별 창 버튼(emerald 시안 계열)과 의미가 다르므로 amber/주황 톤으로 구분.
+                // amber = "전체 보기" 액션, emerald = "개별 창 활성".
                 allMinimized
-                  ? 'bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30'
-                  : 'bg-primary/20 text-primary-foreground hover:bg-primary/30'
+                  ? 'border-white/10 bg-white/5 text-foreground/50 hover:bg-white/10'
+                  : 'border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30'
               )}
             >
               {allMinimized ? (
-                <Eye className="h-4 w-4" />
-              ) : (
                 <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
               )}
             </button>
           </TooltipTrigger>
@@ -374,6 +388,7 @@ export default function DockApp() {
         <Dialog
           open={accountOpen}
           onOpenChange={(next) => {
+            onPopoverOpenChange(next);
             // 미로그인일 때 X 누르면 LanguagePicker 로 돌아간다.
             if (!next && authState.status === 'signed-out') {
               void window.api.language.clear();
@@ -625,7 +640,7 @@ export default function DockApp() {
         </Dialog>
 
         {/* 언어 토글 — Korean ↔ English. 언어 선택이 transcribeProvider 자동 결정. */}
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={onPopoverOpenChange}>
           <DropdownMenuTrigger asChild>
             <Button
               size="sm"
@@ -739,7 +754,13 @@ export default function DockApp() {
         */}
 
         {/* 단축키 설정 다이얼로그 */}
-        <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+        <Dialog
+          open={shortcutsOpen}
+          onOpenChange={(next) => {
+            onPopoverOpenChange(next);
+            setShortcutsOpen(next);
+          }}
+        >
           <DialogTrigger asChild>
             <Button
               size="icon"
@@ -781,7 +802,7 @@ export default function DockApp() {
           </DialogContent>
         </Dialog>
 
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={onPopoverOpenChange}>
           <DropdownMenuTrigger asChild>
             <Button
               size="icon"

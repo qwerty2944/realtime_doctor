@@ -3,7 +3,7 @@ import { PublicNav, PublicFooter } from '@/components/public-nav';
 
 export const dynamic = 'force-static';
 
-const VERSION = '0.5.4';
+const VERSION = '0.5.5';
 
 export default function Landing() {
   return (
