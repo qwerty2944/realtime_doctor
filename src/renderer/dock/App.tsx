@@ -141,10 +141,12 @@ export default function DockApp() {
   // 동안은 dock window 를 일시적으로 크게 확장한다. 여러 개가 동시에 열려도
   // 마지막이 닫힐 때만 줄어들도록 ref-count.
   const popoverCountRef = useRef(0);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const onPopoverOpenChange = useCallback((open: boolean) => {
     const prev = popoverCountRef.current;
     const next = Math.max(0, prev + (open ? 1 : -1));
     popoverCountRef.current = next;
+    setPopoverOpen(next > 0);
     if (prev === 0 && next > 0) window.api.popoverEnter();
     else if (prev > 0 && next === 0) window.api.popoverLeave();
   }, []);
@@ -192,12 +194,9 @@ export default function DockApp() {
     };
   }, [refresh]);
 
-  // Force-open account dialog while signed out (login gate).
-  useEffect(() => {
-    if (authState.status === 'signed-out') {
-      setAccountOpen(true);
-    }
-  }, [authState.status]);
+  // 앱 시작 시 자동으로 계정 다이얼로그를 띄우지 않는다 — 사용자가 직접 계정
+  // 아이콘을 눌러서 로그인/회원가입 하도록 한다. (이전엔 로그아웃 상태에서 강제
+  // 오픈했지만, 앱 켤 때마다 큰 다이얼로그가 뜨는 게 거슬려서 제거.)
 
   const handleSignIn = async () => {
     setAuthError(null);
@@ -312,7 +311,11 @@ export default function DockApp() {
   }
 
   return (
-    <OverlayShell title="Dock" shortcutId="toggleAll">
+    <OverlayShell
+      title="Dock"
+      shortcutId="toggleAll"
+      className={popoverOpen ? '!h-fit !shadow-none' : undefined}
+    >
       <div className="flex flex-wrap items-center justify-center gap-2 p-3">
         <Tooltip>
           <TooltipTrigger asChild>
