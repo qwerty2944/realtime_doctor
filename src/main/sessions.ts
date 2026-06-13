@@ -1,12 +1,28 @@
 import { app } from 'electron';
+import { randomUUID } from 'node:crypto';
 import type {
   AnalysisResult,
   DictationResult,
+  SessionSummary,
   Speaker,
   SummaryResult,
   TranscriptChunk
 } from '../shared/types.js';
 import { getCurrentUser } from './auth.js';
+import {
+  listLocalSessions,
+  loadLocalSession,
+  localAppendChunk,
+  localAppendDictation,
+  localAppendSummary,
+  localCreateSession,
+  localEndSession,
+  localRelabelChunk,
+  localRemoveChunk,
+  localSaveSessionAudio,
+  localSessionEnabled,
+  localUpsertAnalysis
+} from './localSessions.js';
 import { getCloudSync, getTranscribeProvider } from './store.js';
 import { getSupabase } from './supabaseClient.js';
 
@@ -36,7 +52,8 @@ export interface UsageEventInput {
 }
 
 let currentSessionId: string | null = null;
-let creating: Promise<string | null> | null = null;
+/** 클라우드 sessions row 생성/확인 promise. null 이면 아직 시도 전. */
+let cloudReady: Promise<boolean> | null = null;
 
 function warn(scope: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
@@ -50,35 +67,52 @@ function canPersist(): boolean {
   return true;
 }
 
-async function ensureSession(): Promise<string | null> {
+/**
+ * 세션 ID 는 로컬에서 생성한다 (uuid). 로컬 파일과 클라우드 row 가 같은 ID 를
+ * 공유해 목록 병합/동기화가 단순해진다. 로컬 저장과 클라우드 저장 둘 다
+ * 꺼져 있으면 세션을 만들지 않는다.
+ */
+function ensureSessionId(): string | null {
   if (currentSessionId) return currentSessionId;
-  if (!canPersist()) return null;
-  if (creating) return creating;
+  if (!localSessionEnabled() && !canPersist()) return null;
+  currentSessionId = randomUUID();
+  cloudReady = null;
+  localCreateSession(currentSessionId, getTranscribeProvider());
+  return currentSessionId;
+}
+
+/** 클라우드 sessions row 보장 (ignoreDuplicates upsert — 기존 row 는 불변). */
+async function ensureCloudSession(): Promise<string | null> {
+  const id = ensureSessionId();
+  if (!id || !canPersist()) return null;
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return null;
-
-  creating = (async () => {
-    try {
-      const { data, error } = await supabase
-        .from('sessions')
-        .insert({
-          user_id: user.id,
-          transcribe_provider: getTranscribeProvider()
-        })
-        .select('id')
-        .single();
-      if (error) {
-        warn('ensureSession', error.message);
-        return null;
+  if (!cloudReady) {
+    cloudReady = (async () => {
+      try {
+        const { error } = await supabase.from('sessions').upsert(
+          {
+            id,
+            user_id: user.id,
+            transcribe_provider: getTranscribeProvider()
+          },
+          { onConflict: 'id', ignoreDuplicates: true }
+        );
+        if (error) {
+          warn('ensureCloudSession', error.message);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        warn('ensureCloudSession', err);
+        return false;
       }
-      currentSessionId = (data as { id: string }).id;
-      return currentSessionId;
-    } finally {
-      creating = null;
-    }
-  })();
-  return creating;
+    })();
+  }
+  const ok = await cloudReady;
+  if (!ok) cloudReady = null; // 다음 저장 때 재시도
+  return ok ? id : null;
 }
 
 export function getCurrentSessionId(): string | null {
@@ -87,7 +121,7 @@ export function getCurrentSessionId(): string | null {
 
 export function setCurrentSessionId(id: string | null): void {
   currentSessionId = id;
-  creating = null;
+  cloudReady = null;
 }
 
 export interface LoadedSession {
@@ -108,16 +142,35 @@ export interface LoadedSession {
   latestDictation: DictationResult | null;
 }
 
-export interface SessionSummaryRow {
-  id: string;
-  started_at: string;
-  ended_at: string | null;
-  transcribe_provider: string | null;
-  chunk_count: number;
-  preview: string;
+export type SessionSummaryRow = SessionSummary;
+
+/** 로컬 + 클라우드 세션 목록 병합. 같은 ID 는 'both' 로 합친다. */
+export async function listMySessions(limit = 30): Promise<SessionSummary[]> {
+  const [local, cloud] = await Promise.all([
+    listLocalSessions(),
+    listCloudSessions(limit)
+  ]);
+  const byId = new Map<string, SessionSummary>();
+  for (const c of cloud) byId.set(c.id, c);
+  for (const l of local) {
+    const c = byId.get(l.id);
+    if (c) {
+      byId.set(l.id, {
+        ...c,
+        chunk_count: Math.max(c.chunk_count, l.chunk_count),
+        preview: c.preview || l.preview,
+        source: 'both'
+      });
+    } else {
+      byId.set(l.id, l);
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => (a.started_at < b.started_at ? 1 : -1))
+    .slice(0, limit);
 }
 
-export async function listMySessions(limit = 30): Promise<SessionSummaryRow[]> {
+async function listCloudSessions(limit = 30): Promise<SessionSummary[]> {
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return [];
@@ -161,7 +214,8 @@ export async function listMySessions(limit = 30): Promise<SessionSummaryRow[]> {
       ended_at: s.ended_at,
       transcribe_provider: s.transcribe_provider,
       chunk_count: byId.get(s.id)?.count ?? 0,
-      preview: byId.get(s.id)?.first?.slice(0, 60) ?? ''
+      preview: byId.get(s.id)?.first?.slice(0, 60) ?? '',
+      source: 'cloud' as const
     }));
   } catch (err) {
     warn('listMySessions', err);
@@ -170,6 +224,27 @@ export async function listMySessions(limit = 30): Promise<SessionSummaryRow[]> {
 }
 
 export async function loadSession(sessionId: string): Promise<LoadedSession | null> {
+  // 1) 로컬 파일 우선 — 더 빠르고 오프라인에서도 동작. (로컬/클라우드는
+  //    동일 ID 로 이중 기록되므로 내용이 동등하다.)
+  const local = await loadLocalSession(sessionId);
+  if (local) {
+    currentSessionId = sessionId;
+    cloudReady = null;
+    return {
+      session: {
+        id: local.id,
+        started_at: local.started_at,
+        ended_at: local.ended_at,
+        transcribe_provider: local.transcribe_provider
+      },
+      chunks: local.chunks,
+      analysis: local.analysis,
+      latestSummary: local.summaries[local.summaries.length - 1] ?? null,
+      latestDictation: local.dictations[local.dictations.length - 1] ?? null
+    };
+  }
+
+  // 2) 클라우드 조회.
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return null;
@@ -213,7 +288,7 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
       return null;
     }
     currentSessionId = sessionId;
-    creating = null;
+    cloudReady = Promise.resolve(true); // 방금 클라우드에서 확인된 row
     const chunks = ((chunksRes.data ?? []) as Array<{
       chunk_id: string;
       speaker: string;
@@ -293,7 +368,9 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
 export async function endCurrentSession(): Promise<void> {
   const id = currentSessionId;
   currentSessionId = null;
+  cloudReady = null;
   if (!id) return;
+  localEndSession(id);
   const supabase = getSupabase();
   if (!supabase) return;
   try {
@@ -309,19 +386,23 @@ export async function endCurrentSession(): Promise<void> {
 
 export function clearSessionCache(): void {
   currentSessionId = null;
-  creating = null;
+  cloudReady = null;
 }
 
 export async function saveTranscriptChunk(
   chunk: TranscriptChunk & { speaker: Speaker },
   opts: { audioPath?: string | null } = {}
 ): Promise<void> {
+  const id = ensureSessionId();
+  if (!id) return;
+  localAppendChunk(id, chunk);
+
   if (!canPersist()) return;
   if (!getCloudSync().saveTranscripts) return;
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return;
-  const sessionId = await ensureSession();
+  const sessionId = await ensureCloudSession();
   if (!sessionId) return;
   try {
     const { error } = await supabase.from('transcript_chunks').insert({
@@ -349,7 +430,7 @@ export async function uploadChunkAudio(
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return null;
-  const sessionId = await ensureSession();
+  const sessionId = await ensureCloudSession();
   if (!sessionId) return null;
   const path = `${user.id}/${sessionId}/${chunkId}.wav`;
   try {
@@ -377,9 +458,12 @@ export async function uploadSessionAudio(
   sessionId: string,
   wavBuffer: Buffer
 ): Promise<string | null> {
+  if (!wavBuffer || wavBuffer.length <= 44) return null;
+  // 로컬 저장은 클라우드 설정과 무관하게 자체 게이트로 판단.
+  await localSaveSessionAudio(sessionId, wavBuffer);
+
   if (!canPersist()) return null;
   if (!getCloudSync().saveAudio) return null;
-  if (!wavBuffer || wavBuffer.length <= 44) return null;
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return null;
@@ -405,6 +489,7 @@ export async function uploadSessionAudio(
 }
 
 export async function relabelChunk(chunkId: string, speaker: Speaker): Promise<void> {
+  if (currentSessionId) localRelabelChunk(currentSessionId, chunkId, speaker);
   if (!canPersist()) return;
   if (!getCloudSync().saveTranscripts) return;
   const supabase = getSupabase();
@@ -421,12 +506,34 @@ export async function relabelChunk(chunkId: string, speaker: Speaker): Promise<v
   }
 }
 
+export async function deleteChunkRow(chunkId: string): Promise<void> {
+  if (currentSessionId) localRemoveChunk(currentSessionId, chunkId);
+  if (!canPersist()) return;
+  if (!getCloudSync().saveTranscripts) return;
+  const supabase = getSupabase();
+  if (!supabase || !currentSessionId) return;
+  try {
+    const { error } = await supabase
+      .from('transcript_chunks')
+      .delete()
+      .eq('session_id', currentSessionId)
+      .eq('chunk_id', chunkId);
+    if (error) warn('deleteChunkRow', error.message);
+  } catch (err) {
+    warn('deleteChunkRow', err);
+  }
+}
+
 export async function upsertAnalysis(result: AnalysisResult): Promise<void> {
+  const id = ensureSessionId();
+  if (!id) return;
+  localUpsertAnalysis(id, result);
+
   if (!canPersist()) return;
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return;
-  const sessionId = await ensureSession();
+  const sessionId = await ensureCloudSession();
   if (!sessionId) return;
   try {
     const { error } = await supabase
@@ -450,11 +557,15 @@ export async function upsertAnalysis(result: AnalysisResult): Promise<void> {
 }
 
 export async function appendSummary(result: SummaryResult): Promise<void> {
+  const id = ensureSessionId();
+  if (!id) return;
+  localAppendSummary(id, result);
+
   if (!canPersist()) return;
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return;
-  const sessionId = await ensureSession();
+  const sessionId = await ensureCloudSession();
   if (!sessionId) return;
   try {
     const { error } = await supabase.from('summaries').insert({
@@ -479,10 +590,16 @@ export async function logUsage(input: UsageEventInput): Promise<void> {
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return;
+  // 세션 ID 는 클라우드 row 생성이 확인된 경우에만 참조 (로컬 전용 세션 ID 를
+  // FK 로 넣으면 위반). 미확인이면 세션 없이 사용량만 기록.
+  let sessionId: string | null = null;
+  if (currentSessionId && cloudReady) {
+    sessionId = (await cloudReady) ? currentSessionId : null;
+  }
   try {
     const { error } = await supabase.from('usage_events').insert({
       user_id: user.id,
-      session_id: currentSessionId,
+      session_id: sessionId,
       provider: input.provider,
       task: input.task,
       model: input.model,
@@ -501,11 +618,15 @@ export async function logUsage(input: UsageEventInput): Promise<void> {
 }
 
 export async function appendDictation(result: DictationResult): Promise<void> {
+  const id = ensureSessionId();
+  if (!id) return;
+  localAppendDictation(id, result);
+
   if (!canPersist()) return;
   const user = getCurrentUser();
   const supabase = getSupabase();
   if (!user || !supabase) return;
-  const sessionId = await ensureSession();
+  const sessionId = await ensureCloudSession();
   if (!sessionId) return;
   try {
     const { error } = await supabase.from('dictations').insert({

@@ -1,10 +1,12 @@
 import Store from 'electron-store';
+import { randomUUID } from 'node:crypto';
 import {
   SHORTCUT_DEFAULTS,
   SHORTCUT_IDS,
   type CloudSyncSettings,
   type DictationTemplate,
   type Language,
+  type LocalSaveSettings,
   type ShortcutId,
   type TranscribeProviderId
 } from '../shared/types.js';
@@ -45,6 +47,9 @@ interface Schema {
   firstLaunched?: boolean;
   windowsVisibility?: Partial<Record<WindowKey, boolean>>;
   language?: Language;
+  windowGroups?: Array<{ id: string; tabs: WindowKey[]; active: WindowKey }>;
+  deviceId?: string;
+  localSave?: LocalSaveSettings;
 }
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {
@@ -148,6 +153,31 @@ export function saveWindowVisibility(key: WindowKey, visible: boolean): void {
     Record<WindowKey, boolean>
   >;
   store.set('windowsVisibility', { ...map, [key]: visible });
+}
+
+/** 이 설치본의 안정적 기기 식별자. 최초 호출 시 생성 후 영구 보존. */
+export function getDeviceId(): string {
+  const existing = store.get('deviceId');
+  if (existing) return existing;
+  const id = randomUUID();
+  store.set('deviceId', id);
+  return id;
+}
+
+const DEFAULT_LOCAL_SAVE: LocalSaveSettings = {
+  enabled: true,
+  saveAudio: false
+};
+
+export function getLocalSave(): LocalSaveSettings {
+  return { ...DEFAULT_LOCAL_SAVE, ...(store.get('localSave') ?? {}) };
+}
+
+export function setLocalSave(patch: Partial<LocalSaveSettings>): LocalSaveSettings {
+  const next = { ...getLocalSave(), ...patch };
+  if (!next.enabled) next.saveAudio = false;
+  store.set('localSave', next);
+  return next;
 }
 
 export function getLanguage(): Language | undefined {

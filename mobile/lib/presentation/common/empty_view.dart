@@ -15,16 +15,18 @@ class EmptyView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null)
-              Icon(icon,
-                  size: 40.r,
-                  color: Theme.of(context).colorScheme.outline),
+              Icon(
+                icon,
+                size: 40.r,
+                color: Theme.of(context).colorScheme.outline,
+              ),
             SizedBox(height: 12.h),
             Text(
               message,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
           ],
         ),

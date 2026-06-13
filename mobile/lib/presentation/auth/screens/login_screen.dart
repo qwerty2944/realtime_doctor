@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
+import '../../../app/theme.dart';
 import '../../../generated/l10n/app_localizations.dart';
+import '../../common/auth_scaffold.dart';
 import '../controllers/auth_controller.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -40,69 +43,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final t = AppLocalizations.of(context);
     final loading = ref.watch(authControllerProvider).isLoading;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(t.loginTitle)),
-      body: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 24.h),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                t.appTitle,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              SizedBox(height: 32.h),
-              TextField(
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                autofillHints: const [AutofillHints.email],
-                decoration: InputDecoration(
-                  labelText: t.email,
-                  prefixIcon: const Icon(Icons.alternate_email),
-                ),
-              ),
-              SizedBox(height: 12.h),
-              TextField(
-                controller: _password,
-                obscureText: true,
-                autofillHints: const [AutofillHints.password],
-                decoration: InputDecoration(
-                  labelText: t.password,
-                  prefixIcon: const Icon(Icons.lock_outline),
-                ),
-              ),
-              if (_error != null) ...[
-                SizedBox(height: 12.h),
-                Text(
-                  _error!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 12.sp,
-                  ),
-                ),
-              ],
-              SizedBox(height: 20.h),
-              FilledButton(
-                onPressed: loading ? null : _submit,
-                child: loading
-                    ? SizedBox(
-                        width: 18.r,
-                        height: 18.r,
-                        child: const CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(t.signIn),
-              ),
-              SizedBox(height: 12.h),
-              TextButton(
-                onPressed: () => context.go('/auth/signup'),
-                child: Text(t.toSignup),
-              ),
-            ],
+    return AuthScaffold(
+      children: [
+        TextField(
+          controller: _email,
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
+          decoration: InputDecoration(
+            labelText: t.email,
+            prefixIcon: const Icon(LucideIcons.atSign),
           ),
         ),
-      ),
+        SizedBox(height: AppSpacing.md.h),
+        TextField(
+          controller: _password,
+          obscureText: true,
+          autofillHints: const [AutofillHints.password],
+          decoration: InputDecoration(
+            labelText: t.password,
+            prefixIcon: const Icon(LucideIcons.lock),
+          ),
+        ),
+        if (_error != null) AuthErrorText(_error!),
+        SizedBox(height: AppSpacing.xl.h),
+        FilledButton(
+          onPressed: loading ? null : _submit,
+          child: loading
+              ? SizedBox(
+                  width: 18.r,
+                  height: 18.r,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(t.signIn),
+        ),
+        SizedBox(height: AppSpacing.sm.h),
+        TextButton(
+          onPressed: () => context.go('/auth/signup'),
+          child: Text(t.toSignup),
+        ),
+      ],
     );
   }
 }

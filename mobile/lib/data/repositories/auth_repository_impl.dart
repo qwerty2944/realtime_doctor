@@ -69,7 +69,9 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<Result<void>> signOut() async {
     try {
-      await _client.auth.signOut();
+      // local 스코프 — 서버 토큰 폐기를 기다리지 않고 즉시 로컬 세션을 지운다.
+      // 네트워크 불안정 시에도 로그아웃이 막히지 않는다.
+      await _client.auth.signOut(scope: SignOutScope.local);
       return const Success(null);
     } catch (e) {
       return FailureResult(UnknownFailure(e.toString()));
@@ -78,6 +80,6 @@ class AuthRepositoryImpl implements AuthRepository {
 }
 
 @Riverpod(keepAlive: true)
-AuthRepository authRepository(AuthRepositoryRef ref) {
+AuthRepository authRepository(Ref ref) {
   return AuthRepositoryImpl(ref.watch(supabaseClientProvider));
 }

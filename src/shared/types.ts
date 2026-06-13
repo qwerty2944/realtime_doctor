@@ -4,6 +4,7 @@ export const IPC = {
   TranscriptReset: 'transcript:reset',
   TranscriptLabel: 'transcript:label',
   TranscriptRelabel: 'transcript:relabel',
+  TranscriptRemove: 'transcript:remove',
   AnalysisUpdate: 'analysis:update',
   AnalysisRequest: 'analysis:request',
   AnalysisPending: 'analysis:pending',
@@ -48,8 +49,55 @@ export const IPC = {
   LanguageChanged: 'language:changed',
   TranscribeFallback: 'transcribe:fallback',
   ModifierHoldSet: 'modifier:hold-set',
-  ModifierHoldChanged: 'modifier:hold-changed'
+  ModifierHoldChanged: 'modifier:hold-changed',
+  WindowGroupsGet: 'window-groups:get',
+  WindowGroupsState: 'window-groups:state',
+  WindowGroupsActivate: 'window-groups:activate',
+  WindowGroupsDetach: 'window-groups:detach',
+  WindowGroupsHover: 'window-groups:hover',
+  DevicesList: 'devices:list',
+  DevicesRevoke: 'devices:revoke',
+  DeviceRevoked: 'devices:revoked-notice',
+  LocalSaveGet: 'localSave:get',
+  LocalSaveSet: 'localSave:set'
 } as const;
+
+/** 오버레이 창 식별자 (main 의 WindowKey 와 동일 집합). */
+export type OverlayKey =
+  | 'transcript'
+  | 'diagnosis'
+  | 'terms'
+  | 'questions'
+  | 'summary'
+  | 'dictation'
+  | 'dock';
+
+/** 드래그앤드랍으로 합쳐진 창 탭 그룹. tabs 순서 = 탭바 표시 순서. */
+export interface WindowGroupInfo {
+  id: string;
+  tabs: OverlayKey[];
+  active: OverlayKey;
+}
+
+export interface DeviceInfo {
+  id: string;
+  device_id: string;
+  name: string;
+  platform: string;
+  app_version: string;
+  status: 'active' | 'revoked';
+  created_at: string;
+  last_seen_at: string;
+  isCurrent: boolean;
+}
+
+/** 로컬 디스크 세션 저장 설정 (클라우드 동기화와 독립). */
+export interface LocalSaveSettings {
+  enabled: boolean;
+  saveAudio: boolean;
+}
+
+export type SessionSource = 'local' | 'cloud' | 'both';
 
 export type Language = 'ko' | 'en';
 
@@ -117,6 +165,7 @@ export interface SessionSummary {
   transcribe_provider: string | null;
   chunk_count: number;
   preview: string;
+  source: SessionSource;
 }
 
 export interface LoadedSessionPayload {

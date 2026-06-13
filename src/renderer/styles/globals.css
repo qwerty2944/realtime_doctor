@@ -121,4 +121,31 @@
   .overlay-titlebar [data-no-drag] {
     -webkit-app-region: no-drag;
   }
+
+  /* 다른 창을 드래그해서 이 창 위에 올렸을 때 — "여기에 놓으면 합쳐짐" 표시 */
+  .overlay-merge-target {
+    border-color: rgba(251, 191, 36, 0.9);
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 0.7),
+      0 0 18px rgba(251, 191, 36, 0.55),
+      0 0 40px rgba(251, 191, 36, 0.3),
+      0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  /* 머지된 창 탭바의 탭 */
+  .overlay-tab {
+    @apply flex min-w-0 max-w-[120px] items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-foreground/60 transition-colors;
+  }
+  .overlay-tab:hover {
+    @apply bg-white/10 text-foreground/90;
+  }
+  .overlay-tab-active {
+    color: rgb(180, 255, 240);
+    border-color: rgba(74, 222, 222, 0.6);
+    background-color: rgba(74, 222, 222, 0.16);
+    box-shadow: 0 0 6px rgba(74, 222, 222, 0.35);
+  }
+  .overlay-tab-detach {
+    @apply shrink-0 rounded text-foreground/50 transition-opacity hover:text-foreground;
+  }
 }

@@ -12,6 +12,7 @@ import {
   LayoutGrid,
   LogOut,
   Mic,
+  MonitorSmartphone,
   NotebookPen,
   Power,
   Save,
@@ -57,7 +58,12 @@ import {
 } from '@/components/ui/dialog';
 import { OverlayShell } from '../shared/OverlayShell';
 import { cn } from '@/lib/utils';
-import type { AuthState, CloudSyncSettings } from '../../shared/types';
+import type {
+  AuthState,
+  CloudSyncSettings,
+  DeviceInfo,
+  LocalSaveSettings
+} from '../../shared/types';
 
 interface WindowState {
   key: string;
@@ -131,6 +137,12 @@ export default function DockApp() {
     saveTranscripts: false,
     saveAudio: false
   });
+  const [localSave, setLocalSaveState] = useState<LocalSaveSettings>({
+    enabled: true,
+    saveAudio: false
+  });
+  const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
+  const [deviceBusy, setDeviceBusy] = useState<string | null>(null);
   const [shortcuts, setShortcuts] = useState<Record<ShortcutId, string>>(
     SHORTCUT_DEFAULTS
   );
@@ -152,14 +164,15 @@ export default function DockApp() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [s, l, d, a, c, sc, lang] = await Promise.all([
+    const [s, l, d, a, c, sc, lang, ls] = await Promise.all([
       window.api.listWindowStates(),
       window.api.listLayouts(),
       window.api.getDefaultLayout(),
       window.api.auth.getState(),
       window.api.cloudSync.get(),
       window.api.shortcuts.get(),
-      window.api.language.get()
+      window.api.language.get(),
+      window.api.localSave.get()
     ]);
     setStates(s);
     setLayouts(l);
@@ -168,6 +181,7 @@ export default function DockApp() {
     setCloud(c);
     setShortcuts(sc);
     setLanguageState(lang);
+    setLocalSaveState(ls);
   }, []);
 
   useEffect(() => {
@@ -185,12 +199,19 @@ export default function DockApp() {
     const offShortcuts = window.api.shortcuts.onChange((map) => setShortcuts(map));
     const offLang = window.api.language.onChange((l) => setLanguageState(l));
     const offFocus = window.api.onWindowFocusChange((key) => setFocusedKey(key));
+    const offRevoked = window.api.devices.onRevokedNotice(({ message }) => {
+      // main 이 보낸 메시지를 그대로 표시 (effect 의존성에 t 를 넣으면
+      // 렌더마다 재구독+refresh 루프가 생기므로 고정 fallback 사용).
+      setAuthError(message || '이 기기의 접근이 차단되어 로그아웃되었습니다.');
+      setAccountOpen(true);
+    });
     return () => {
       offWindows();
       offAuth();
       offShortcuts();
       offLang();
       offFocus();
+      offRevoked();
     };
   }, [refresh]);
 
@@ -253,6 +274,32 @@ export default function DockApp() {
   const updateCloud = async (patch: Partial<CloudSyncSettings>) => {
     const next = await window.api.cloudSync.set(patch);
     setCloud(next);
+  };
+
+  const updateLocalSave = async (patch: Partial<LocalSaveSettings>) => {
+    const next = await window.api.localSave.set(patch);
+    setLocalSaveState(next);
+  };
+
+  // 계정 다이얼로그가 열릴 때마다 기기 목록 새로고침.
+  useEffect(() => {
+    if (!accountOpen || authState.status !== 'signed-in') return;
+    setDevices(null);
+    void window.api.devices.list().then(setDevices);
+  }, [accountOpen, authState.status]);
+
+  const revokeDevice = async (d: DeviceInfo) => {
+    const msg = d.isCurrent
+      ? t('dock.deviceRevokeSelfConfirm')
+      : t('dock.deviceRevokeConfirm');
+    if (!confirm(msg)) return;
+    setDeviceBusy(d.id);
+    try {
+      await window.api.devices.revoke(d.id);
+      setDevices(await window.api.devices.list());
+    } finally {
+      setDeviceBusy(null);
+    }
   };
 
   // 언어가 provider 를 결정. UI 에서 manual 선택은 노출하지 않음.
@@ -636,6 +683,107 @@ export default function DockApp() {
                       onCheckedChange={(v) => updateCloud({ saveAudio: v })}
                     />
                   </div>
+                </div>
+
+                {/* 로컬 저장 */}
+                <div className="space-y-3 rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="text-sm font-medium">
+                        {t('dock.localSaveTitle')}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {t('dock.localSaveDesc')}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={localSave.enabled}
+                      onCheckedChange={(v) => updateLocalSave({ enabled: v })}
+                    />
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div
+                        className={cn(
+                          'text-sm font-medium',
+                          !localSave.enabled && 'text-muted-foreground'
+                        )}
+                      >
+                        {t('dock.localSaveAudioTitle')}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {t('dock.localSaveAudioDesc')}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={localSave.saveAudio}
+                      disabled={!localSave.enabled}
+                      onCheckedChange={(v) => updateLocalSave({ saveAudio: v })}
+                    />
+                  </div>
+                </div>
+
+                {/* 등록된 기기 */}
+                <div className="space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <MonitorSmartphone className="h-3.5 w-3.5" />
+                      {t('dock.devicesTitle')}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {t('dock.devicesDesc')}
+                    </div>
+                  </div>
+                  {devices === null && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {t('common.loading')}
+                    </p>
+                  )}
+                  {devices && devices.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {t('dock.devicesEmpty')}
+                    </p>
+                  )}
+                  {devices?.map((d) => (
+                    <div
+                      key={d.id}
+                      className="flex items-center gap-2 rounded border border-white/10 bg-white/5 px-2 py-1.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="truncate font-medium">
+                            {d.name || d.device_id.slice(0, 8)}
+                          </span>
+                          {d.isCurrent && (
+                            <span className="shrink-0 rounded bg-emerald-500/25 px-1 py-0.5 text-[9px] font-semibold text-emerald-100">
+                              {t('dock.deviceCurrent')}
+                            </span>
+                          )}
+                          {d.status === 'revoked' && (
+                            <span className="shrink-0 rounded bg-red-500/25 px-1 py-0.5 text-[9px] font-semibold text-red-200">
+                              {t('dock.deviceRevoked')}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {d.platform} · v{d.app_version} ·{' '}
+                          {new Date(d.last_seen_at).toLocaleString()}
+                        </div>
+                      </div>
+                      {d.status === 'active' && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[11px] text-destructive hover:bg-destructive/20 hover:text-destructive"
+                          disabled={deviceBusy === d.id}
+                          onClick={() => void revokeDevice(d)}
+                        >
+                          {t('dock.deviceRevoke')}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

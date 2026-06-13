@@ -16,21 +16,24 @@ class AuthController extends _$AuthController {
 
   Future<Failure?> signIn(String email, String password) async {
     state = const AsyncLoading();
-    final res = await _repo.signInWithPassword(email: email, password: password);
-    state = const AsyncData(null);
+    final res = await _repo.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    if (ref.mounted) state = const AsyncData(null);
     return res is FailureResult<AuthUser> ? res.failure : null;
   }
 
   Future<Failure?> signUp(String email, String password) async {
     state = const AsyncLoading();
     final res = await _repo.signUp(email: email, password: password);
-    state = const AsyncData(null);
+    if (ref.mounted) state = const AsyncData(null);
     return res is FailureResult<AuthUser> ? res.failure : null;
   }
 
   Future<void> signOut() async {
     state = const AsyncLoading();
     await _repo.signOut();
-    state = const AsyncData(null);
+    if (ref.mounted) state = const AsyncData(null);
   }
 }

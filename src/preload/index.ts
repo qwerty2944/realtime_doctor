@@ -5,11 +5,14 @@ import {
   type AuthOpResult,
   type AuthState,
   type CloudSyncSettings,
+  type DeviceInfo,
   type DictationStatus,
   type DictationTemplate,
   type EphemeralSession,
   type Language,
   type LoadedSessionPayload,
+  type LocalSaveSettings,
+  type OverlayKey,
   type SessionSummary,
   type ShortcutId,
   type Speaker,
@@ -17,7 +20,8 @@ import {
   type TranscribeProviderId,
   type TranscribeProviderInfo,
   type TranscriptChunk,
-  type TranscriptLabelEvent
+  type TranscriptLabelEvent,
+  type WindowGroupInfo
 } from '../shared/types.js';
 
 const api = {
@@ -30,6 +34,9 @@ const api = {
   relabelSpeaker(id: string, speaker: Speaker): void {
     const payload: TranscriptLabelEvent = { id, speaker };
     ipcRenderer.send(IPC.TranscriptRelabel, payload);
+  },
+  removeUtterance(id: string): void {
+    ipcRenderer.send(IPC.TranscriptRemove, id);
   },
   resetTranscript(): void {
     ipcRenderer.send(IPC.TranscriptReset);
@@ -340,6 +347,54 @@ const api = {
       const listener = (_e: unknown, held: boolean) => handler(held);
       ipcRenderer.on(IPC.ModifierHoldChanged, listener);
       return () => ipcRenderer.removeListener(IPC.ModifierHoldChanged, listener);
+    }
+  },
+  getWindowKey(): Promise<OverlayKey | null> {
+    return ipcRenderer.invoke('window:get-key');
+  },
+  windowGroups: {
+    get(): Promise<WindowGroupInfo[]> {
+      return ipcRenderer.invoke(IPC.WindowGroupsGet);
+    },
+    activate(key: OverlayKey): void {
+      ipcRenderer.send(IPC.WindowGroupsActivate, key);
+    },
+    detach(key: OverlayKey): void {
+      ipcRenderer.send(IPC.WindowGroupsDetach, key);
+    },
+    onChange(handler: (groups: WindowGroupInfo[]) => void): () => void {
+      const listener = (_e: unknown, payload: WindowGroupInfo[]) =>
+        handler(payload);
+      ipcRenderer.on(IPC.WindowGroupsState, listener);
+      return () => ipcRenderer.removeListener(IPC.WindowGroupsState, listener);
+    },
+    onHover(handler: (target: OverlayKey | null) => void): () => void {
+      const listener = (_e: unknown, target: OverlayKey | null) =>
+        handler(target);
+      ipcRenderer.on(IPC.WindowGroupsHover, listener);
+      return () => ipcRenderer.removeListener(IPC.WindowGroupsHover, listener);
+    }
+  },
+  devices: {
+    list(): Promise<DeviceInfo[]> {
+      return ipcRenderer.invoke(IPC.DevicesList);
+    },
+    revoke(rowId: string): Promise<AuthOpResult> {
+      return ipcRenderer.invoke(IPC.DevicesRevoke, rowId);
+    },
+    onRevokedNotice(handler: (payload: { message: string }) => void): () => void {
+      const listener = (_e: unknown, payload: { message: string }) =>
+        handler(payload);
+      ipcRenderer.on(IPC.DeviceRevoked, listener);
+      return () => ipcRenderer.removeListener(IPC.DeviceRevoked, listener);
+    }
+  },
+  localSave: {
+    get(): Promise<LocalSaveSettings> {
+      return ipcRenderer.invoke(IPC.LocalSaveGet);
+    },
+    set(patch: Partial<LocalSaveSettings>): Promise<LocalSaveSettings> {
+      return ipcRenderer.invoke(IPC.LocalSaveSet, patch);
     }
   }
 };

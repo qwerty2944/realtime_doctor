@@ -275,6 +275,11 @@ export function useRealtime() {
     window.api.relabelSpeaker(id, speaker);
   }, []);
 
+  const removeUtterance = useCallback((id: string) => {
+    setUtterances((prev) => prev.filter((u) => u.id !== id));
+    window.api.removeUtterance(id);
+  }, []);
+
   const swapAll = useCallback(() => {
     setUtterances((prev) => {
       const next = prev.map((u) => {
@@ -327,6 +332,7 @@ export function useRealtime() {
     stop: () => stopMutation.mutate(),
     reset,
     relabel,
+    removeUtterance,
     swapAll
   };
 }

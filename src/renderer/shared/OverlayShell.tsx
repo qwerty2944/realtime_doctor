@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Droplet, Minus } from 'lucide-react';
+import { Droplet, Minus, PictureInPicture2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import {
@@ -9,9 +9,14 @@ import {
   TooltipTrigger
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { SHORTCUT_DEFAULTS, type ShortcutId } from '../../shared/types';
+import {
+  SHORTCUT_DEFAULTS,
+  type OverlayKey,
+  type ShortcutId,
+  type WindowGroupInfo
+} from '../../shared/types';
 import { formatAccelerator } from './accelerator';
-import { useT } from './i18n';
+import { useT, type TKey } from './i18n';
 
 interface OverlayShellProps {
   title: string;
@@ -66,6 +71,84 @@ function OpacityControl() {
         {t('common.opacity')} {Math.round(opacity * 100)}%
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/** 이 창의 WindowKey + 탭 그룹 상태 + 드래그 머지 호버 여부. */
+function useWindowGroup(): {
+  myKey: OverlayKey | null;
+  group: WindowGroupInfo | null;
+  mergeHover: boolean;
+} {
+  const [myKey, setMyKey] = React.useState<OverlayKey | null>(null);
+  const [groups, setGroups] = React.useState<WindowGroupInfo[]>([]);
+  const [hoverTarget, setHoverTarget] = React.useState<OverlayKey | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void window.api.getWindowKey().then((k) => {
+      if (!cancelled) setMyKey(k);
+    });
+    void window.api.windowGroups.get().then((g) => {
+      if (!cancelled) setGroups(g);
+    });
+    const offGroups = window.api.windowGroups.onChange(setGroups);
+    const offHover = window.api.windowGroups.onHover(setHoverTarget);
+    return () => {
+      cancelled = true;
+      offGroups();
+      offHover();
+    };
+  }, []);
+
+  const group = myKey
+    ? groups.find((g) => g.tabs.includes(myKey)) ?? null
+    : null;
+  return { myKey, group, mergeHover: hoverTarget !== null && hoverTarget === myKey };
+}
+
+/** 머지된 창의 탭바 — 클릭 전환, 호버 시 분리 버튼. */
+function TabStrip({ group }: { group: WindowGroupInfo }) {
+  const t = useT();
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1" data-no-drag>
+      {group.tabs.map((key) => {
+        const active = key === group.active;
+        return (
+          <div
+            key={key}
+            className={cn('overlay-tab group/tab', active && 'overlay-tab-active')}
+          >
+            <button
+              type="button"
+              className="min-w-0 truncate"
+              onClick={() => {
+                if (!active) window.api.windowGroups.activate(key);
+              }}
+              title={t(`window.${key}` as TKey)}
+            >
+              {t(`window.${key}` as TKey)}
+            </button>
+            <button
+              type="button"
+              className="overlay-tab-detach opacity-0 group-hover/tab:opacity-100"
+              title={t('tabs.detach')}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.api.windowGroups.detach(key);
+              }}
+            >
+              <PictureInPicture2 className="h-2.5 w-2.5" />
+            </button>
+          </div>
+        );
+      })}
+      {/* 남는 공간은 드래그 핸들로 유지 */}
+      <div
+        className="h-5 min-w-4 flex-1"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
+    </div>
   );
 }
 
@@ -137,6 +220,7 @@ export function OverlayShell({
   const [focused, setFocused] = React.useState<boolean>(
     typeof document !== 'undefined' && document.hasFocus()
   );
+  const { group, mergeHover } = useWindowGroup();
 
   React.useEffect(() => {
     const onFocus = () => setFocused(true);
@@ -155,11 +239,16 @@ export function OverlayShell({
         className={cn(
           'relative overlay-shell dark',
           focused && 'overlay-focused',
+          mergeHover && 'overlay-merge-target',
           className
         )}
       >
         <div className="overlay-titlebar">
-          <span className="flex-1 truncate">{title}</span>
+          {group ? (
+            <TabStrip group={group} />
+          ) : (
+            <span className="flex-1 truncate">{title}</span>
+          )}
           {badge}
           {actions}
           {!hideOpacity && <OpacityControl />}

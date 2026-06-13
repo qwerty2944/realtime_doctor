@@ -26,6 +26,12 @@ class DictationSection extends Equatable {
   final String heading;
   final String body;
 
+  DictationSection copyWith({String? heading, String? body}) =>
+      DictationSection(
+        heading: heading ?? this.heading,
+        body: body ?? this.body,
+      );
+
   @override
   List<Object?> get props => [heading, body];
 }
@@ -40,6 +46,17 @@ class Dictation extends Equatable {
   final DictationTemplate template;
   final List<DictationSection> sections;
   final DateTime generatedAt;
+
+  Dictation copyWith({
+    DictationTemplate? template,
+    List<DictationSection>? sections,
+    DateTime? generatedAt,
+  }) =>
+      Dictation(
+        template: template ?? this.template,
+        sections: sections ?? this.sections,
+        generatedAt: generatedAt ?? this.generatedAt,
+      );
 
   @override
   List<Object?> get props => [template, sections, generatedAt];

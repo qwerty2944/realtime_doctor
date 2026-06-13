@@ -20,4 +20,10 @@ abstract interface class AnalysisRepository {
     required DictationTemplate template,
     required List<({Speaker speaker, String text})> chunks,
   });
+
+  /// 화자 자동 분류 — 발화 순서대로 doctor/patient/unknown 라벨을 돌려준다.
+  Future<Result<List<Speaker>>> diarize({
+    required String language,
+    required List<String> texts,
+  });
 }

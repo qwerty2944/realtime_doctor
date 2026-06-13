@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Activity } from 'lucide-react';
+import { AlertTriangle, Activity, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -18,6 +19,8 @@ function confidenceLabel(c: number, lang: 'ko' | 'en'): string {
 export default function DiagnosisApp() {
   const t = useT();
   const lang = useLang();
+  // 검토할 진단 선택(UI 강조용). 같은 카드를 다시 누르면 해제.
+  const [selected, setSelected] = useState<number | null>(null);
   const { data } = useQuery<AnalysisResult | null>({
     queryKey: ANALYSIS_KEY,
     queryFn: () => null
@@ -59,14 +62,28 @@ export default function DiagnosisApp() {
             </p>
           )}
           {items.map((d, i) => (
-            <Card key={`${d.name}-${i}`}>
+            <Card
+              key={`${d.name}-${i}`}
+              onClick={() => setSelected((prev) => (prev === i ? null : i))}
+              className={
+                'cursor-pointer transition-colors ' +
+                (selected === i
+                  ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                  : 'hover:border-primary/40')
+              }
+            >
               <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
                 <div className="min-w-0">
-                  <CardTitle className="truncate">
-                    {i + 1}. {d.name}
-                    {d.nameEn && (
-                      <span className="ml-1 text-muted-foreground">({d.nameEn})</span>
+                  <CardTitle className="flex items-center gap-1 truncate">
+                    {selected === i && (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
                     )}
+                    <span className="truncate">
+                      {i + 1}. {d.name}
+                      {d.nameEn && (
+                        <span className="ml-1 text-muted-foreground">({d.nameEn})</span>
+                      )}
+                    </span>
                   </CardTitle>
                   {d.icd10 && (
                     <p className="text-[10px] text-muted-foreground">

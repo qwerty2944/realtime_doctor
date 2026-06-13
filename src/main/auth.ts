@@ -5,6 +5,7 @@ import {
   type AuthState,
   type AuthUser
 } from '../shared/types.js';
+import { registerCurrentDevice, stopHeartbeat } from './device.js';
 import { getSupabase, isSupabaseConfigured } from './supabaseClient.js';
 
 let currentUser: AuthUser | null = null;
@@ -56,6 +57,16 @@ function applySession(
     onSignedOutFn?.();
   } else if (event === 'INITIAL' && nowSignedIn) {
     onSignedInFn?.();
+  }
+
+  // 기기인증 — 로그인되면 이 기기를 등록하고 해지 여부를 확인한다.
+  // (해지된 기기면 registerCurrentDevice 내부에서 강제 로그아웃 처리.)
+  if (nowSignedIn && currentUser) {
+    if (!previouslySignedIn || event === 'INITIAL') {
+      void registerCurrentDevice(currentUser.id);
+    }
+  } else if (!nowSignedIn) {
+    stopHeartbeat();
   }
 }
 

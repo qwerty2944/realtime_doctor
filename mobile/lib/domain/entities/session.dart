@@ -25,6 +25,19 @@ class Session extends Equatable {
   final bool pinned;
   final String? audioPath;
 
+  Session copyWith({bool? pinned, String? title, String? color}) => Session(
+        id: id,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        transcribeProvider: transcribeProvider,
+        chunkCount: chunkCount,
+        preview: preview,
+        title: title ?? this.title,
+        color: color ?? this.color,
+        pinned: pinned ?? this.pinned,
+        audioPath: audioPath,
+      );
+
   @override
   List<Object?> get props => [
         id,

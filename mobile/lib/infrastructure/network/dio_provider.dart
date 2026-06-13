@@ -8,7 +8,7 @@ part 'dio_provider.g.dart';
 
 /// Bare Dio — endpoint별 Retrofit 클라이언트가 baseUrl 를 따로 지정.
 @Riverpod(keepAlive: true)
-Dio dio(DioRef ref) {
+Dio dio(Ref ref) {
   final dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 15),

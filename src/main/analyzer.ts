@@ -53,6 +53,12 @@ class Analyzer {
     this.schedule();
   }
 
+  remove(id: string): void {
+    const before = this.chunks.length;
+    this.chunks = this.chunks.filter((c) => c.id !== id);
+    if (this.chunks.length !== before) this.schedule();
+  }
+
   history(): { id: string; speaker: Speaker; text: string }[] {
     return this.chunks.map((c) => ({
       id: c.id,

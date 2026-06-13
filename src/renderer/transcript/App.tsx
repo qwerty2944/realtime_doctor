@@ -6,6 +6,7 @@ import {
   MicOff,
   RotateCcw,
   Stethoscope,
+  Trash2,
   User
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -82,6 +83,7 @@ export default function TranscriptApp() {
     stop,
     reset,
     relabel,
+    removeUtterance,
     swapAll
   } = useRealtime();
 
@@ -188,8 +190,8 @@ export default function TranscriptApp() {
                 <DialogTitle>세션 불러오기</DialogTitle>
                 <DialogDescription>
                   이전 세션을 선택하면 transcript 와 분석/요약/딕테이션이 복원되고
-                  이후 새 발화는 그 세션에 이어집니다. 클라우드 동기화가 켜져
-                  있어야 합니다.
+                  이후 새 발화는 그 세션에 이어집니다. 로컬 저장 세션은 오프라인
+                  에서도 불러올 수 있습니다.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-2">
@@ -218,9 +220,27 @@ export default function TranscriptApp() {
                         loadingId === s.id && 'opacity-60'
                       )}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{started}</span>
-                        <span className="text-[10px] text-muted-foreground">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-medium">{started}</span>
+                          <span
+                            className={cn(
+                              'shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+                              s.source === 'both' &&
+                                'bg-emerald-500/25 text-emerald-100',
+                              s.source === 'cloud' && 'bg-sky-500/25 text-sky-100',
+                              s.source === 'local' &&
+                                'bg-amber-500/25 text-amber-100'
+                            )}
+                          >
+                            {s.source === 'both'
+                              ? t('sessions.sourceBoth')
+                              : s.source === 'cloud'
+                                ? t('sessions.sourceCloud')
+                                : t('sessions.sourceLocal')}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
                           {s.chunk_count}
                           {lang === 'en' ? ' utterances' : ' 발화'}
                         </span>
@@ -270,7 +290,7 @@ export default function TranscriptApp() {
                 key={u.id}
                 className={cn('rounded-md px-2 py-1.5', style.bubble)}
               >
-                <div className="mb-1 flex items-center gap-1.5">
+                <div className="group mb-1 flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => relabel(u.id, nextSpeaker(u.speaker))}
@@ -286,6 +306,15 @@ export default function TranscriptApp() {
                   <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
                     {formatTime(u.timestamp)}
                   </span>
+                  {/* 발화 삭제 — 호버 시 노출. */}
+                  <button
+                    type="button"
+                    onClick={() => removeUtterance(u.id)}
+                    className="ml-auto rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    title={lang === 'en' ? 'Delete' : '삭제'}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </div>
                 <div>{u.text}</div>
               </div>

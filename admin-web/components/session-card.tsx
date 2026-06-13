@@ -71,7 +71,21 @@ export function SessionCard({
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-accent/50 hover:shadow-lg ${
+      role="link"
+      tabIndex={0}
+      aria-label="세션 상세 열기"
+      onClick={(e) => {
+        // 카드 내부의 버튼/링크/입력 등 기존 인터랙티브 요소 클릭은 그대로 둔다
+        if ((e.target as HTMLElement).closest('a, button, input')) return;
+        router.push(href);
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return;
+        if ((e.target as HTMLElement).closest('a, button, input')) return;
+        e.preventDefault();
+        router.push(href);
+      }}
+      className={`group relative cursor-pointer overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-accent/50 hover:shadow-lg ${
         s.color ? COLOR_TOKEN[s.color].tint : 'hover:bg-muted/20'
       }`}
     >
@@ -153,8 +167,11 @@ export function SessionCard({
           </div>
         </div>
 
-        {/* 우상단 액션 메뉴 */}
-        <div className="relative flex-shrink-0 opacity-60 group-hover:opacity-100">
+        {/* 우상단 액션 메뉴 — 드롭다운 내부 클릭이 카드 네비게이션으로 번지지 않게 차단 */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="relative flex-shrink-0 opacity-60 group-hover:opacity-100"
+        >
           <ActionsMenu
             pinned={s.pinned}
             color={s.color}

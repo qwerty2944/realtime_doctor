@@ -2,7 +2,9 @@ class AppConstants {
   AppConstants._();
 
   static const String appName = 'Realtime Doctor';
-  static const int audioSampleRate = 16000;
+  static const String appVersion = '0.1.0';
+  // OpenAI Realtime API 의 pcm16 format 은 24kHz mono. Gemini chunk 도 24kHz 잘 받음.
+  static const int audioSampleRate = 24000;
   static const int audioChannels = 1;
   static const int audioBitsPerSample = 16;
 

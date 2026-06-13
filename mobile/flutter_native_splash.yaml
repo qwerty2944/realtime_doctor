@@ -1,0 +1,11 @@
+# 네이티브 스플래시(런치 스크린) — 첫 프레임을 검정으로. 흰 화면 플래시 제거.
+# 변경 후: fvm dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#000000"
+  color_dark: "#000000"
+  android: true
+  ios: true
+  web: false
+  android_12:
+    color: "#000000"
+    color_dark: "#000000"

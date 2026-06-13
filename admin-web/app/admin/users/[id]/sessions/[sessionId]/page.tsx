@@ -99,7 +99,7 @@ export default async function SessionDetail({
 
   return (
     <SessionDetailClient
-      backHref={`/admin/users/${id}`}
+      backHref={isAdmin ? `/admin/users/${id}` : '/admin'}
       session={{
         id: session.id,
         started_at: session.started_at,

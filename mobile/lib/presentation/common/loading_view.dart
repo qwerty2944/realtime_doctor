@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class LoadingView extends StatelessWidget {
   const LoadingView({this.message, super.key});
@@ -12,11 +13,8 @@ class LoadingView extends StatelessWidget {
         children: [
           const CircularProgressIndicator(strokeWidth: 2.5),
           if (message != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              message!,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            SizedBox(height: 12.h),
+            Text(message!, style: Theme.of(context).textTheme.bodySmall),
           ],
         ],
       ),

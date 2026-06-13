@@ -19,6 +19,7 @@ import {
   type CloudSyncSettings,
   type DictationResult,
   type Language,
+  type LocalSaveSettings,
   type ShortcutId,
   type Speaker,
   type SummaryResult,
@@ -31,7 +32,8 @@ import {
   unregisterAllShortcuts
 } from './shortcuts.js';
 import { analyzer } from './analyzer.js';
-import { setAuthCallbacks } from './auth.js';
+import { getCurrentUser, setAuthCallbacks } from './auth.js';
+import { initDeviceAuth, listDevices, revokeDevice } from './device.js';
 import { classifySpeaker } from './diarizer.js';
 import { generateDictation } from './dictator.js';
 import {
@@ -49,6 +51,7 @@ import {
   clearSessionCache,
   endCurrentSession,
   getCurrentSessionId,
+  deleteChunkRow,
   listMySessions,
   loadSession,
   logUsage,
@@ -69,6 +72,7 @@ import {
   getCloudSync,
   getLanguage,
   getLastDictationTemplate,
+  getLocalSave,
   getShortcuts,
   getTranscribeProvider,
   markLaunched,
@@ -76,6 +80,7 @@ import {
   saveOpacity,
   setCloudSync,
   setLastDictationTemplate,
+  setLocalSave,
   setShortcut,
   setTranscribeProvider,
   store,
@@ -83,6 +88,17 @@ import {
 } from './store.js';
 import { applyLanguage, preferredProviderFor } from './language.js';
 import { summarizeConversation } from './summarizer.js';
+import { getSupabase } from './supabaseClient.js';
+import {
+  activateTab,
+  attachGroupDragHandlers,
+  detachTab,
+  dissolveAllGroups,
+  getGroupsState,
+  initWindowGroups,
+  isHiddenGroupMember,
+  restoreGroups
+} from './windowGroups.js';
 import { MAIN_WINDOW_KEYS, OVERLAYS, createOverlayWindow } from './windows.js';
 import type {
   DictationTemplate,
@@ -225,6 +241,12 @@ ipcMain.on(IPC.TranscriptRelabel, (_event, payload: TranscriptLabelEvent) => {
   analyzer.relabel(payload.id, payload.speaker as Speaker);
   void relabelChunk(payload.id, payload.speaker as Speaker);
   broadcast(IPC.TranscriptLabel, payload);
+});
+
+ipcMain.on(IPC.TranscriptRemove, (_event, id: string) => {
+  if (!id) return;
+  analyzer.remove(id);
+  void deleteChunkRow(id);
 });
 
 ipcMain.on(IPC.TranscriptReset, () => {
@@ -466,9 +488,44 @@ ipcMain.handle('window:get-opacity', (event) => {
   return win?.getOpacity() ?? 1;
 });
 
+// ── 창 탭 그룹 (드래그앤드랍 머지) ──────────────────────────────────────
+ipcMain.handle(IPC.WindowGroupsGet, () => getGroupsState());
+ipcMain.on(IPC.WindowGroupsActivate, (_event, key: WindowKey) => {
+  activateTab(key);
+  broadcastWindowState();
+});
+ipcMain.on(IPC.WindowGroupsDetach, (_event, key: WindowKey) => {
+  detachTab(key);
+  broadcastWindowState();
+});
+// 렌더러가 자기 창 key 를 알 수 있게.
+ipcMain.handle('window:get-key', (event) =>
+  windowKeyOf(BrowserWindow.fromWebContents(event.sender))
+);
+
+// ── 기기인증 ────────────────────────────────────────────────────────────
+ipcMain.handle(IPC.DevicesList, async () => {
+  const user = getCurrentUser();
+  if (!user) return [];
+  return listDevices(user.id);
+});
+ipcMain.handle(IPC.DevicesRevoke, async (_event, rowId: string) => {
+  const user = getCurrentUser();
+  if (!user) return { ok: false, error: '로그인이 필요합니다.' };
+  return revokeDevice(user.id, rowId);
+});
+
+// ── 로컬 저장 설정 ──────────────────────────────────────────────────────
+ipcMain.handle(IPC.LocalSaveGet, () => getLocalSave());
+ipcMain.handle(IPC.LocalSaveSet, (_event, patch: Partial<LocalSaveSettings>) =>
+  setLocalSave(patch)
+);
+
 ipcMain.handle('layout:list', () => listLayouts());
 
 ipcMain.handle('layout:apply', (_event, name: string) => {
+  // 레이아웃은 모든 창을 개별 위치로 재배치하므로 탭 그룹과 양립 불가 — 해체.
+  dissolveAllGroups();
   return applyLayout(name, windows as Map<WindowKey, BrowserWindow>);
 });
 
@@ -767,6 +824,12 @@ ipcMain.handle('windows:list-state', () => snapshotWindows());
 function toggleOneWindow(key: WindowKey): void {
   const win = windows.get(key);
   if (!win || win.isDestroyed()) return;
+  // 탭 그룹의 숨은 멤버면 개별 show 대신 그룹 내 활성 탭으로 전환.
+  if (isHiddenGroupMember(key)) {
+    activateTab(key);
+    broadcastWindowState();
+    return;
+  }
   if (win.isMinimized() || !win.isVisible()) {
     if (win.isMinimized()) win.restore();
     win.show();
@@ -786,7 +849,11 @@ function toggleAllMainWindows(): void {
       if (w.isVisible() && !w.isMinimized()) w.hide();
     }
   } else {
-    for (const w of mains) {
+    for (const key of MAIN_WINDOW_KEYS) {
+      const w = windows.get(key);
+      if (!w || w.isDestroyed()) continue;
+      // 탭 그룹의 숨은 멤버는 활성 탭 뒤에 숨어 있어야 하므로 show 하지 않음.
+      if (isHiddenGroupMember(key)) continue;
       if (w.isMinimized()) w.restore();
       if (!w.isVisible()) w.show();
       w.setAlwaysOnTop(true, 'screen-saver');
@@ -825,6 +892,7 @@ function revealOverlays(): void {
   for (const key of MAIN_WINDOW_KEYS) {
     const win = windows.get(key);
     if (!win || win.isDestroyed()) continue;
+    if (isHiddenGroupMember(key)) continue;
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
   }
@@ -881,10 +949,17 @@ app.whenReady().then(() => {
     applyDockIcon();
     app.dock?.show();
   }
+  initWindowGroups({
+    windows: windows as Map<WindowKey, BrowserWindow>,
+    broadcast,
+    onGroupsChanged: () => broadcastWindowState()
+  });
+
   for (const spec of OVERLAYS) {
     const initiallyHidden = spec.key !== 'dock';
     const win = createOverlayWindow(spec, { initiallyHidden });
     windows.set(spec.key, win);
+    attachGroupDragHandlers(win, spec.key);
     win.on('minimize', () => broadcastWindowState());
     win.on('restore', () => broadcastWindowState());
     win.on('show', () => broadcastWindowState());
@@ -910,7 +985,17 @@ app.whenReady().then(() => {
     windows as Map<WindowKey, BrowserWindow>
   );
 
+  // 레이아웃 적용 뒤 저장된 탭 그룹 복원 (활성 탭 위치 기준으로 멤버 숨김).
+  restoreGroups();
+
   setShortcutDispatch(dispatchShortcut);
+
+  initDeviceAuth({
+    broadcast,
+    forceSignOut: async () => {
+      await getSupabase()?.auth.signOut();
+    }
+  });
 
   setAuthCallbacks({
     broadcast,

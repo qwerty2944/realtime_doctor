@@ -12,9 +12,9 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  # State + DI (Riverpod codegen)
-  flutter_riverpod: ^2.6.1
-  riverpod_annotation: ^2.6.1
+  # State + DI (Riverpod codegen) — Riverpod 3.x 런타임 + 4.x 코드젠 툴링
+  flutter_riverpod: ^3.3.1
+  riverpod_annotation: ^4.0.2
 
   # Routing
   go_router: ^14.6.2
@@ -34,6 +34,7 @@ dependencies:
   flutter_screenutil: ^5.9.3
   intl: any
   google_fonts: ^6.2.1
+  flutter_animate: ^4.5.0
 
   # Icons
   lucide_icons: ^0.257.0
@@ -45,8 +46,9 @@ dependencies:
   permission_handler: ^11.3.1
   audio_session: ^0.1.21
 
-  # WebSocket (CLOVA Streaming / OpenAI Realtime)
+  # WebSocket (OpenAI Realtime) + gRPC (CLOVA NEST bidi streaming)
   web_socket_channel: ^3.0.1
+  grpc: ^4.0.4
 
   # Storage / cache
   shared_preferences: ^2.3.3
@@ -61,6 +63,9 @@ dependencies:
   equatable: ^2.0.5
   collection: ^1.18.0
   uuid: ^4.5.1
+  dropdown_button2: ^2.3.9
+  flutter_slidable: ^4.0.3
+  flutter_spinkit: ^5.2.2
 
 dev_dependencies:
   flutter_test:
@@ -69,16 +74,20 @@ dev_dependencies:
 
   # codegen
   build_runner: ^2.5.0
-  riverpod_generator: ^2.6.5
+  riverpod_generator: ^4.0.3
   freezed: ^3.0.0
   json_serializable: ^6.8.0
+  flutter_native_splash: ^2.4.7
 
 dependency_overrides:
-  # analyzer 7.x 와 호환되는 plugin 으로 강제. 0.13+ 가 Element2 API 사용.
-  analyzer_plugin: ">=0.13.0 <0.14.0"
+  # record_linux 0.7.2 가 record_platform_interface 1.5.0 의 startStream 미구현 →
+  # iOS 빌드 시 kernel_snapshot 단계에서 컴파일 에러. 최신 호환 버전으로 강제.
+  record_linux: ^1.1.0
 
 flutter:
   uses-material-design: true
   generate: true
+  shaders:
+    - assets/shaders/aurora.frag
   assets:
     - .env

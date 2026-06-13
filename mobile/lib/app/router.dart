@@ -32,7 +32,7 @@ class _RouterRefresh extends ChangeNotifier {
 }
 
 @Riverpod(keepAlive: true)
-GoRouter router(RouterRef ref) {
+GoRouter router(Ref ref) {
   final refresh = _RouterRefresh(ref);
   ref.onDispose(refresh.dispose);
 
@@ -50,36 +50,89 @@ GoRouter router(RouterRef ref) {
     routes: [
       GoRoute(
         path: '/auth/login',
-        builder: (_, __) => const LoginScreen(),
+        pageBuilder: (_, __) => _fadePage(const LoginScreen()),
       ),
       GoRoute(
         path: '/auth/signup',
-        builder: (_, __) => const SignupScreen(),
+        pageBuilder: (_, __) => _fadePage(const SignupScreen()),
       ),
-      ShellRoute(
-        builder: (_, __, child) => MainShell(child: child),
-        routes: [
-          GoRoute(
-            path: '/capture',
-            builder: (_, __) => const CaptureScreen(),
-          ),
-          GoRoute(
-            path: '/sessions',
-            builder: (_, __) => const SessionsListScreen(),
+      // StatefulShellRoute.indexedStack — 3개 탭이 각자 자기 Navigator + IndexedStack
+      // 안에 살아남아 탭 전환해도 위젯트리/스크롤/컨트롤러 상태가 보존된다.
+      StatefulShellRoute.indexedStack(
+        builder: (_, __, navShell) => MainShell(navigationShell: navShell),
+        branches: [
+          StatefulShellBranch(
             routes: [
               GoRoute(
-                path: ':id',
-                builder: (_, s) =>
-                    SessionDetailScreen(id: s.pathParameters['id']!),
+                path: '/capture',
+                builder: (_, __) => const CaptureScreen(),
               ),
             ],
           ),
-          GoRoute(
-            path: '/settings',
-            builder: (_, __) => const SettingsScreen(),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/sessions',
+                builder: (_, __) => const SessionsListScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    pageBuilder: (_, s) => _sharedAxisPage(
+                      SessionDetailScreen(id: s.pathParameters['id']!),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/settings',
+                builder: (_, __) => const SettingsScreen(),
+              ),
+            ],
           ),
         ],
       ),
     ],
+  );
+}
+
+/// 부드러운 페이드 전환(인증 화면 등).
+CustomTransitionPage<void> _fadePage(Widget child) {
+  return CustomTransitionPage<void>(
+    child: child,
+    transitionDuration: const Duration(milliseconds: 280),
+    reverseTransitionDuration: const Duration(milliseconds: 220),
+    transitionsBuilder: (_, animation, __, child) => FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+      child: child,
+    ),
+  );
+}
+
+/// 살짝 밀려 들어오며 페이드(상세 push) — shared-axis 느낌.
+CustomTransitionPage<void> _sharedAxisPage(Widget child) {
+  return CustomTransitionPage<void>(
+    child: child,
+    transitionDuration: const Duration(milliseconds: 300),
+    reverseTransitionDuration: const Duration(milliseconds: 240),
+    transitionsBuilder: (_, animation, __, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.04, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
   );
 }

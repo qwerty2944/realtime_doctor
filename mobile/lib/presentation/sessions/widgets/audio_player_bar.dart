@@ -4,6 +4,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../../../app/theme.dart';
+import '../../../core/utils/layout.dart';
 import '../../../generated/l10n/app_localizations.dart';
 import '../../../infrastructure/audio/audio_player_provider.dart';
 import '../../common/empty_view.dart';
@@ -45,7 +47,12 @@ class _AudioPlayerBarState extends ConsumerState<AudioPlayerBar> {
     final player = ref.read(audioPlayerProvider);
 
     return Padding(
-      padding: EdgeInsets.all(16.r),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.lg.r,
+        AppSpacing.lg.r,
+        AppSpacing.lg.r,
+        AppSpacing.lg.r + context.glassNavBarInset,
+      ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -54,15 +61,20 @@ class _AudioPlayerBarState extends ConsumerState<AudioPlayerBar> {
             builder: (_, snap) {
               final playing = snap.data?.playing ?? false;
               return IconButton.filled(
-                iconSize: 40.r,
+                iconSize: 36.r,
+                style: IconButton.styleFrom(
+                  padding: EdgeInsets.all(AppSpacing.md.r),
+                ),
                 onPressed: !_loaded
                     ? null
                     : () => playing ? player.pause() : player.play(),
-                icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                icon: Icon(
+                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                ),
               );
             },
           ),
-          SizedBox(height: 12.h),
+          SizedBox(height: AppSpacing.md.h),
           StreamBuilder<Duration?>(
             stream: player.durationStream,
             builder: (_, durSnap) {
@@ -74,19 +86,25 @@ class _AudioPlayerBarState extends ConsumerState<AudioPlayerBar> {
                   return Column(
                     children: [
                       Slider(
-                        max: dur.inMilliseconds.toDouble().clamp(1, double.infinity),
-                        value: pos.inMilliseconds
-                            .toDouble()
-                            .clamp(0, dur.inMilliseconds.toDouble()),
+                        max: dur.inMilliseconds.toDouble().clamp(
+                          1,
+                          double.infinity,
+                        ),
+                        value: pos.inMilliseconds.toDouble().clamp(
+                          0,
+                          dur.inMilliseconds.toDouble(),
+                        ),
                         onChanged: !_loaded
                             ? null
-                            : (v) => player.seek(Duration(milliseconds: v.toInt())),
+                            : (v) => player.seek(
+                                Duration(milliseconds: v.toInt()),
+                              ),
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(_fmt(pos), style: TextStyle(fontSize: 11.sp)),
-                          Text(_fmt(dur), style: TextStyle(fontSize: 11.sp)),
+                          Text(_fmt(pos), style: context.monoTime),
+                          Text(_fmt(dur), style: context.monoTime),
                         ],
                       ),
                     ],

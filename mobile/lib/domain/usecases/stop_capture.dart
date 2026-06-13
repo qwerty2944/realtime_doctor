@@ -5,6 +5,5 @@ class StopCaptureUseCase {
   StopCaptureUseCase(this._repo);
   final CaptureRepository _repo;
 
-  Future<Result<void>> call({bool uploadAudio = true}) =>
-      _repo.stop(uploadAudio: uploadAudio);
+  Future<Result<CaptureStopResult>> call() => _repo.stop();
 }
