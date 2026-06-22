@@ -5,7 +5,7 @@ export const dynamic = 'force-static';
 
 const SUPABASE_PUBLIC =
   'https://yqdzxitlmtawznzwpkra.supabase.co/storage/v1/object/public/downloads';
-const VERSION = '0.5.6';
+const VERSION = '0.5.7';
 
 const MAC_DMG = `${SUPABASE_PUBLIC}/mac/Realtime-Doctor-${VERSION}-arm64.dmg`;
 const WIN_EXE = `${SUPABASE_PUBLIC}/win/Realtime-Doctor-Setup-${VERSION}.exe`;
@@ -29,12 +29,9 @@ export default function InstallPage() {
         <Card>
           <CardHeader title={`이번 버전 (v${VERSION}) 주요 변경`} />
           <ul className="ml-5 list-disc space-y-2 text-sm text-foreground/75">
-            <li>앱 시작 시 Dock만 표시 — 계정 다이얼로그가 자동으로 뜨지 않음</li>
-            <li>Cmd/Ctrl 누르고 있으면 모든 오버레이에 단축키 힌트 동시 표시</li>
-            <li>Dock은 다른 오버레이보다 항상 위에 — 가려지지 않음</li>
-            <li>레이아웃·언어·계정 메뉴: 작은 Dock 안에서 잘리지 않게 자동 확장</li>
-            <li>기본 레이아웃: 2×3 격자 + Dock 중앙 하단</li>
-            <li>모든 창에 시안 네온 글로우 (포커스된 창은 더 강하게)</li>
+            <li>감별진단: 카드를 눌러 검토할 진단 선택 — 선택 시 강조 표시</li>
+            <li>전사: 발화 위에 마우스를 올려 개별 발화 삭제</li>
+            <li>Apple 공증(notarization) 정상화 — 첫 실행 시 보안 경고 제거</li>
           </ul>
         </Card>
 
