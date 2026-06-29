@@ -5,10 +5,13 @@ export const dynamic = 'force-static';
 
 const SUPABASE_PUBLIC =
   'https://yqdzxitlmtawznzwpkra.supabase.co/storage/v1/object/public/downloads';
-const VERSION = '0.5.7';
+// mac / win 빌드 버전이 다를 수 있어 분리. 페이지 헤드라인은 최신(mac) 기준.
+const MAC_VERSION = '0.5.8';
+const WIN_VERSION = '0.5.8';
+const VERSION = MAC_VERSION;
 
-const MAC_DMG = `${SUPABASE_PUBLIC}/mac/Realtime-Doctor-${VERSION}-arm64.dmg`;
-const WIN_EXE = `${SUPABASE_PUBLIC}/win/Realtime-Doctor-Setup-${VERSION}.exe`;
+const MAC_DMG = `${SUPABASE_PUBLIC}/mac/Realtime-Doctor-${MAC_VERSION}-arm64.dmg`;
+const WIN_EXE = `${SUPABASE_PUBLIC}/win/Realtime-Doctor-Setup-${WIN_VERSION}.exe`;
 
 export default function InstallPage() {
   return (
@@ -40,13 +43,13 @@ export default function InstallPage() {
           <CardHeader title="macOS · Apple Silicon" subtitle="M1/M2/M3/M4 · 약 105MB · DMG" />
           <div className="flex flex-wrap gap-2">
             <DownloadButton href={MAC_DMG} primary>
-              DMG 다운로드 (v{VERSION})
+              DMG 다운로드 (v{MAC_VERSION})
             </DownloadButton>
           </div>
           <Steps
             steps={[
               'DMG 더블클릭 → Realtime Doctor.app 을 Applications 폴더로 드래그',
-              '⚠️ 첫 실행: Finder 에서 앱 우클릭 → "열기" → 경고 창에서 다시 "열기" (서명은 되어 있지만 노터라이즈 미적용)',
+              'Launchpad 또는 Applications 에서 앱 실행 (Apple 공증 완료 — 별도 보안 우회 불필요)',
               '시스템 설정 → 개인정보 보호 → 마이크 권한 허용',
               'Dock 의 사람 아이콘 클릭 → 회원가입 또는 로그인',
               'Cmd+R 로 녹음 시작 · Cmd+0 으로 모든 창 토글'
@@ -59,13 +62,13 @@ export default function InstallPage() {
           <CardHeader title="Windows · x64" subtitle="Windows 10/11 · 약 83MB · NSIS 인스톨러" />
           <div className="flex flex-wrap gap-2">
             <DownloadButton href={WIN_EXE} primary>
-              인스톨러 다운로드 (.exe) (v{VERSION})
+              인스톨러 다운로드 (.exe) (v{WIN_VERSION})
             </DownloadButton>
           </div>
           <Steps
             steps={[
-              `다운로드한 "Realtime Doctor Setup ${VERSION}.exe" 더블클릭`,
-              '⚠️ SmartScreen 경고: "추가 정보" → "실행" 클릭 (코드사이닝 미적용)',
+              `다운로드한 "Realtime Doctor Setup ${WIN_VERSION}.exe" 더블클릭`,
+              '⚠️ "Windows의 PC 보호" SmartScreen 경고가 떠도 정상입니다 — "추가 정보" → "실행" 클릭하면 그대로 설치됩니다 (코드사이닝 미적용이라 뜨는 안내일 뿐, 안전합니다)',
               '설치 마법사 진행 → 설치 완료',
               '시작 메뉴에서 Realtime Doctor 실행',
               '마이크 권한 허용',
