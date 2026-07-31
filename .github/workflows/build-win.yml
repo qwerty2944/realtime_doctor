@@ -1,0 +1,78 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Optional: bake API keys into the build when repository secrets are set.
+      # electron.vite.config.ts inlines these via `define` at build time.
+      # When the secrets are absent this step writes nothing, and the installed
+      # app falls back to reading a .env placed by the user at runtime
+      # (%APPDATA%\Realtime Doctor\.env or %USERPROFILE%\.realtime-doctor.env).
+      - name: Write .env from repository secrets (optional)
+        shell: pwsh
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          $lines = @()
+          foreach ($name in 'GEMINI_API_KEY','OPENAI_API_KEY','SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY') {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if (-not [string]::IsNullOrWhiteSpace($value)) { $lines += "$name=$value" }
+          }
+          if ($lines.Count -gt 0) {
+            Set-Content -Path .env -Value $lines -Encoding utf8
+            Write-Host "Wrote .env with $($lines.Count) key(s)."
+          } else {
+            Write-Host "No build-time secrets configured; skipping .env."
+          }
+
+      - name: Build Windows installer
+        run: npm run dist:win
+        env:
+          # Do not attempt to discover / use a code-signing certificate.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: realtime-doctor-win-x64
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.exe.blockmap
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
