@@ -58,7 +58,10 @@ function freshWorld(snapFirst = false) {
   groups.initWindowGroups({
     windows,
     broadcast: () => undefined,
-    onGroupChangedMembers: (ks) => snap.dropSnapsFor(ks)
+    // index.ts 와 같은 배선: 그룹 구성이 바뀌면 스냅 관계를 unit 기준으로
+    // 정규화하고, 그룹 대표가 바뀌면 관계를 넘겨받는다.
+    onGroupChangedMembers: (ks) => snap.normalizeSnapUnits(ks),
+    onSnapUnitReassign: (from, to) => snap.reassignSnapUnit(from, to)
   });
   snap.initWindowSnap({ windows });
   for (const [k, w] of windows) {

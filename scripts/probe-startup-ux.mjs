@@ -54,7 +54,9 @@ function bootWindows() {
   groups.initWindowGroups({
     windows,
     broadcast: () => undefined,
-    onGroupChangedMembers: (ks) => snap.dropSnapsFor(ks)
+    // index.ts 와 같은 배선 (탭 그룹은 스냅 단위이므로 끊는 게 아니라 정규화).
+    onGroupChangedMembers: (ks) => snap.normalizeSnapUnits(ks),
+    onSnapUnitReassign: (from, to) => snap.reassignSnapUnit(from, to)
   });
   const keyOf = new Map();
   for (const spec of windowsMod.OVERLAYS) {
