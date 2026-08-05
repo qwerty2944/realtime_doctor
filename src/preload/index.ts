@@ -18,6 +18,8 @@ import {
   type EphemeralSession,
   type EvidenceStatus,
   type EvidenceUpdate,
+  type IssueVisitCodeResult,
+  type VisitCodeSettings,
   type Language,
   type LoadedSessionPayload,
   type LocalSaveSettings,
@@ -537,6 +539,24 @@ const api = {
     /** 지난 진료 재스캔 (B5). 저장만 하고 아무 창도 띄우지 않는다. */
     backfill(months: number): Promise<CareActivityBackfillResult> {
       return ipcRenderer.invoke(IPC.CareActivitiesBackfill, months);
+    }
+  },
+  visitCode: {
+    /**
+     * 방문 코드 한 개 발급 (L1).
+     *
+     * 평문 코드는 **이 응답에만** 존재한다. 저장하지 않으므로 다시 보려면
+     * 새로 발급해야 한다. 화면도 이 값을 오래 들고 있지 않는다.
+     */
+    issue(): Promise<IssueVisitCodeResult> {
+      return ipcRenderer.invoke(IPC.VisitCodeIssue);
+    },
+    /** 키오스크 주소·슬러그. 주소는 설정값이고 코드에 도메인을 박지 않는다. */
+    getSettings(): Promise<VisitCodeSettings> {
+      return ipcRenderer.invoke(IPC.VisitCodeSettingsGet);
+    },
+    setSettings(patch: Partial<VisitCodeSettings>): Promise<VisitCodeSettings> {
+      return ipcRenderer.invoke(IPC.VisitCodeSettingsSet, patch);
     }
   },
   localSave: {

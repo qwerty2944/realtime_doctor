@@ -10,7 +10,8 @@ import {
   type Language,
   type LocalSaveSettings,
   type ShortcutId,
-  type TranscribeProviderId
+  type TranscribeProviderId,
+  type VisitCodeSettings
 } from '../shared/types.js';
 
 export type WindowKey =
@@ -63,6 +64,8 @@ interface Schema {
    * lastServerTimeMs 는 시계 되돌리기 방어용 단조 증가 값.
    */
   entitlement?: { token: unknown; lastServerTimeMs: number };
+  /** 방문 코드 발급이 QR 에 넣을 키오스크 주소 (L1). 도메인은 코드에 박지 않는다. */
+  visitCode?: VisitCodeSettings;
 }
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {
@@ -203,6 +206,34 @@ export function setLocalSave(patch: Partial<LocalSaveSettings>): LocalSaveSettin
   const next = { ...getLocalSave(), ...patch };
   if (!next.enabled) next.saveAudio = false;
   store.set('localSave', next);
+  return next;
+}
+
+/**
+ * 방문 코드 설정 (L1).
+ *
+ * 기본값은 **빈 주소**다. 자리표시자 도메인을 기본값으로 넣어두면 설정하지
+ * 않은 의원에서 열리지 않는 QR 이 환자 앞에 나가고, 그 실패는 접수처가
+ * 원인을 알 수 없다. 비어 있으면 화면이 "주소를 먼저 설정하세요" 를 말한다.
+ */
+const DEFAULT_VISIT_CODE: VisitCodeSettings = { kioskUrl: '', kioskSlug: null };
+
+export function getVisitCodeSettings(): VisitCodeSettings {
+  return { ...DEFAULT_VISIT_CODE, ...(store.get('visitCode') ?? {}) };
+}
+
+export function setVisitCodeSettings(
+  patch: Partial<VisitCodeSettings>
+): VisitCodeSettings {
+  const merged = { ...getVisitCodeSettings(), ...patch };
+  const slug = merged.kioskSlug?.trim().toLowerCase() ?? '';
+  const next: VisitCodeSettings = {
+    kioskUrl: merged.kioskUrl.trim().replace(/\/+$/, ''),
+    // 슬러그 형식은 키오스크의 KIOSK_CLINICIANS 규칙과 같다. 형식이 깨진 값을
+    // 저장하면 발급은 성공하고 사용만 조용히 실패한다.
+    kioskSlug: /^[a-z0-9][a-z0-9_-]{0,30}$/.test(slug) ? slug : null
+  };
+  store.set('visitCode', next);
   return next;
 }
 

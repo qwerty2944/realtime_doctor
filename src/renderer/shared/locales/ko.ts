@@ -305,7 +305,29 @@ const ko = {
   'review.backfill': '지난 진료 다시 스캔',
   'review.backfillDesc':
     '검토를 마친 직후에는 지난 진료에 기록이 없습니다. 최근 3개월치를 다시 스캔해 채웁니다. 여러 번 눌러도 건수는 늘지 않습니다.',
-  'review.backfillResult': '진료 {scanned}건 · 새 기록 {inserted}건 · 그대로 {unchanged}건'
+  'review.backfillResult': '진료 {scanned}건 · 새 기록 {inserted}건 · 그대로 {unchanged}건',
+
+  // 방문 코드 (L1)
+  //
+  // 접수처가 환자 한 명의 이번 방문에 대해 발급하는 단기 코드. 이 코드가
+  // 있어야 키오스크 문진이 시작된다 (배포구조 문서 4장).
+  'visitCode.title': '방문 코드 발급',
+  'visitCode.desc': '환자에게 전달할 코드입니다. QR을 찍거나 코드를 입력하면 문진이 시작됩니다.',
+  'visitCode.issue': '코드 발급',
+  'visitCode.issueAgain': '새 코드 발급',
+  'visitCode.expiresIn': '남은 시간',
+  'visitCode.expired': '코드 사용 시간이 지났습니다. 새로 발급하세요.',
+  'visitCode.qrHint': '환자 휴대폰이나 태블릿 카메라로 찍으면 문진 화면이 바로 열립니다.',
+  'visitCode.noKioskUrl': '키오스크 주소가 설정되지 않아 QR을 만들 수 없습니다. 아래에서 주소를 먼저 입력하세요. 코드는 직접 불러주셔도 됩니다.',
+  'visitCode.note': '코드는 한 번의 방문에만 쓰이고, 문진이 끝나면 다시 쓸 수 없습니다. 이 화면을 닫으면 코드는 다시 볼 수 없으니 필요하면 새로 발급하세요.',
+  'visitCode.errorSignedOut': '로그인 후에 발급할 수 있습니다.',
+  'visitCode.errorTooMany': '아직 사용하지 않은 코드가 너무 많습니다. 기존 코드가 만료된 뒤에 다시 발급하세요.',
+  'visitCode.errorFailed': '코드를 발급하지 못했습니다. 잠시 후 다시 시도하세요.',
+  'visitCode.settingsTitle': '키오스크 연결',
+  'visitCode.kioskUrl': '키오스크 주소',
+  'visitCode.kioskSlug': '키오스크 슬러그 (선택)',
+  'visitCode.settingsHint':
+    '문진 웹앱이 배포된 주소입니다. 예: https://example.com/righthand/patient — 슬러그를 비워두면 이 계정의 어느 키오스크에서든 쓸 수 있습니다.'
 } as const;
 
 export default ko;

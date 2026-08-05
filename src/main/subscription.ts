@@ -49,7 +49,13 @@ export type GateAction =
   | 'analysis'
   | 'summary'
   | 'dictation'
-  | 'patient-intake';
+  | 'patient-intake'
+  /**
+   * 방문 코드 발급 (L1). 기록 열람이 아니라 **새 진료를 여는 행위**라 게이트
+   * 뒤에 둔다 — 문진은 analysis/summary 의 입력을 만들고, 잠긴 계정이 문진을
+   * 계속 만들 수 있으면 그 게이트들이 무의미해진다.
+   */
+  | 'visit-code';
 
 interface CachedEntitlement {
   token: unknown;

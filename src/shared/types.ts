@@ -116,6 +116,16 @@ export const IPC = {
   CareActivitiesSetReview: 'care-activities:set-review',
   /** 지난 진료 재스캔 (B5, invoke). 저장만 하고 화면을 띄우지 않는다. */
   CareActivitiesBackfill: 'care-activities:backfill',
+  /**
+   * 방문 코드 발급 (L1, invoke).
+   *
+   * 접수처가 환자 한 명의 이번 방문에 대해 발급하는 단기 코드다. 평문 코드는
+   * 이 응답에만 존재하고 어디에도 저장되지 않는다 — 다시 보려면 새로 발급한다.
+   */
+  VisitCodeIssue: 'visit-code:issue',
+  /** 키오스크 주소·슬러그 설정 조회/저장 (L1, invoke). */
+  VisitCodeSettingsGet: 'visit-code:settings-get',
+  VisitCodeSettingsSet: 'visit-code:settings-set',
   /** 나중에 뜬 창이 현재 글씨 배율을 스스로 채우기 위한 getter. */
   FontScaleGet: 'font-scale:get',
   /** 글씨 배율 변경을 모든 창에 알리는 broadcast. */
@@ -632,3 +642,43 @@ export const PLAN_TOTAL_KRW = PLAN_PRICE_KRW + PLAN_VAT_KRW;
 
 /** 체험 만료 배너를 띄우기 시작하는 남은 일수 (계획서: D-7). */
 export const TRIAL_BANNER_DAYS = 7;
+
+
+// ---------------------------------------------------------------------------
+// 방문 코드 (L1)
+// ---------------------------------------------------------------------------
+
+/**
+ * 키오스크 배포 주소와 이 앱이 쓰는 키오스크 슬러그.
+ *
+ * [HARD] 주소는 **설정값**이다. 코드 어디에도 도메인을 박지 않는다 —
+ * `entanglecare.com` 은 아직 구매 전이고, 배포 주소가 바뀔 때마다 릴리스를
+ * 다시 내는 구조를 만들지 않는다.
+ */
+export interface VisitCodeSettings {
+  /** 예: `https://example.com/righthand/patient`. 빈 문자열이면 QR 을 그리지 않는다. */
+  kioskUrl: string;
+  /** 태블릿이 여러 대일 때 코드를 한 대에 묶는다. null 이면 이 의사의 어느 키오스크든 된다. */
+  kioskSlug: string | null;
+}
+
+export interface IssuedVisitCode {
+  /** 표준형(대문자, 하이픈 없음). 서버로 다시 보낼 일이 없고 화면 표기에만 쓴다. */
+  code: string;
+  /** 화면·구두 전달용 `A2CD-4EF`. */
+  formatted: string;
+  expiresAt: string;
+  ttlSeconds: number;
+  /** QR 에 넣을 URL. 키오스크 주소가 설정되지 않았으면 null. */
+  url: string | null;
+}
+
+export type VisitCodeIssueError =
+  | 'signed-out'
+  /** 미사용 코드가 한도까지 쌓였다. 발급이 아니라 운영 문제라 문장이 다르다. */
+  | 'too-many-live'
+  | 'failed';
+
+export type IssueVisitCodeResult =
+  | { ok: true; issued: IssuedVisitCode }
+  | { ok: false; error: VisitCodeIssueError };

@@ -63,6 +63,7 @@ import {
 import { OverlayShell } from '../shared/OverlayShell';
 import { CareActivityReportDialog } from './CareActivityReportDialog';
 import { CareActivityReviewDialog } from './CareActivityReviewDialog';
+import { VisitCodeDialog } from './VisitCodeDialog';
 import { cn } from '@/lib/utils';
 import type {
   AuthState,
@@ -574,6 +575,11 @@ export default function DockApp() {
             );
           })}
         </div>
+
+        {/* 방문 코드 발급 (L1). 접수처가 하루에 수십 번 누르는 버튼이라
+            설정 안쪽이 아니라 dock 표면에 둔다 — 두 번 클릭이 되는 순간
+            "그냥 슬러그로 열어두자" 가 이긴다. */}
+        <VisitCodeDialog onPopoverOpenChange={onPopoverOpenChange} />
 
         {/* 월간 행위 기록 (B4). 누를 때만 열린다 — 진료를 끊지 않는다. */}
         <CareActivityReportDialog onPopoverOpenChange={onPopoverOpenChange} />

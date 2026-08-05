@@ -295,7 +295,29 @@ const en: Record<keyof typeof ko, string> = {
   'review.backfillDesc':
     'Right after a review there are no records for earlier consultations. This rescans the last three months. Running it again does not increase the counts.',
   'review.backfillResult':
-    '{scanned} consultations · {inserted} new · {unchanged} unchanged'
+    '{scanned} consultations · {inserted} new · {unchanged} unchanged',
+
+  // Visit access code (L1)
+  'visitCode.title': 'Issue visit code',
+  'visitCode.desc': 'Hand this code to the patient. Scanning the QR or typing the code starts the intake.',
+  'visitCode.issue': 'Issue code',
+  'visitCode.issueAgain': 'Issue a new code',
+  'visitCode.expiresIn': 'Expires in',
+  'visitCode.expired': 'This code has expired. Issue a new one.',
+  'visitCode.qrHint': "Scanning it with the patient's phone or the tablet camera opens the intake directly.",
+  'visitCode.noKioskUrl':
+    'No kiosk address is configured, so no QR can be generated. Enter the address below. You can still read the code out loud.',
+  'visitCode.note':
+    'A code is for one visit only and stops working once the intake is finished. Closing this dialog discards it -- issue a new one if you need it again.',
+  'visitCode.errorSignedOut': 'Sign in to issue a code.',
+  'visitCode.errorTooMany':
+    'Too many issued codes are still unused. Wait for them to expire before issuing more.',
+  'visitCode.errorFailed': 'Could not issue a code. Try again in a moment.',
+  'visitCode.settingsTitle': 'Kiosk connection',
+  'visitCode.kioskUrl': 'Kiosk address',
+  'visitCode.kioskSlug': 'Kiosk slug (optional)',
+  'visitCode.settingsHint':
+    'Where the intake web app is deployed, e.g. https://example.com/righthand/patient. Leave the slug empty to accept the code at any of this account kiosks.'
 };
 
 export default en;

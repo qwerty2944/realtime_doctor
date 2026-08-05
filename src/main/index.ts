@@ -114,9 +114,11 @@ import {
   setLocalSave,
   setShortcut,
   setTranscribeProvider,
+  setVisitCodeSettings,
   store,
   type WindowKey
 } from './store.js';
+import { issueVisitCode, loadVisitCodeSettings } from './visitCodes.js';
 import { applyLanguage, preferredProviderFor } from './language.js';
 import {
   ensureEntitled,
@@ -142,7 +144,9 @@ import {
 import { MAIN_WINDOW_KEYS, OVERLAYS, createOverlayWindow } from './windows.js';
 import type {
   DictationTemplate,
+  IssueVisitCodeResult,
   TranscribeProviderId,
+  VisitCodeSettings,
   WaitingEncounter
 } from '../shared/types.js';
 
@@ -925,6 +929,30 @@ ipcMain.handle(
  */
 ipcMain.handle(IPC.CareActivitiesBackfill, async (_event, months: number) =>
   backfillCareActivities({ months: typeof months === 'number' ? months : 3 })
+);
+
+// ── 방문 코드 (L1) ─────────────────────────────────────────────────────
+/**
+ * 방문 코드 발급.
+ *
+ * **게이트를 건다.** 이건 기록 열람이 아니라 새 진료를 여는 행위이고, 잠긴
+ * 계정이 키오스크 문진을 계속 만들 수 있으면 S2 의 `record`/`analysis` 게이트가
+ * 무의미해진다 — 문진은 게이트 뒤에 있는 기능(감별진단·요약)의 입력을 만든다.
+ * 실패는 던지지 않고 값으로 돌려준다: 환자가 접수대 앞에 서 있는 순간이라
+ * 화면이 이유를 한 문장으로 말할 수 있어야 한다.
+ */
+ipcMain.handle(IPC.VisitCodeIssue, async (): Promise<IssueVisitCodeResult> => {
+  const gate = ensureEntitled('visit-code');
+  if (!gate.ok) return { ok: false, error: 'failed' };
+  return issueVisitCode();
+});
+
+ipcMain.handle(IPC.VisitCodeSettingsGet, () => loadVisitCodeSettings());
+ipcMain.handle(IPC.VisitCodeSettingsSet, (_event, patch: Partial<VisitCodeSettings>) =>
+  setVisitCodeSettings({
+    kioskUrl: typeof patch?.kioskUrl === 'string' ? patch.kioskUrl : undefined,
+    kioskSlug: typeof patch?.kioskSlug === 'string' ? patch.kioskSlug : patch?.kioskSlug === null ? null : undefined
+  })
 );
 
 // ── 로컬 저장 설정 ──────────────────────────────────────────────────────
