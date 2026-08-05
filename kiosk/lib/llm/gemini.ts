@@ -22,7 +22,21 @@ import type {
   ToolCallRequest
 } from '@/lib/llm/types';
 
-const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const DEFAULT_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+/**
+ * 엔드포인트. 기본값은 Google 이고, `GEMINI_API_BASE` 로 바꿀 수 있다.
+ *
+ * 왜 열어두는가: 이 라우트에서 **모델이 불렸는지 안 불렸는지**가 검증 대상이
+ * 됐기 때문이다(L1 — 발급되지 않은 접근은 모델 호출도 만들지 않는다). 프로브가
+ * 그것을 단언하려면 호출을 셀 수 있는 곳으로 보낼 수 있어야 한다.
+ * 부수적으로 사내 프록시·게이트웨이를 쓰는 배포도 가능해진다.
+ *
+ * 운영 배포에서는 설정하지 않는다. 설정하지 않으면 값이 바뀌지 않는다.
+ */
+function apiBase(): string {
+  return optionalEnv('GEMINI_API_BASE') ?? DEFAULT_API_BASE;
+}
 
 /**
  * 기본 모델. 강제 도구 호출(`functionCallingConfig.mode = "ANY"`)을 지키는
@@ -116,7 +130,7 @@ export const geminiProvider: LlmProvider = {
     const key = geminiApiKey();
 
     const response = await fetch(
-      `${API_BASE}/models/${encodeURIComponent(model)}:generateContent`,
+      `${apiBase()}/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': key },

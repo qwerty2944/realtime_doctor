@@ -40,9 +40,36 @@ const birthDateSchema = z
     return parsed.getTime() <= Date.now();
   }, '생년월일이 올바르지 않습니다.');
 
+/**
+ * 접수처가 발급한 방문 코드.
+ *
+ * 길이 상한만 둔다. 표기 정리(하이픈·공백·대소문자)와 유효성 판정은 전부 DB
+ * 쪽(`normalize_visit_code()` / `redeem_visit_access_code()`)이 한다. 여기서
+ * 형식을 엄격하게 잡으면 판정이 두 곳으로 갈라지고, 갈라진 둘 중 하나만
+ * 고쳐지는 날이 온다.
+ */
+const visitCodeSchema = z
+  .string()
+  .trim()
+  .min(1, '접수처에서 받은 코드를 입력해 주세요.')
+  .max(32, '코드를 다시 확인해 주세요.');
+
+/** 코드만 확인하는 요청. 아무것도 만들지 않고 소모하지도 않는다. */
+export const intakeCodeCheckRequestSchema = z.object({
+  kiosk: z.string().trim().max(31).nullish(),
+  code: visitCodeSchema
+});
+
+export type IntakeCodeCheckRequest = z.infer<typeof intakeCodeCheckRequestSchema>;
+
 export const intakeStartRequestSchema = z.object({
   /** URL 의 `?k=` 값. 담당 의사 귀속의 출발점 (`lib/intake/kiosk.ts`). */
   kiosk: z.string().trim().max(31).nullish(),
+  /**
+   * [HARD] 방문 코드. 슬러그만으로는 문진을 시작할 수 없다 — L1 의 전부가
+   * 이 한 줄이다. 검증은 DB 에 무엇을 쓰기 전에, 모델을 부르기 전에 끝난다.
+   */
+  code: visitCodeSchema,
   name: z.string().trim().min(1, '이름을 입력해 주세요.').max(60),
   birthDate: birthDateSchema,
   /** 선택: 환자가 모를 수 있고, 접수처가 나중에 채운다. */
