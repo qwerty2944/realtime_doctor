@@ -106,6 +106,14 @@ import {
   type WindowKey
 } from './store.js';
 import { applyLanguage, preferredProviderFor } from './language.js';
+import {
+  ensureEntitled,
+  getSubscriptionState,
+  initSubscription,
+  openBillingPage,
+  refreshEntitlement,
+  setSubscriptionUser
+} from './subscription.js';
 import { summarizeConversation } from './summarizer.js';
 import { getSupabase } from './supabaseClient.js';
 import {
@@ -196,6 +204,8 @@ ipcMain.handle(
   IPC.TranscribeAudio,
   async (_event, payload: { id: string; base64Wav: string }) => {
     if (!payload?.base64Wav) return '';
+    // [게이트] 새 진료 녹음 수신. 렌더러 버튼이 아니라 여기서 막아야 우회가 안 된다.
+    if (!ensureEntitled('record').ok) return '';
     const before = getTranscribeProvider();
     const text = await transcribeAudio(payload.base64Wav);
     const after = getTranscribeProvider();
@@ -238,6 +248,8 @@ ipcMain.handle(
 
 ipcMain.on(IPC.TranscriptChunk, async (_event, chunk: TranscriptChunk) => {
   if (!chunk?.text) return;
+  // [게이트] 스트림 모드가 만들어낸 발화도 결국 이 경로로 들어온다.
+  if (!ensureEntitled('record').ok) return;
   const initialSpeaker: Speaker = chunk.speaker ?? 'unknown';
   analyzer.push({ ...chunk, speaker: initialSpeaker });
   void saveTranscriptChunk({ ...chunk, speaker: initialSpeaker });
@@ -280,6 +292,13 @@ ipcMain.on(IPC.TranscriptReset, () => {
 });
 
 async function runDictationNow(template: DictationTemplate): Promise<{ state: string; result?: DictationResult; message?: string }> {
+  // [게이트] IPC 핸들러와 전역 단축키 두 경로가 모두 여기로 모인다.
+  const gate = ensureEntitled('dictation');
+  if (!gate.ok) {
+    const message = gate.error ?? '구독이 필요합니다.';
+    broadcast(IPC.DictationUpdate, { state: 'error', message });
+    return { state: 'error', message };
+  }
   const t: DictationTemplate = template ?? 'soap';
   setLastDictationTemplate(t);
   broadcast(IPC.DictationUpdate, { state: 'pending', template: t });
@@ -299,6 +318,13 @@ async function runDictationNow(template: DictationTemplate): Promise<{ state: st
 }
 
 async function runSummaryNow(): Promise<{ state: string; result?: SummaryResult; message?: string }> {
+  // [게이트] IPC 핸들러와 전역 단축키 두 경로가 모두 여기로 모인다.
+  const gate = ensureEntitled('summary');
+  if (!gate.ok) {
+    const message = gate.error ?? '구독이 필요합니다.';
+    broadcast(IPC.SummaryUpdate, { state: 'error', message });
+    return { state: 'error', message };
+  }
   broadcast(IPC.SummaryUpdate, { state: 'pending' });
   try {
     const result = await summarizeConversation(
@@ -321,6 +347,9 @@ ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate)
 ipcMain.handle('dictation:get-last-template', () => getLastDictationTemplate());
 
 ipcMain.handle(IPC.AnalysisRequest, () => {
+  // [게이트] 감별진단 실행.
+  const gate = ensureEntitled('analysis');
+  if (!gate.ok) return { ok: false, error: gate.error };
   broadcast(IPC.AnalysisPending, true);
   analyzer.runNow();
   return { ok: true };
@@ -421,6 +450,8 @@ function dispatchShortcut(id: ShortcutId): void {
       return;
     }
     case 'runAnalyze':
+      // [게이트] 단축키도 IPC 와 같은 판정을 받는다.
+      if (!ensureEntitled('analysis').ok) return;
       analyzer.runNow();
       return;
     case 'runSummary':
@@ -803,6 +834,10 @@ ipcMain.handle(IPC.SessionsLoad, async (_event, sessionId: string) => {
 });
 let openaiSessionStartedAt: number | null = null;
 ipcMain.handle(IPC.StreamMint, async () => {
+  // [게이트] 실시간 전사 세션 발급 = 녹음 시작. provider fallback 보다 먼저 막는다
+  // (여기서 throw 하면 렌더러가 fallback 을 시도하지만 그 경로도 게이트에 걸린다).
+  const gate = ensureEntitled('record');
+  if (!gate.ok) throw new Error(gate.error ?? '구독이 필요합니다.');
   try {
     const result = await mintStreamSession();
     openaiSessionStartedAt = Date.now();
@@ -888,6 +923,11 @@ function newClovaItemId(): string {
 }
 
 ipcMain.handle(IPC.ClovaStreamOpen, async (event) => {
+  // [게이트] CLOVA 스트림 열기 = 녹음 시작.
+  {
+    const gate = ensureEntitled('record');
+    if (!gate.ok) throw new Error(gate.error ?? '구독이 필요합니다.');
+  }
   if (clovaStreamSession) {
     clovaStreamSession.stop();
     clovaStreamSession = null;
@@ -1206,19 +1246,38 @@ app.whenReady().then(() => {
     }
   });
 
+  initSubscription({ broadcast });
+
   setAuthCallbacks({
     broadcast,
     onSignedIn: () => {
       revealOverlays();
       registerAllShortcuts();
       broadcastShortcuts();
+      startWaitingSubscription();
+      // 로그인 직후 갱신. 여기서 실패해도 잠그지 않는다 — refreshEntitlement 가
+      // 네트워크 장애와 미구독을 구분해 캐시로 버틴다.
+      const user = getCurrentUser();
+      setSubscriptionUser(user?.id ?? null);
+      void refreshEntitlement('signin');
     },
     onSignedOut: () => {
       hideOverlaysAndClearPHI();
       unregisterAllShortcuts();
       broadcastShortcuts();
+      setSubscriptionUser(null);
     }
   });
+
+  // 앱 시작 시 갱신. setAuthCallbacks 가 저장된 세션을 복원하면 onSignedIn 이
+  // 다시 한 번 호출되지만, refreshEntitlement 의 in-flight 병합이 중복을 막는다.
+  {
+    const user = getCurrentUser();
+    if (user) {
+      setSubscriptionUser(user.id);
+      void refreshEntitlement('startup');
+    }
+  }
 
   app.on('activate', () => {
     if (windows.size === 0) {

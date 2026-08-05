@@ -53,6 +53,16 @@ interface Schema {
   windowGroups?: Array<{ id: string; tabs: WindowKey[]; active: WindowKey }>;
   deviceId?: string;
   localSave?: LocalSaveSettings;
+  /** 전역 글씨 배율 (모든 창 공용). */
+  fontScale?: number;
+  /**
+   * 서명된 entitlement 토큰 캐시 (S2).
+   *
+   * 사용자가 편집 가능한 파일이므로 여기 있는 값은 신뢰하지 않는다 --
+   * subscription.ts 가 읽을 때마다 서명·만료를 다시 검증한다.
+   * lastServerTimeMs 는 시계 되돌리기 방어용 단조 증가 값.
+   */
+  entitlement?: { token: unknown; lastServerTimeMs: number };
 }
 
 const DEFAULT_CLOUD_SYNC: CloudSyncSettings = {

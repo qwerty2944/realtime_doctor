@@ -493,3 +493,56 @@ export type DictationStatus =
   | { state: 'pending'; template: DictationTemplate }
   | { state: 'ready'; result: DictationResult }
   | { state: 'error'; message: string };
+
+// ── 구독 (S2) ──────────────────────────────────────────────────────────────
+
+/**
+ * 실효 구독 상태.
+ *
+ * `trialing | active | past_due | expired | canceled | none` 은 서버가 서명한
+ * 값 그대로다. `signed-out` 과 `unknown` 은 클라이언트 사정(로그아웃, 검증
+ * 실패, 캐시 없음)이며 서버가 보내는 값이 아니다.
+ */
+export type SubscriptionStatus =
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'expired'
+  | 'canceled'
+  | 'none'
+  | 'signed-out'
+  | 'unknown';
+
+export interface SubscriptionState {
+  /** 새 진료를 시작할 수 있는가. 이 값 하나만 게이트가 본다. */
+  entitled: boolean;
+  status: SubscriptionStatus;
+  plan: string | null;
+  deviceLimit: number;
+  trialEndsAt: string | null;
+  periodEnd: string | null;
+  /** 자격이 유지되는 마지막 시각. 남은 일수의 근거. */
+  coverageEnd: string | null;
+  daysRemaining: number | null;
+  /** live = 방금 서버에서 받음, cache = 캐시로 버티는 중, none = 토큰 없음. */
+  source: 'live' | 'cache' | 'none';
+  /** 마지막 갱신이 네트워크/서버 문제로 실패했는가. 미구독과 구분해야 한다. */
+  offline: boolean;
+  /** 사유 코드 (서버 판정 근거 또는 클라이언트 검증 실패 코드). */
+  reason: string;
+  checkedAt: string;
+}
+
+export interface SubscriptionBlockedNotice {
+  action: 'record' | 'analysis' | 'summary' | 'dictation' | 'patient-intake';
+  state: SubscriptionState;
+  message: string;
+}
+
+/** 계획서 확정 요금. 표기는 VAT 별도, 실제 청구는 총액. */
+export const PLAN_PRICE_KRW = 70000;
+export const PLAN_VAT_KRW = 7000;
+export const PLAN_TOTAL_KRW = PLAN_PRICE_KRW + PLAN_VAT_KRW;
+
+/** 체험 만료 배너를 띄우기 시작하는 남은 일수 (계획서: D-7). */
+export const TRIAL_BANNER_DAYS = 7;

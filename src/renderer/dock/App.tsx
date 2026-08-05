@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   BookOpen,
+  CreditCard,
   // Check, // (주석 처리된 provider 다이얼로그에서만 사용)
   Eye,
   EyeOff,
@@ -126,6 +127,43 @@ function layoutLabel(name: string): string {
   return BUILTIN_LABELS[name] ?? name;
 }
 
+const SUB_STATUS_TKEY: Record<SubscriptionStatus, import('../shared/i18n').TKey> = {
+  trialing: 'sub.statusTrialing',
+  active: 'sub.statusActive',
+  past_due: 'sub.statusPastDue',
+  expired: 'sub.statusExpired',
+  canceled: 'sub.statusCanceled',
+  none: 'sub.statusNone',
+  'signed-out': 'sub.statusSignedOut',
+  unknown: 'sub.statusUnknown'
+};
+
+/**
+ * 배너를 띄울 상황인지.
+ *
+ * 계획서: 체험 만료 D-7 부터, 그리고 만료/결제실패 때. 정상 구독 중에는 아무
+ * 것도 띄우지 않는다 — 상시 배너는 곧 무시된다.
+ */
+function subBannerKey(
+  s: SubscriptionState | null
+): import('../shared/i18n').TKey | null {
+  if (!s) return null;
+  if (s.status === 'signed-out') return 'sub.bannerSignedOut';
+  if (!s.entitled) {
+    // 네트워크 문제로 확인을 못 한 것과 실제 만료를 구분해서 말한다.
+    if (s.offline || s.status === 'unknown') return 'sub.bannerOffline';
+    return 'sub.bannerExpired';
+  }
+  if (s.status === 'past_due') return 'sub.bannerPastDue';
+  if (
+    s.status === 'trialing' &&
+    s.daysRemaining !== null &&
+    s.daysRemaining <= TRIAL_BANNER_DAYS
+  )
+    return 'sub.bannerTrialEnding';
+  return null;
+}
+
 export default function DockApp() {
   const t = useT();
   const [states, setStates] = useState<WindowState[]>([]);
@@ -154,8 +192,22 @@ export default function DockApp() {
     enabled: true,
     saveAudio: false
   });
+  // 구독 (S2). main 이 서명 토큰을 검증한 결과만 받아 보여준다 — 렌더러는
+  // 판정에 관여하지 않는다.
+  const [sub, setSub] = useState<SubscriptionState | null>(null);
+  const [subOpen, setSubOpen] = useState(false);
+  const [subBusy, setSubBusy] = useState(false);
+  /** 잠긴 상태에서 기능 호출이 막혔을 때 표시할 안내. */
+  const [blockedMsg, setBlockedMsg] = useState<string | null>(null);
   const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
   const [deviceBusy, setDeviceBusy] = useState<string | null>(null);
+  /**
+   * 기기 수 한도 초과 (S5). 서버가 등록을 거부하면서 준 목록을 그대로 띄운다.
+   * 선택을 앱 안에서 받는 이유: 이 순간 의사는 **새 기기 앞에 서 있다.** 브라우저를
+   * 열어 다시 로그인하게 만드는 것은 가장 마찰이 큰 지점에 마찰을 더하는 일이다.
+   */
+  const [deviceLimit, setDeviceLimit] = useState<DeviceLimitNotice | null>(null);
+  const [deviceLimitError, setDeviceLimitError] = useState<string | null>(null);
   const [shortcuts, setShortcuts] = useState<Record<ShortcutId, string>>(
     SHORTCUT_DEFAULTS
   );
@@ -212,11 +264,24 @@ export default function DockApp() {
     const offShortcuts = window.api.shortcuts.onChange((map) => setShortcuts(map));
     const offLang = window.api.language.onChange((l) => setLanguageState(l));
     const offFocus = window.api.onWindowFocusChange((key) => setFocusedKey(key));
+    void window.api.subscription.get().then(setSub).catch(() => {});
+    const offSub = window.api.subscription.onChange((s) => {
+      setSub(s);
+      if (s.entitled) setBlockedMsg(null);
+    });
+    const offBlocked = window.api.subscription.onBlocked((n) => {
+      setBlockedMsg(n.message);
+      setSub(n.state);
+    });
     const offRevoked = window.api.devices.onRevokedNotice(({ message }) => {
       // main 이 보낸 메시지를 그대로 표시 (effect 의존성에 t 를 넣으면
       // 렌더마다 재구독+refresh 루프가 생기므로 고정 fallback 사용).
       setAuthError(message || '이 기기의 접근이 차단되어 로그아웃되었습니다.');
       setAccountOpen(true);
+    });
+    const offLimit = window.api.devices.onLimitExceeded((notice) => {
+      setDeviceLimitError(null);
+      setDeviceLimit(notice);
     });
     return () => {
       offWindows();
@@ -224,7 +289,10 @@ export default function DockApp() {
       offShortcuts();
       offLang();
       offFocus();
+      offSub();
+      offBlocked();
       offRevoked();
+      offLimit();
     };
   }, [refresh]);
 
@@ -388,6 +456,30 @@ export default function DockApp() {
       shortcutId="toggleAll"
       className={popoverOpen ? '!h-fit !shadow-none' : undefined}
     >
+      {/* 구독 배너 — D-7 / 만료 / 결제실패 / 차단 안내. 정상 구독 중엔 없다. */}
+      {(bannerKey || blockedMsg) && (
+        <div
+          className={cn(
+            'flex items-center gap-2 border-b px-3 py-2 text-[11px]',
+            sub?.entitled
+              ? 'border-amber-400/30 bg-amber-500/15 text-amber-100'
+              : 'border-rose-400/30 bg-rose-500/15 text-rose-100'
+          )}
+        >
+          <span className="flex-1 leading-snug">
+            {blockedMsg ?? (bannerKey ? t(bannerKey) : '')}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 shrink-0 px-2 text-[11px]"
+            onClick={() => void window.api.subscription.openBilling()}
+          >
+            {t('sub.subscribe')}
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-center gap-2 p-3">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -459,16 +551,106 @@ export default function DockApp() {
           })}
         </div>
 
+        {/* 구독 상태 다이얼로그 */}
+        <Dialog
+          open={subOpen}
+          onOpenChange={(next) => {
+            onPopoverOpenChange(next);
+            setSubOpen(next);
+            if (next) void window.api.subscription.get().then(setSub).catch(() => {});
+          }}
+        >
+          <DialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              className={cn(
+                'h-9 shrink-0 gap-1.5 px-2 text-[11px]',
+                sub && !sub.entitled && 'border-rose-400/40 text-rose-200'
+              )}
+              title={t('sub.title')}
+            >
+              <CreditCard className="h-4 w-4" />
+              <span>{subLabel}</span>
+              {subDays && <span className="opacity-70">· {subDays}</span>}
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{t('sub.title')}</DialogTitle>
+              <DialogDescription>
+                {t('sub.price')} · {t('sub.priceCharged')}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{t('sub.title')}</span>
+                <span>
+                  {subLabel}
+                  {subDays ? ` · ${subDays}` : ''}
+                </span>
+              </div>
+              {sub?.trialEndsAt && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{t('sub.trialEnd')}</span>
+                  <span>{new Date(sub.trialEndsAt).toLocaleDateString()}</span>
+                </div>
+              )}
+              {sub?.periodEnd && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{t('sub.periodEnd')}</span>
+                  <span>{new Date(sub.periodEnd).toLocaleDateString()}</span>
+                </div>
+              )}
+              {sub && sub.deviceLimit > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{t('sub.deviceLimit')}</span>
+                  <span>
+                    {sub.deviceLimit}
+                    {t('sub.deviceLimitUnit')}
+                  </span>
+                </div>
+              )}
+              {sub?.offline && (
+                <p className="text-amber-200/80">{t('sub.offlineNotice')}</p>
+              )}
+              {/* 안전 관련 문구 — 잠금이 기록 열람까지 막지 않는다는 점을 명시. */}
+              <p className="text-muted-foreground">{t('sub.readingAlwaysAllowed')}</p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                className="flex-1"
+                onClick={() => void window.api.subscription.openBilling()}
+              >
+                {t('sub.subscribe')}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={subBusy}
+                onClick={() => {
+                  setSubBusy(true);
+                  void window.api.subscription
+                    .refresh()
+                    .then(setSub)
+                    .catch(() => {})
+                    .finally(() => setSubBusy(false));
+                }}
+              >
+                {subBusy ? t('auth.processing') : t('sub.refresh')}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* 계정·동기화 다이얼로그 */}
         <Dialog
           open={accountOpen}
           onOpenChange={(next) => {
             onPopoverOpenChange(next);
-            // 미로그인일 때 X 누르면 LanguagePicker 로 돌아간다.
-            if (!next && authState.status === 'signed-out') {
-              void window.api.language.clear();
-              return;
-            }
+            // 미로그인 상태에서 X 를 눌러도 그냥 닫는다. 언어 선택이 더 이상
+            // 필수 단계가 아니므로 dock 의 일반 컨트롤로 돌아가는 것이 맞다.
             setAccountOpen(next);
           }}
         >
