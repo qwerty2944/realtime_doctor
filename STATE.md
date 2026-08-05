@@ -378,6 +378,76 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
     kiosk typecheck+build(루트·하위 경로 둘 다) 통과.
   - 0009 는 **로컬 스택에만 적용**했다.
 
+- **E3 + 결정 감사 추적 완료** — 사실/해석 분리 + 출처 부착(계획서 E3),
+  인계 지점 기록(책임 문서 6장), 그리고 L1 이 남긴 PUBLIC EXECUTE 구멍 정리.
+  - **0010 (보안 정리)**: `pg_proc.proacl` 을 **살아 있는 카탈로그에서** 감사했다
+    (마이그레이션을 읽는 방식은 애초에 이 실수를 만든 방식이다). PUBLIC EXECUTE
+    가 남아 있던 함수 10개 — SECURITY DEFINER 3개(`record_care_activity_candidates`,
+    `set_care_activity_adoption`, `is_admin`) + 트리거 함수 3개 +
+    `normalize_visit_code` 와 visit_code 상수 6개. 앞의 둘은 내부에서
+    `auth.uid()` 를 다시 뽑아 anon 호출이 실패하지만 **막힌 이유가 권한이 아니라
+    함수가 스스로 확인했기 때문**이었다. 호출자 소유자를 받는 쪽으로 한 줄만
+    바뀌면 그 우연은 조용히 사라진다.
+    - 개별 revoke 에 더해 `alter default privileges ... revoke execute on
+      functions from public` 로 **기본값 자체를 바꿨다** — 다음 마이그레이션이
+      revoke 를 잊어도 안전하도록. 그리고 DO 블록 가드가 PUBLIC EXECUTE 가 하나라도
+      남으면 마이그레이션을 실패시킨다(한 번 점검한 목록은 썩는다).
+  - **0011 (E3)**: 표를 쪼개지 않고 `intake_results` 를 확장했다. 이유 세 가지 —
+    (1) `version` + `unique(encounter_id, version)` 가 **이미 대체 구조**이고
+    리더들이 이미 최고 버전을 읽는다, (2) `soap_json.transcript` 를 읽는 독립
+    소비자가 셋(patientMode / careActivities / 프로브 4종)이고 그중 하나는
+    **일부러 형태에 방어적으로 짜인 리더**다, (3) 자기 완결적인 행이라야
+    "그날 화면에 있던 것" 을 조인 없이 복원할 수 있다.
+    - **사실 경계는 주석이 아니라 강제다.** `rederive_intake_interpretation()`
+      은 **사실을 받는 인자가 없다** — 원본 행에서 직접 읽어 쓴다. 재해석하면서
+      기록을 고치는 것이 표현 불가능하다.
+    - `facts_fingerprint`(transcript + S 의 sha256)는 **BEFORE INSERT 트리거가**
+      계산한다. 사실을 쓴 쪽이 지문까지 주장하면 지문은 아무것도 증명하지 않는다.
+    - 출처는 `{engine, provider, model, promptVersion, schemaVersion, generatedAt}`
+      이고 **실제로 호출한 프로바이더에서 뽑는다**(상수로 적으면 모델을 바꾼 날
+      출처만 옛 이름을 계속 말한다).
+    - 구버전 행은 `{engine:'unrecorded'}` 라는 **값**으로 온다. undefined 로 두면
+      화면이 침묵하고, 침묵한 출처는 있는 출처와 같은 모양이 된다.
+      **반쯤 채워진 출처도 미기록으로 떨어뜨린다** — 부분 출처는 추측이다.
+    - 실시간(데스크톱) 분석에도 같은 모양을 붙였다(`analyses.interpretation_provenance`).
+      `geminiClient` 에 `GEMINI_API_BASE` 이음매를 열었다 — 진짜 analyzer 를
+      돌려보지 않으면 "실시간에도 출처가 붙는가" 를 확인할 방법이 없다.
+  - **0012 (결정 감사 추적)**: 기록하는 이벤트 6종과 **각각이 증명하지 않는 것**을
+    마이그레이션 주석에 명시했다. `interpretation_presented`(무엇을 보여줬는가 +
+    그 순간의 출처를 **복사해서** 얼림 — 조인이면 재해석이 과거를 소급해 바꾼다) /
+    `patient_detail_opened`(가장 이른 행 = 상세를 처음 연 시각) /
+    `differential_expanded` / `evidence_requested`(독립 확인을 구한 신호 —
+    "맹목적 의존이 아니었다" 에 가장 가깝다) / `finding_source_opened` /
+    `summary_generated`.
+    - **[HARD] 추론하지 않기로 한 것**: 채택/무시/수정 라벨 없음(앱은 의사가 내린
+      진단을 받지 않는다 — 특히 "이벤트가 없었으니 무시했다" 는 책임 기록 안에
+      법원이 기댈 주장을 우리가 지어 넣는 것이다). 체류 시간·스크롤·포커스·
+      마우스 없음(창이 앞에 있는 것은 주의가 아니다). **횟수 없음** — dedupe 키와
+      부분 유니크 인덱스가 (진료, 종류, 키)당 한 줄만 남겨서 이 표는 "몇 번" 에
+      **답할 수 없다**. 반복 횟수는 의사를 향한 지표다.
+    - **append-only 3겹**: anon/authenticated 에 쓰기 권한 없음 → RLS 는 자기 행
+      SELECT 만 → 트리거가 UPDATE/DELETE 를 **service_role 과 슈퍼유저까지** 거부.
+      운영자가 고칠 수 있는 감사 기록은 감사 기록이 아니다. 법적 삭제만
+      `rd.audit_erasure` GUC 로 열어뒀고 PostgREST 클라이언트는 그것을 세울 수 없다.
+    - 기록은 **await 하지 않고 던지지 않고 아무것도 띄우지 않는다**(B5 규칙).
+  - 검증: `scripts/probe-provenance.mjs` — **ALL PASS**. 실제 kiosk Next 서버 +
+    방문 코드 → 문진 완주, 키오스크와 데스크톱이 **같은 가짜 Gemini** 를 쓰고
+    진짜 `analyzer` 를 한 번 돌린다. 9개 절: 키오스크 출처 6필드 + DB 계산 지문 /
+    거짓 지문 INSERT 를 트리거가 덮어씀 / 실시간 출처가 키 집합까지 동일 /
+    재해석 시 원본 soap·differentials **바이트 동일** + 대체 표시 + 지문 동일 +
+    해석만 변경 + 이미 대체된 행 재대체 거부 + 출처 없는 재해석 거부 /
+    구버전 행이 여전히 렌더(감별진단·근거 인용·요약 전부) + 반쯤 찬 출처는 미기록 /
+    이벤트 6종 기록 + 보여준 내용·출처·지문이 얼어붙음 + 처음 연 시각 조회 +
+    dedupe(3번 펼쳐도 1줄) + 재열람은 별개 줄 + 금지 컬럼/키 0건 /
+    클라이언트·service_role·DB 직결 UPDATE·DELETE 전부 거부 + 삭제 탈출구는 동작 /
+    anon 이 새 RPC 6종 전부 거부 + 로그인 사용자도 재해석 RPC 불가 +
+    **PUBLIC EXECUTE 0건** / RLS 로 A↔B 격리 + B 가 A 진료에 기록 불가 +
+    타 진료 해석을 보여줬다고 기록 불가.
+  - 회귀: `probe-findings` / `probe-care-activities` / `probe-care-report` /
+    `probe-care-review` / `probe-visit-code` 전부 ALL PASS.
+    루트 typecheck+build, kiosk typecheck+build, admin-web typecheck+build 통과.
+  - 0010/0011/0012 는 **로컬 스택에만 적용**했다.
+
 ## 미해결 실패
 
 - **GUI 육안 검증 미완료.** 이 머신은 화면 캡처·합성 키 입력 권한이 없어
@@ -391,11 +461,9 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   확인하지 못했다. 라우트·DB 반영은 실제 서버로 검증됨.
 - **실제 Supabase 프로젝트 접근 불가.** `yqdzxitlmtawznzwpkra` 가 현재 로그인 계정에
   안 잡힌다. 0001/0002 마이그레이션이 로컬 스택에만 적용돼 있다.
-- **[신규] 0006~0008 의 RPC 에도 `revoke ... from public` 이 없다.** 0009 에서
-  발견한 것과 같은 문제다(Postgres 는 새 함수 EXECUTE 를 PUBLIC 에 기본 부여한다).
-  `record_care_activity_candidates` / `set_care_activity_adoption` 은 내부에서
-  `auth.uid()` 를 다시 뽑으므로 anon 이 부르면 실패하지만, **막힌 이유가 권한이
-  아니라 우연**이다. 확인하고 revoke 를 추가할 것.
+- ~~0006~0008 의 RPC 에 `revoke ... from public` 이 없다~~ → **0010 에서 해결.**
+  전수 감사 결과 10개였고(0000 의 `is_admin` 과 0002 의 `set_updated_at` 포함),
+  스키마 기본값까지 바꿔 다음 마이그레이션이 잊어도 안전하게 만들었다.
 - **RLS 미적용 (기존 테이블).** sessions/transcript_chunks/analyses 등은 여전히 RLS off 이고
   anon 키가 커밋돼 있다. 구독 게이트는 이를 우회하도록 설계했지만(서버 판정) 근본 정리는 남아 있다.
 
@@ -439,8 +507,8 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   5. **대기목록 진입 전 접수처 확인 단계**(4장 마지막 줄)는 만들지 않았다.
      코드가 이미 "접수처를 거쳤다" 를 보장하므로 지금은 중복이라고 판단했다.
      파일럿에서 오등록이 관측되면 다시 본다.
-  6. **E3 + 결정 감사 추적(6장)** 은 시작하지 않았다. 문서가 우선순위를
-     올려둔 항목이고 L1 다음이다.
+  6. ~~E3 + 결정 감사 추적(6장)~~ → 완료. 다만 **추적을 열람할 화면이 없다**
+     (범위 밖으로 둔 것이다 — 기록이 먼저다).
 - **[막힘] 실제 의원에서 쓰이려면 남은 것** (B5 이후):
   1. **씨드 5종의 임상 검토 내용 자체.** 경로는 B5 로 생겼지만(dock 검토
      다이얼로그), 지금 씨드된 단서어는 우리가 추측으로 쓴 것이다. 원장이
