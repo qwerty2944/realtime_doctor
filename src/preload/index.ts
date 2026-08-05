@@ -452,6 +452,15 @@ const api = {
       return () => ipcRenderer.removeListener(IPC.PatientsActiveChanged, listener);
     }
   },
+  diagnosis: {
+    /**
+     * 감별진단 카드를 펼쳤음을 알린다 (6장). 응답이 없고 실패해도 조용하다 —
+     * 감사 기록이 진료 화면에 끼어들면 안 된다.
+     */
+    cardExpanded(diagnosisName: string): void {
+      ipcRenderer.send(IPC.DiagnosisCardExpanded, diagnosisName);
+    }
+  },
   evidence: {
     /** 진단명 하나의 PubMed 근거. 캐시 히트면 즉시, 아니면 조회 후 반환. */
     request(diagnosis: string, diagnosisEn?: string | null): Promise<EvidenceStatus> {

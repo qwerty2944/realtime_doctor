@@ -71,6 +71,14 @@ import {
   type WaitingSubscription
 } from './patients.js';
 import {
+  recordDifferentialExpanded,
+  recordEvidenceRequested,
+  recordFindingSourceOpened,
+  recordInterpretationPresented,
+  recordPatientDetailOpened,
+  recordSummaryGenerated
+} from './decisionTrail.js';
+import {
   appendDictation,
   appendSummary,
   clearSessionCache,
@@ -348,6 +356,17 @@ async function runSummaryNow(): Promise<{ state: string; result?: SummaryResult;
     );
     broadcast(IPC.SummaryUpdate, { state: 'ready', result });
     void appendSummary(result);
+    // [6장] 환자가 선택돼 있을 때만 기록한다. 선택이 없으면 이 요약은 어떤
+    // 기계 해석 앞에서도 만들어진 것이 아니고, 진료를 지목하지 못한 이벤트는
+    // 감사 추적에 아무것도 답해주지 못한다.
+    const activeForSummary = getActiveDetail();
+    if (activeForSummary) {
+      recordSummaryGenerated({
+        encounterId: activeForSummary.encounter.id,
+        intakeResultId: activeForSummary.intakeResult?.id ?? null,
+        sessionId: getCurrentSessionId()
+      });
+    }
     return { state: 'ready', result };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -805,9 +824,34 @@ ipcMain.handle(IPC.PatientsSelect, async (_event, encounterId: string | null) =>
   const detail = await selectEncounter(encounterId);
   linkSessionToEncounter(detail?.encounter.id ?? null);
   broadcast(IPC.PatientsActiveChanged, detail);
+  // [6장] 인계 지점. 여기가 기계의 해석이 임상의에게 넘어가는 순간이고,
+  // 코드에서 그 순간은 이 한 줄이다. broadcast 뒤에 둔 이유는 기록이
+  // 화면 전환을 한 틱도 늦추면 안 되기 때문 — 둘 다 fire-and-forget 이다.
+  if (detail) {
+    recordPatientDetailOpened(detail);
+    recordInterpretationPresented(detail);
+  }
   return detail;
 });
 ipcMain.handle(IPC.PatientsGetActive, () => getActiveDetail());
+
+/**
+ * 감별진단 카드를 펼쳤다 (6장).
+ *
+ * 환자가 선택돼 있을 때만 기록한다. 실시간 녹취 모드의 감별진단은 아직
+ * 인계 지점이 없다 — 그 화면의 해석은 임상의가 보는 앞에서 만들어지므로
+ * "기계가 먼저 판단하고 사람이 나중에 본다" 는 구조가 아니다.
+ */
+ipcMain.on(IPC.DiagnosisCardExpanded, (_event, diagnosisName: string) => {
+  if (typeof diagnosisName !== 'string' || diagnosisName.length === 0) return;
+  const active = getActiveDetail();
+  if (!active) return;
+  recordDifferentialExpanded({
+    encounterId: active.encounter.id,
+    intakeResultId: active.intakeResult?.id ?? null,
+    diagnosis: diagnosisName
+  });
+});
 
 // ── 문헌근거 (PubMed) ───────────────────────────────────────────────────
 /**
@@ -821,6 +865,17 @@ ipcMain.handle(
   IPC.EvidenceRequest,
   async (_event, payload: { diagnosis: string; diagnosisEn?: string | null }) => {
     const diagnosis = payload?.diagnosis ?? '';
+    // [6장] 임상의가 그 진단에 독립적인 확인을 구했다. 조회 성공 여부와
+    // 무관하게 기록한다 — 기록하는 것은 확인을 구했다는 행위이지 PubMed 가
+    // 무엇을 돌려줬는지가 아니다.
+    const activeForEvidence = getActiveDetail();
+    if (activeForEvidence && diagnosis) {
+      recordEvidenceRequested({
+        encounterId: activeForEvidence.encounter.id,
+        intakeResultId: activeForEvidence.intakeResult?.id ?? null,
+        diagnosis
+      });
+    }
     let status: EvidenceStatus;
     try {
       status = await lookupEvidence(diagnosis, payload?.diagnosisEn ?? null);
@@ -845,6 +900,15 @@ ipcMain.handle(
  */
 ipcMain.on(IPC.TranscriptFocusUtterance, (_event, utteranceId: string) => {
   if (typeof utteranceId !== 'string' || utteranceId.length === 0) return;
+  // [6장] 기계가 인용한 발화를 원문과 대조했다.
+  const activeForFinding = getActiveDetail();
+  if (activeForFinding) {
+    recordFindingSourceOpened({
+      encounterId: activeForFinding.encounter.id,
+      intakeResultId: activeForFinding.intakeResult?.id ?? null,
+      utteranceId
+    });
+  }
   const win = windows.get('transcript');
   if (win && !win.isDestroyed()) {
     // 탭 그룹에 묶여 있으면 창을 올리는 것만으로는 뒤에 가려진 채로 남는다.

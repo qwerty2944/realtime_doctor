@@ -306,7 +306,16 @@ export default function DiagnosisApp() {
           {items.map((d, i) => (
             <Card
               key={`${d.name}-${i}`}
-              onClick={() => setSelected((prev) => (prev === i ? null : i))}
+              onClick={() =>
+                setSelected((prev) => {
+                  const next = prev === i ? null : i;
+                  // [6장] 펼치는 동작만 기록한다. 접는 것은 아무것도 증명하지
+                  // 않는다 — 다 읽어서 접었는지 잘못 눌러서 접었는지 앱은
+                  // 모르고, 모르는 것은 책임 기록에 넣지 않는다.
+                  if (next === i) window.api.diagnosis.cardExpanded(d.name);
+                  return next;
+                })
+              }
               className={
                 'cursor-pointer transition-colors ' +
                 (selected === i
