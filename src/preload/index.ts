@@ -58,8 +58,9 @@ const api = {
   minimizeWindow(): void {
     ipcRenderer.send('window:minimize');
   },
-  popoverEnter(): void {
-    ipcRenderer.send('window:popover-enter');
+  /** size 를 주면 그 크기 이상으로 창을 넓힌다 (없으면 팝오버 기본치). */
+  popoverEnter(size?: { width: number; height: number }): void {
+    ipcRenderer.send('window:popover-enter', size);
   },
   popoverLeave(): void {
     ipcRenderer.send('window:popover-leave');

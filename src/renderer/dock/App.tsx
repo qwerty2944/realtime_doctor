@@ -1065,8 +1065,52 @@ export default function DockApp() {
 }
 
 function LanguagePicker({ onPick }: { onPick: (l: Language) => void }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Dock 창(기본 380x130)은 이 화면을 담기엔 너무 낮아서 제목/버튼이 잘린다.
+  // 팝오버용 임시 확장 메커니즘을 그대로 재사용하되, 크기는 매직넘버가 아니라
+  // 실제 렌더된 레이아웃에서 잰다. 언어를 고르면(=언마운트) 원래 크기로 복귀.
+  useEffect(() => {
+    let entered = false;
+    let cancelled = false;
+
+    const measureAndEnter = () => {
+      if (cancelled) return;
+      const el = rootRef.current;
+      if (!el) return;
+      // 타이틀바까지 포함한 셸 전체가 필요한 높이. 창이 작으면 스크롤되므로
+      // scrollHeight 가 "잘리지 않으려면 필요한 높이" 그 자체다.
+      const shell = el.closest('.overlay-shell') as HTMLElement | null;
+      const needed = Math.ceil(
+        shell ? shell.scrollHeight : el.scrollHeight
+      );
+      // 프레임리스라 보통 0 이지만, 창 테두리가 있으면 그만큼 더한다.
+      const chrome = Math.max(0, window.outerHeight - window.innerHeight);
+      window.api.popoverEnter({
+        width: window.outerWidth,
+        height: needed + chrome
+      });
+      entered = true;
+    };
+
+    // 폰트 로드 후 한 프레임 뒤에 재야 실제 줄바꿈이 반영된 높이가 나온다.
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    const ready = fonts?.ready ?? Promise.resolve();
+    void ready.then(() => {
+      requestAnimationFrame(measureAndEnter);
+    });
+
+    return () => {
+      cancelled = true;
+      if (entered) window.api.popoverLeave();
+    };
+  }, []);
+
   return (
-    <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-5 bg-background p-6 text-center">
+    <div
+      ref={rootRef}
+      className="flex h-full min-h-[260px] flex-col items-center justify-center gap-5 bg-background p-6 text-center"
+    >
       <h1 className="text-xl font-semibold">언어를 선택하세요 / Choose language</h1>
       <p className="max-w-md text-xs text-muted-foreground">
         진료 대화에 사용할 언어를 선택하세요. 나중에 Dock 에서 변경할 수 있습니다.

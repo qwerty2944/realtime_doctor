@@ -537,41 +537,132 @@ ipcMain.on('window:minimize', (event) => {
   win?.minimize();
 });
 
-// 팝오버(dropdown/dialog) 가 열릴 때 창이 작아서 잘리지 않도록 일시적으로
-// 창 크기를 확장. 닫히면 원래 크기로 복귀. 같은 창에서 여러 팝오버가 중첩
-// 되어도 안전하게 동작하도록 마지막 enter 의 원래 bounds 를 기억한다.
-const popoverPreBounds = new Map<number, Electron.Rectangle>();
+// 팝오버(dropdown/dialog) 나 전체화면 성격의 화면(언어 선택기) 이 열릴 때 창이
+// 작아서 잘리지 않도록 일시적으로 창 크기를 확장하고, 닫히면 원래 크기로 복귀한다.
+// 같은 창에서 여러 개가 중첩되어도 안전하도록 depth 를 센다.
+interface TempExpandState {
+  /** 확장 전 bounds — leave 시 여기로 되돌린다. */
+  prev: Electron.Rectangle;
+  /** 우리가 마지막으로 적용한 bounds — 사용자 조작 감지 기준선. */
+  applied: Electron.Rectangle;
+  /** 중첩 확장 깊이. 0 이 되는 순간에만 복귀. */
+  depth: number;
+  /** 확장 중 사용자가 직접 크기를 바꿨으면 복귀하지 않는다. */
+  userResized: boolean;
+  /** 확장 중 사용자 이동/리사이즈를 추적하는 리스너 (leave 시 해제). */
+  onUserBounds: () => void;
+}
+const tempExpandStates = new Map<number, TempExpandState>();
 const POPOVER_MIN_W = 520;
 const POPOVER_MIN_H = 560;
-ipcMain.on('window:popover-enter', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win || win.isDestroyed()) return;
-  if (popoverPreBounds.has(win.id)) return; // 이미 확장됨
-  const prev = win.getBounds();
-  popoverPreBounds.set(win.id, prev);
-  const display = screen.getDisplayMatching(prev);
-  const wa = display.workArea;
-  const targetW = Math.min(POPOVER_MIN_W, wa.width - 32);
-  const targetH = Math.min(POPOVER_MIN_H, wa.height - 32);
-  if (prev.width >= targetW && prev.height >= targetH) return;
-  const nextW = Math.max(prev.width, targetW);
-  const nextH = Math.max(prev.height, targetH);
+
+/**
+ * 창을 최소 targetW x targetH 이상으로 (줄이지 않고) 키운다. depth 를 올리며,
+ * 최초 확장 시점의 bounds 를 기억해 둔다.
+ */
+function tempExpandEnter(win: BrowserWindow, targetW: number, targetH: number): void {
+  const cur = win.getBounds();
+  const existing = tempExpandStates.get(win.id);
+  if (existing) {
+    existing.depth += 1;
+  } else {
+    const onUserBounds = () => {
+      // 확장 중 사용자가 창을 직접 옮기거나 크기를 바꾼 경우.
+      // (프로그램적 setBounds 는 'moved'/'resized' 를 발생시키지 않는다.)
+      const st = tempExpandStates.get(win.id);
+      if (!st || win.isDestroyed()) return;
+      const now = win.getBounds();
+      if (now.width !== st.applied.width || now.height !== st.applied.height) {
+        // 사용자가 의도적으로 정한 크기 — 복귀로 덮어쓰지 않는다.
+        st.userResized = true;
+        st.prev = { ...now };
+      } else {
+        // 이동만 했으면 복귀 위치도 같은 만큼 따라간다.
+        st.prev = {
+          ...st.prev,
+          x: st.prev.x + (now.x - st.applied.x),
+          y: st.prev.y + (now.y - st.applied.y)
+        };
+      }
+      st.applied = now;
+      // windows.ts 의 persist 가 확장된 bounds 를 저장했을 수 있으므로,
+      // 실제로 복귀될 bounds 로 덮어써 확장 상태가 영구화되는 것을 막는다.
+      const key = windowKeyOf(win);
+      if (key) saveBounds(key, st.prev);
+    };
+    tempExpandStates.set(win.id, {
+      prev: { ...cur },
+      applied: { ...cur },
+      depth: 1,
+      userResized: false,
+      onUserBounds
+    });
+    win.on('moved', onUserBounds);
+    win.on('resized', onUserBounds);
+  }
+
+  const wa = screen.getDisplayMatching(cur).workArea;
+  const wantW = Math.min(targetW, wa.width - 32);
+  const wantH = Math.min(targetH, wa.height - 32);
+  if (cur.width >= wantW && cur.height >= wantH) return;
+  const nextW = Math.max(cur.width, wantW);
+  const nextH = Math.max(cur.height, wantH);
   // 화면 밖으로 나가지 않게 클램프.
-  let nextX = prev.x;
-  let nextY = prev.y;
+  let nextX = cur.x;
+  let nextY = cur.y;
   if (nextX + nextW > wa.x + wa.width) nextX = wa.x + wa.width - nextW - 8;
   if (nextY + nextH > wa.y + wa.height) nextY = wa.y + wa.height - nextH - 8;
   if (nextX < wa.x) nextX = wa.x + 8;
   if (nextY < wa.y) nextY = wa.y + 8;
-  win.setBounds({ x: nextX, y: nextY, width: nextW, height: nextH });
-});
+  const next = { x: nextX, y: nextY, width: nextW, height: nextH };
+  win.setBounds(next);
+  const st = tempExpandStates.get(win.id);
+  if (st) st.applied = { ...next };
+}
+
+/**
+ * 임시 확장 중에 다른 코드(창 크기 단축키 등)가 프로그램적으로 크기를 바꾼 경우,
+ * 그 값을 사용자가 의도한 크기로 채택한다. 확장 해제가 이를 되돌리면 안 된다.
+ */
+function noteDeliberateResize(win: BrowserWindow, next: Electron.Rectangle): void {
+  const st = tempExpandStates.get(win.id);
+  if (!st) return;
+  st.userResized = true;
+  st.prev = { ...next };
+  st.applied = { ...next };
+}
+
+/** depth 를 내리고, 0 이 되면 확장 전 bounds 로 복귀. */
+function tempExpandLeave(win: BrowserWindow): void {
+  const st = tempExpandStates.get(win.id);
+  if (!st) return;
+  st.depth -= 1;
+  if (st.depth > 0) return;
+  tempExpandStates.delete(win.id);
+  win.off('moved', st.onUserBounds);
+  win.off('resized', st.onUserBounds);
+  if (st.userResized) return; // 사용자가 정한 크기 유지
+  win.setBounds(st.prev);
+}
+
+ipcMain.on(
+  'window:popover-enter',
+  (event, size?: { width?: number; height?: number }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    // size 가 오면 렌더러가 실제 레이아웃에서 잰 값이므로 그걸 쓰고,
+    // 없으면 팝오버 기본치를 쓴다.
+    tempExpandEnter(
+      win,
+      Math.round(size?.width ?? POPOVER_MIN_W),
+      Math.round(size?.height ?? POPOVER_MIN_H)
+    );
+  }
+);
 ipcMain.on('window:popover-leave', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win || win.isDestroyed()) return;
-  const prev = popoverPreBounds.get(win.id);
-  if (!prev) return;
-  popoverPreBounds.delete(win.id);
-  win.setBounds(prev);
+  tempExpandLeave(win);
 });
 
 ipcMain.on('window:set-opacity', (event, value: number) => {
