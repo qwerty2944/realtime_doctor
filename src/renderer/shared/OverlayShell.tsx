@@ -274,6 +274,33 @@ export function OverlayShell({
         )}
       >
         <div className="overlay-titlebar">
+          {/*
+            분리 버튼은 타이틀바 **맨 앞**에 둔다.
+            [왜 앞인가] 예전에는 오른쪽 끝(투명도 슬라이더·최소화 옆)에 아이콘만
+            놓았다. 그 자리는 폭 280px 짜리 창에서 가장 먼저 눌리는 구간이고,
+            테두리 없는 ghost 아이콘이라 옆의 최소화 버튼과 구별되지 않았다 —
+            사용자가 "분리 버튼을 만들어 달라" 고 다시 요청한 이유다(버튼은 이미
+            있었다). 앞쪽은 폭이 줄어도 마지막까지 남는 자리이고, 대신 제목이
+            truncate 되므로 무엇도 잘리지 않는다.
+            [왜 텍스트까지] 아이콘만으로는 "떼어내기" 를 읽어낼 수 없다. 스냅
+            강조색(amber)과 같은 색을 써서 "붙어 있음" 표시와 짝을 이루게 한다.
+          */}
+          {snapped && myKey && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-no-drag
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-amber-400/70 bg-amber-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-amber-100 transition-colors hover:bg-amber-500/45"
+                  onClick={() => window.api.windowSnaps.detach(myKey)}
+                >
+                  <Unlink className="h-2.5 w-2.5 shrink-0" />
+                  {t('snap.detachAction')}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('snap.detach')}</TooltipContent>
+            </Tooltip>
+          )}
           {group ? (
             <TabStrip group={group} />
           ) : (
@@ -290,24 +317,13 @@ export function OverlayShell({
           )}
           {badge}
           {actions}
-          {snapped && myKey && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center" data-no-drag>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onClick={() => window.api.windowSnaps.detach(myKey)}
-                  >
-                    <Unlink />
-                  </Button>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('snap.detach')}</TooltipContent>
-            </Tooltip>
-          )}
-          {!hideOpacity && <OpacityControl />}
+          {/*
+            붙어 있는 동안에는 투명도 슬라이더를 접는다. 타이틀바가 좁아서
+            (최소 폭 280px) 분리 버튼과 슬라이더가 함께 들어가면 둘 다 눌린다 —
+            둘 중 하나를 고른다면, 지금 당장 벗어나야 하는 상태(분리)가 취향
+            조정(투명도)보다 급하다. 떼어내면 슬라이더는 곧바로 돌아온다.
+          */}
+          {!hideOpacity && !snapped && <OpacityControl />}
           {!hideMinimize && (
             <div className="flex items-center" data-no-drag>
               <Button

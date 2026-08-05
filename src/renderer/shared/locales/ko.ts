@@ -102,6 +102,8 @@ const ko = {
   'sub.readingAlwaysAllowed': '이미 저장된 진료 기록의 열람과 내보내기는 잠금과 무관하게 항상 가능합니다.',
   'tabs.detach': '창 분리',
   'snap.detach': '붙은 창에서 떼어내기',
+  /** 타이틀바 분리 버튼의 라벨 — 좁은 창(최소 280px)에 들어가야 하므로 짧게. */
+  'snap.detachAction': '분리',
   'sessions.sourceLocal': '로컬',
   'sessions.sourceCloud': '클라우드',
   'sessions.sourceBoth': '로컬+클라우드',

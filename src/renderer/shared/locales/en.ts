@@ -103,6 +103,7 @@ const en: Record<keyof typeof ko, string> = {
 
   'tabs.detach': 'Detach window',
   'snap.detach': 'Unsnap from neighbours',
+  'snap.detachAction': 'Detach',
   'sessions.sourceLocal': 'Local',
   'sessions.sourceCloud': 'Cloud',
   'sessions.sourceBoth': 'Local + cloud',
