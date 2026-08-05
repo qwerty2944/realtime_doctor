@@ -343,6 +343,9 @@ function dispatchShortcut(id: ShortcutId): void {
     case 'toggleDictation':
       toggleOneWindow('dictation');
       return;
+    case 'togglePatients':
+      toggleOneWindow('patients');
+      return;
     case 'recordStartStop': {
       const tr = windows.get('transcript');
       if (tr && !tr.isDestroyed()) {

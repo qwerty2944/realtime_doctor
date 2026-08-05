@@ -17,6 +17,7 @@ const en: Record<keyof typeof ko, string> = {
   'window.questions': 'Next questions',
   'window.summary': 'Summary',
   'window.dictation': 'Dictation',
+  'window.patients': 'Waiting list',
 
   'dock.account': 'Account',
   'dock.signIn': 'Sign in',

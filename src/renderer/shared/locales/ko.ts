@@ -17,6 +17,7 @@ const ko = {
   'window.questions': '다음 질문',
   'window.summary': '요약',
   'window.dictation': '받아쓰기',
+  'window.patients': '대기목록',
 
   // dock
   'dock.account': '계정',

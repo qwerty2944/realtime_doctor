@@ -20,14 +20,17 @@ import {
   Star,
   StarOff,
   Trash2,
-  UserRound
+  UserRound,
+  Users
 } from 'lucide-react';
 import {
   SHORTCUT_DEFAULTS,
   SHORTCUT_IDS,
-  SHORTCUT_LABELS,
+  TRIAL_BANNER_DAYS,
   type Language,
-  type ShortcutId
+  type ShortcutId,
+  type SubscriptionState,
+  type SubscriptionStatus
 } from '../../shared/types';
 import { accelFromEvent, formatAccelerator } from '../shared/accelerator';
 import { useT } from '../shared/i18n';
@@ -79,7 +82,15 @@ interface LayoutInfo {
   isDefault: boolean;
 }
 
-const ORDER = ['transcript', 'diagnosis', 'terms', 'questions', 'summary', 'dictation'];
+const ORDER = [
+  'transcript',
+  'diagnosis',
+  'terms',
+  'questions',
+  'summary',
+  'dictation',
+  'patients'
+];
 
 const META: Record<
   string,
@@ -90,7 +101,8 @@ const META: Record<
   terms: { tkey: 'window.terms', Icon: BookOpen },
   questions: { tkey: 'window.questions', Icon: HelpCircle },
   summary: { tkey: 'window.summary', Icon: FileText },
-  dictation: { tkey: 'window.dictation', Icon: NotebookPen }
+  dictation: { tkey: 'window.dictation', Icon: NotebookPen },
+  patients: { tkey: 'window.patients', Icon: Users }
 };
 
 const TOGGLE_ID: Record<string, ShortcutId> = {
@@ -99,13 +111,14 @@ const TOGGLE_ID: Record<string, ShortcutId> = {
   terms: 'toggleTerms',
   questions: 'toggleQuestions',
   summary: 'toggleSummary',
-  dictation: 'toggleDictation'
+  dictation: 'toggleDictation',
+  patients: 'togglePatients'
 };
 
 const BUILTIN_LABELS: Record<string, string> = {
   'right-stack': '우측 스택 (기본)',
   'left-stack': '좌측 스택',
-  'wide-grid': '상단 2x3 격자',
+  'wide-grid': '상단 격자',
   'corner-compact': '컴팩트 코너'
 };
 

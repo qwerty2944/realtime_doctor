@@ -28,7 +28,8 @@ const GROUPABLE: WindowKey[] = [
   'terms',
   'questions',
   'summary',
-  'dictation'
+  'dictation',
+  'patients'
 ];
 
 let groups: Group[] = [];

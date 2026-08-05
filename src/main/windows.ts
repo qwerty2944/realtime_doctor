@@ -28,11 +28,12 @@ export const OVERLAYS: OverlaySpec[] = [
     defaultHeight: 320
   },
   {
+    // 카드마다 문헌근거가 펼쳐지므로 다른 창보다 세로로 길게 잡는다.
     key: 'diagnosis',
     title: 'Differential',
     htmlName: 'diagnosis',
     defaultWidth: 380,
-    defaultHeight: 280
+    defaultHeight: 460
   },
   {
     key: 'terms',
@@ -63,6 +64,14 @@ export const OVERLAYS: OverlaySpec[] = [
     defaultHeight: 380
   },
   {
+    // 대기목록은 카드가 세로로 쌓이는 리스트라 다른 창보다 높게 잡는다.
+    key: 'patients',
+    title: 'Waiting List',
+    htmlName: 'patients',
+    defaultWidth: 380,
+    defaultHeight: 420
+  },
+  {
     key: 'dock',
     title: 'Dock',
     htmlName: 'dock',
@@ -77,7 +86,8 @@ export const MAIN_WINDOW_KEYS: WindowKey[] = [
   'terms',
   'questions',
   'summary',
-  'dictation'
+  'dictation',
+  'patients'
 ];
 
 export function defaultStackPositions(): Record<WindowKey, { x: number; y: number }> {

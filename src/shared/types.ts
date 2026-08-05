@@ -125,6 +125,7 @@ export type OverlayKey =
   | 'questions'
   | 'summary'
   | 'dictation'
+  | 'patients'
   | 'dock';
 
 /** 드래그앤드랍으로 합쳐진 창 탭 그룹. tabs 순서 = 탭바 표시 순서. */

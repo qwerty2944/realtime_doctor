@@ -17,7 +17,20 @@ const EMBEDDED_ENV_KEYS = [
   'CLOVA_API_KEY',
   'CLOVA_SPEECH_SECRET',
   'SUPABASE_URL',
-  'SUPABASE_PUBLISHABLE_KEY'
+  'SUPABASE_PUBLISHABLE_KEY',
+  // 구독 게이트 (S2). 여기 있는 세 개는 전부 공개 정보다:
+  //   ENTITLEMENT_PUBLIC_KEY  검증 전용 공개키. 이걸로는 토큰을 만들 수 없다.
+  //   ENTITLEMENT_URL         Edge Function 주소.
+  //   BILLING_PORTAL_URL      admin-web 결제 페이지 주소.
+  // [HARD] ENTITLEMENT_PRIVATE_KEY 와 포트원 API Secret 은 절대 이 목록에
+  // 추가하지 않는다. 여기 넣는 값은 빌드타임에 번들로 인라인된다.
+  'ENTITLEMENT_PUBLIC_KEY',
+  'ENTITLEMENT_URL',
+  'BILLING_PORTAL_URL',
+  // 기기 등록 Edge Function 주소 (S5). SUPABASE_URL 에서 유도되므로 보통은
+  // 설정할 필요가 없다. 이것도 주소일 뿐 비밀이 아니다 -- 판정은 전부 서버가
+  // service_role 로 하고, 이 함수는 caller 의 JWT 없이는 아무것도 하지 않는다.
+  'DEVICE_FUNCTION_URL'
 ] as const;
 
 const mainDefine: Record<string, string> = {};
@@ -55,6 +68,7 @@ export default defineConfig({
           questions: resolve(__dirname, 'src/renderer/questions/index.html'),
           summary: resolve(__dirname, 'src/renderer/summary/index.html'),
           dictation: resolve(__dirname, 'src/renderer/dictation/index.html'),
+          patients: resolve(__dirname, 'src/renderer/patients/index.html'),
           dock: resolve(__dirname, 'src/renderer/dock/index.html')
         }
       }

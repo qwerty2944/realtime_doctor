@@ -18,6 +18,7 @@ export type WindowKey =
   | 'questions'
   | 'summary'
   | 'dictation'
+  | 'patients'
   | 'dock';
 
 export interface WindowBounds {
