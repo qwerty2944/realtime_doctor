@@ -16,8 +16,8 @@ AI가 대화형으로 병력을 청취하고, 그 결과를 realtime_doctor의 S
 ## 무엇을 쓰는가 (데이터 흐름)
 
 ```
-환자 태블릿  ──▶  /intake?k=<슬러그>
-                     │  (동의 → 환자 정보 → AI 문진 → 완료)
+환자 태블릿  ──▶  /intake?k=<슬러그>&c=<방문 코드>
+                     │  (코드 → 고지·동의 → 환자 정보 → AI 문진 → 완료)
                      ▼
              /api/intake/start ──▶ patients + encounters(status=intake_in_progress)
              /api/intake/turn  ──▶ encounters.red_flag (턴마다 갱신)
@@ -38,6 +38,55 @@ AI가 대화형으로 병력을 청취하고, 그 결과를 realtime_doctor의 S
 
 ---
 
+## 방문 코드 (L1) — 문진을 시작할 수 있는 유일한 열쇠
+
+**슬러그만으로는 문진을 시작할 수 없습니다.** 이 앱은 공개 주소에서 서비스되고,
+주소를 아는 누구나 문진을 시작할 수 있으면 그 결과는 실재하는 의사에게 귀속된
+`encounters` 행이 됩니다 — 의사가 본 적 없는 사람과 AI 가 나눈 의료 대화가 그
+의사 이름으로 대기목록에 쌓입니다. 근거: `../tasks/architecture-and-liability.md` 4장.
+
+그래서 접수처가 **방문마다 코드를 발급**하고, 그 코드가 있어야 시작됩니다.
+
+| 항목 | 값 | 이유 |
+|---|---|---|
+| 형식 | 7자, 알파벳 `23456789ACDEFGHJKMNPRTVWXY` | 소리내 읽거나 받아적을 때 헷갈리는 짝(0/O, 1/I/L, 2/Z, 5/S, 8/B, U/V, O/Q)을 **양쪽 다** 제외. 잘못 읽은 글자는 다른 유효한 코드가 되지 않고 그냥 거부됩니다. |
+| 표기 | `A2CD-4EF` (4-3) | 불러주기·받아적기 쉬움. 하이픈·공백·소문자는 서버가 알아서 정리합니다. |
+| 수명 | 30분 | 접수대에서 태블릿까지 걸어가는 시간. 그 이상은 책상에 살아 있는 자격증명을 남기는 것입니다. |
+| 사용 | 1회 (진료 1건) | 문진이 끝나면 영구히 죽습니다. |
+
+**26^7 = 80억(2^33)이 짧지 않은 이유** — 세 겹으로 추측을 막습니다:
+
+1. **분당 실패 20회** (의사 단위, DB 카운터). 프로세스 안에서 세면 서버리스
+   인스턴스 수만큼 허용치가 곱해지므로 DB 에서 셉니다.
+   **한도는 실패에만 걸립니다** — 진짜 코드는 카운터가 꽉 차 있어도 통과합니다.
+   그러지 않으면 속도 제한이 곧 서비스 거부 지렛대가 됩니다.
+2. **미사용 코드 50개 상한** (의사 단위). 동시에 존재하는 표적 수를 묶습니다.
+3. **30분 만료.** 살아 있는 코드만 맞힐 가치가 있습니다.
+
+→ 한 번 찍어 맞을 확률 ≤ 50/8.03e9 = 6.2e-9. 분당 20회면 연 1.05e7회,
+기대 성공 6.5e-5회/년(약 15,000년에 한 번)이고 그동안 매분이 기록에 남습니다.
+
+**중단하면 어떻게 되나.** 코드는 첫 사용 때 소모되고 그때 만들어진 진료에
+묶입니다. 환자가 중간에 자리를 뜨거나 태블릿이 새로고침되면 **같은 코드로 그
+진료에 다시 들어갈 수 있습니다**(만료 전 · 그 진료가 아직 `intake_in_progress`
+일 때 · 최대 3회). 거절해 버리면 접수처가 코드를 다시 발급하고 한 방문에 진료
+행이 둘 생깁니다 — 대기목록에 같은 환자가 두 번 뜨는 쪽이 실제로 더 나쁩니다.
+재개는 아무것도 만들지 않고, 문진이 끝나는 순간 코드는 영구히 죽습니다.
+
+**발급은 데스크톱 앱**(dock 의 QR 아이콘)에서 합니다. 스태프가 쓰는 표면이
+그것뿐입니다(admin-web 은 미배포). 큰 글씨 코드와 QR(`/intake?k=…&c=…`)이 함께
+뜹니다. 평문 코드는 **어디에도 저장되지 않습니다** — 다시 보려면 새로 발급합니다.
+
+스키마와 판정 로직 전부: `../supabase/migrations/0009_visit_access_codes.sql`.
+판정은 DB 함수 하나(`redeem_visit_access_code`)에만 있고, 키오스크는 그것을
+부르기만 합니다. `service_role` 만 부를 수 있습니다.
+
+> **[HARD] 코드 검증은 `patients`/`encounters` insert 보다 먼저, 모델 호출보다
+> 먼저 끝납니다.** 발급되지 않은 접근은 진료 행을 만들지 않고 LLM 쿼터도 쓰지
+> 않습니다. `app/api/intake/start/route.ts` 의 주석 순서 참고.
+
+---
+
 ## 담당 의사 귀속 (token → clinician) — 가장 중요한 부분
 
 `encounters.user_id`는 **NOT NULL**이고 RLS 정책은 `user_id = auth.uid()`입니다.
@@ -51,7 +100,9 @@ AI가 대화형으로 병력을 청취하고, 그 결과를 realtime_doctor의 S
 ### 1겹: 키오스크 슬러그 (URL `?k=`)
 
 태블릿은 `https://<배포주소>/intake?k=main` 을 엽니다.
-`main`은 비밀이 아니라 **라우팅 키**입니다. 서버에서만 `KIOSK_CLINICIANS` 매핑을 통해
+`main`은 비밀이 아니라 **라우팅 키**입니다(그리고 위의 방문 코드가 생긴 지금도
+여전히 그렇습니다 — 슬러그는 "누구 앞으로" 를 정하고, 시작할 수 있게 하는 것은
+코드입니다). 서버에서만 `KIOSK_CLINICIANS` 매핑을 통해
 의사 uuid로 번역됩니다. 의사 uuid 자체는 **절대 브라우저로 내려가지 않습니다.**
 
 ```jsonc
@@ -102,6 +153,8 @@ MAC 입력: v1 | encounterId | clinicianId | 만료시각
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | **서버 전용.** RLS를 우회하는 서비스 롤 키. 루트의 `SUPABASE_PUBLISHABLE_KEY`와 다릅니다. |
 | `KIOSK_TOKEN_SECRET` | ✅ | 세션 토큰 서명용 HMAC 키. `openssl rand -hex 32` |
 | `KIOSK_CLINICIANS` | ✅ | 키오스크 슬러그 → 의사 uuid JSON 매핑. 위 "담당 의사 귀속" 참고. |
+| `NEXT_PUBLIC_BASE_PATH` | | 하위 경로 배포. 예 `/righthand/patient`. 비우면 루트 배포(로컬 개발 기본값). **경로 조각만** — 호스트명은 넣지 않습니다. |
+| `GEMINI_API_BASE` | | Gemini 엔드포인트 override. 사내 프록시용. 운영에서는 설정하지 않습니다. |
 | `GEMINI_API_KEY` | ✅ | 문진 질문 생성 및 결과 초안 작성. (`GOOGLE_API_KEY`도 인식) |
 | `LLM_PROVIDER` | | 현재 `gemini`만 지원, 기본값도 `gemini`. 환자 동의서의 처리자 이름이 여기서 나옵니다. |
 | `GEMINI_MODEL` | | 기본 `gemini-3.5-flash`. 강제 도구 호출을 지키는 모델이어야 합니다. |
@@ -118,7 +171,9 @@ kiosk/.env.example 을 참고해서 .env.local (또는 배포 플랫폼의 환�
 
 > `SUPABASE_SERVICE_ROLE_KEY`에 **절대 `NEXT_PUBLIC_` 접두사를 붙이지 마세요.**
 > 붙는 순간 클라이언트 번들에 인라인되어 모든 환자가 DB 전체 권한을 갖게 됩니다.
-> 이 앱에는 `NEXT_PUBLIC_*` 변수가 하나도 없고, 모든 DB 접근은 API 라우트 뒤에 있습니다.
+> 이 앱에서 브라우저로 나가는 `NEXT_PUBLIC_*` 변수는 `NEXT_PUBLIC_BASE_PATH`
+> **하나뿐**이고, 담고 있는 것은 공개 URL 의 경로 조각입니다(비밀이 아닙니다).
+> 모든 DB 접근은 여전히 API 라우트 뒤에 있습니다.
 
 > 셸에서 `export KIOSK_CLINICIANS={"main":"..."}` 처럼 **따옴표 없이** 쓰면
 > 셸이 큰따옴표를 먹어 JSON이 깨집니다. 반드시 작은따옴표로 감싸세요.
@@ -135,6 +190,17 @@ npm run dev                  # http://localhost:3000
 ```
 
 접속: <http://localhost:3000/intake?k=main>
+
+문진을 시작하려면 **방문 코드가 필요합니다.** 로컬에서는 데스크톱 앱의 dock
+QR 버튼으로 발급하거나, SQL 로 직접 발급합니다:
+
+```sql
+-- 해당 의사로 로그인한 세션에서 (Supabase Studio 의 SQL 에디터는 postgres 롤이라
+-- auth.uid() 가 없습니다. 앱이나 프로브 경로를 쓰는 편이 확실합니다.)
+select public.issue_visit_access_code('main');
+```
+
+`scripts/probe-visit-code.mjs` 가 발급 → 시작 → 완주 전 구간을 자동으로 돕니다.
 
 ```bash
 npm run typecheck   # tsc --noEmit
@@ -159,7 +225,12 @@ npm start           # 프로덕션 서버
 3. Environment Variables에 위 표의 필수 항목 전부 입력
    (`KIOSK_CLINICIANS`는 JSON 문자열 그대로 붙여넣기)
 4. 배포 후 로그에 `[kiosk] Ready. Registered kiosks: main` 이 찍히는지 확인
-5. 병원 태블릿의 홈 화면/키오스크 모드 URL을 `https://<배포주소>/intake?k=<슬러그>`로 지정
+5. **하위 경로 배포라면 `NEXT_PUBLIC_BASE_PATH` 를 설정** (예 `/righthand/patient`).
+   Next 가 링크·정적자원·헤더 규칙을 접두하고, 클라이언트의 `fetch` 는
+   `lib/basePath.ts` 의 `apiPath()` 가 접두합니다. 값을 바꾸면 **다시 빌드**해야
+   합니다(빌드 타임에 번들로 들어갑니다).
+6. 병원 태블릿의 홈 화면/키오스크 모드 URL을 `https://<배포주소>/intake?k=<슬러그>`로 지정
+   (코드는 환자가 첫 화면에서 입력하거나, 데스크톱 앱의 QR 로 전달합니다)
 
 `/intake`는 `force-dynamic`이고 `Cache-Control: no-store`가 붙습니다.
 태블릿을 공유해도 앞 환자의 화면이 복원되지 않습니다.
@@ -230,18 +301,23 @@ kiosk/
 ├── app/
 │   ├── layout.tsx, globals.css, page.tsx     # 루트 폰트 18px, 대기실 홈
 │   ├── intake/
-│   │   ├── page.tsx                          # 서버: 키오스크 해석 + 동의문 생성
-│   │   ├── IntakeFlow.tsx                    # 4단계 상태 기계, 대화 기록 보유
+│   │   ├── page.tsx                          # 서버: 키오스크 해석 + 고지·동의문 + ?c= 사전확인
+│   │   ├── IntakeFlow.tsx                    # 5단계 상태 기계, 대화 기록 보유
+│   │   ├── VisitCodeStep.tsx  ★ 방문 코드 입력 (QR 로 들어오면 건너뜀)
+│   │   ├── AiDisclosure.tsx   ★ AI 고지 — 접지 않고 항상 펼쳐진다
 │   │   ├── ConsentStep.tsx / PatientInfoStep.tsx
 │   │   ├── InterviewStep.tsx                 # 반이중 음성 + 항상 보이는 글자 입력
 │   │   ├── CompleteStep.tsx / ui.tsx / useSpeechSynthesis.ts
-│   └── api/intake/{start,turn,transcribe}/route.ts
+│   └── api/intake/{start,turn,transcribe,code/check}/route.ts
 ├── lib/
 │   ├── env.ts                                # 부팅 시 일괄 검증
-│   ├── api.ts, supabase/admin.ts             # 서비스 롤 클라이언트
+│   ├── api.ts, basePath.ts, supabase/admin.ts # 서비스 롤 클라이언트 / 하위 경로
 │   ├── intake/
 │   │   ├── kiosk.ts   ★ 슬러그 → 담당 의사
 │   │   ├── token.ts   ★ HMAC 세션 토큰
+│   │   ├── visitCode.ts       ★ 코드 표기 규칙 (판정하지 않는다)
+│   │   ├── visitCodeServer.ts ★ 코드 소모/확인 — DB 함수 호출 층
+│   │   ├── disclosure.ts      ★ AI 고지 문구 (서버에서 만들어 내려보낸다)
 │   │   ├── schemas.ts # zod: 요청 / 모델 출력 / 저장 컬럼
 │   │   ├── prompts.ts, interview.ts, result.ts
 │   │   ├── redFlags.ts, negation.ts, consent.ts, birthDate.ts, limits.ts
@@ -273,3 +349,15 @@ kiosk/
   `@anthropic-ai/sdk` 의존성을 추가할 이유가 없었습니다. 프로바이더 인터페이스는 그대로라
   나중에 파일 하나 추가로 되살릴 수 있습니다.
 - **audit_logs를 가져오지 않았습니다.** 대상 스키마에 테이블이 없어 `console.error`로 대체했습니다.
+
+- **AI 고지를 동의 항목 안에 넣지 않았습니다.** 동의문은 체크되지 읽히지
+  않습니다 — 전문은 "약관 전문 보기" 뒤로 접혀 있고, 접힌 경고는 경고가
+  아닙니다. 책임등급 문서 5장이 요구하는 것은 **평이한 말로, 처음 보는
+  화면에** 있는 세 문장이라, 동의 목록 **위에** 체크박스 없이 항상 펼쳐 둡니다.
+  문구는 서버에서 만들어 내려보냅니다(`lib/intake/disclosure.ts`) — 고지가
+  실제로 화면 payload 에 들어갔는지가 검증 대상이어야 하고, 이 머신에는 화면
+  캡처 권한이 없어서 프로브가 문자열로 단언할 수 있어야 하기 때문입니다.
+- **코드 확인(`/api/intake/code/check`)과 소모(`/api/intake/start`)는 같은 DB
+  함수의 같은 경로**를 씁니다(`p_consume` 만 다릅니다). 인가 판정을 두 벌로
+  만들면 갈라진 둘 중 하나만 고쳐지는 날이 옵니다. 확인 단계를 따로 둔 이유는,
+  코드 오타를 환자가 이름·생년월일을 적기 **전에** 잡기 위해서입니다.
