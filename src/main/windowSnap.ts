@@ -109,8 +109,10 @@ import {
  *      않은 unit 에만, 라이브 추종(liveFollow)은 이미 붙은 unit 에만 돈다.
  *      한 이동 이벤트가 둘 다 발동할 수 없으므로 서로 싸울 지점이 없다.
  *
- * [클램프 규칙] 팔로워가 작업영역 밖으로 나가려 하면 **클러스터 전체의 이동량**
- * 을 깎는다(clampDelta). 즉 팔로워끼리는 언제나 정확히 같은 delta 를 받으므로
+ * [클램프 규칙] 클러스터가 작업영역 밖으로 **더** 나가려 하면 **클러스터 전체의
+ * 이동량** 을 깎는다(clampDelta). 이미 밖으로 걸쳐 있는 만큼은 강제로 되돌리지
+ * 않는다 — 되돌리면 사용자가 가로로만 끌어도 클러스터가 세로로 튀어 "둘이 같이
+ * 안 움직인다" 로 보인다 (실사용 신고의 실제 원인). 팔로워끼리는 언제나 같은 delta 를 받으므로
  * 클러스터가 소리 없이 늘어나는 일은 없다. 리더만은 OS 가 커서를 따라 계속
  * 끌고 가므로 드래그 중 잠시 앞서 나갈 수 있는데, 드랍 시점에 규율 3 이 리더를
  * 클램프된 자리로 되돌려 강체 배치를 복원한다. 대안(팔로워를 화면 밖으로
@@ -483,8 +485,24 @@ function overlapLength(a1: number, a2: number, b1: number, b2: number): number {
 }
 
 /**
- * 클러스터 전체가 작업 영역 안에 남도록 이동량을 깎는다.
- * 클러스터 폭/높이가 작업 영역보다 크면 좌/상단 정렬을 우선한다.
+ * 클러스터가 작업 영역 밖으로 **더** 나가지 않도록 이동량을 깎는다.
+ *
+ * [경계는 작업영역이 아니라 "작업영역 ∪ 현재 클러스터"다] 예전에는 작업영역을
+ * 그대로 경계로 썼다. 그러면 클러스터가 이미 조금이라도 밖에 걸쳐 있을 때
+ * (창을 사용자가 직접 화면 끝으로 옮겨 두는 것은 흔한 일이다) 이동량이 0 이어도
+ * `wa.y + wa.height - maxY` 가 음수로 계산되어 **가만히 있는데 클러스터가
+ * 끌려 들어왔다.** 리더는 커서를 따라 계속 가는데 팔로워만 반대로 당겨지니
+ * 화면에서는 정확히 "둘이 같이 안 움직인다" 로 보인다.
+ *
+ * 실측(/tmp/dev.log, 2026-08-05T21:52): dictation+patients 클러스터의 아래쪽이
+ * 작업영역을 넘어 있어서 이동 이벤트 18개 중 16개가 클램프에 걸렸고,
+ * `요청 -173,98 → 클램프 -173,0` 처럼 세로 이동이 통째로 죽었다.
+ *
+ * 그래서 규칙을 "밖으로 나간 만큼은 그대로 인정하되, 더 나가지는 못한다" 로
+ * 바꾼다. 완전히 안에 있는 클러스터에 대해서는 예전과 결과가 같다(경계 = 작업영역).
+ * 밖으로 걸친 클러스터는 안쪽으로 들어오는 방향으로는 제한 없이 움직일 수 있고,
+ * 바깥으로 더 나가는 방향으로만 멈춘다 — 창을 잃지 않게 한다는 원래 목적은
+ * 그대로 지켜진다.
  */
 function clampDelta(
   rects: Electron.Rectangle[],
@@ -498,13 +516,19 @@ function clampDelta(
   const minY = Math.min(...rects.map((r) => r.y));
   const maxY = Math.max(...rects.map((r) => r.y + r.height));
 
+  // 이미 넘어선 만큼은 경계를 넓혀 인정한다 (= 강제 교정 금지).
+  const left = Math.min(wa.x, minX);
+  const right = Math.max(wa.x + wa.width, maxX);
+  const top = Math.min(wa.y, minY);
+  const bottom = Math.max(wa.y + wa.height, maxY);
+
   let ndx = dx;
-  if (maxX + ndx > wa.x + wa.width) ndx = wa.x + wa.width - maxX;
-  if (minX + ndx < wa.x) ndx = wa.x - minX;
+  if (maxX + ndx > right) ndx = right - maxX;
+  if (minX + ndx < left) ndx = left - minX;
 
   let ndy = dy;
-  if (maxY + ndy > wa.y + wa.height) ndy = wa.y + wa.height - maxY;
-  if (minY + ndy < wa.y) ndy = wa.y - minY;
+  if (maxY + ndy > bottom) ndy = bottom - maxY;
+  if (minY + ndy < top) ndy = top - minY;
 
   return { dx: ndx, dy: ndy };
 }
