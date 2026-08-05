@@ -83,6 +83,13 @@ const api = {
   popoverLeave(): void {
     ipcRenderer.send('window:popover-leave');
   },
+  /**
+   * 렌더러가 실제 레이아웃에서 잰 "잘리지 않으려면 필요한 창 높이".
+   * 팝오버 임시 확장과 달리 되돌리지 않는 영구 크기다.
+   */
+  fitContentHeight(height: number): void {
+    ipcRenderer.send('window:fit-content', height);
+  },
   setOpacity(value: number): void {
     ipcRenderer.send('window:set-opacity', value);
   },

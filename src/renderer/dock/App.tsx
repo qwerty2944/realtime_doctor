@@ -168,6 +168,81 @@ function subBannerKey(
   return null;
 }
 
+/**
+ * Dock 창 높이를 내용에 맞춘다.
+ *
+ * Dock 은 구독 배너(로그인 필요 / 체험 만료 / 결제 실패 / 차단 안내)가 상태에
+ * 따라 나타났다 사라지므로, 어떤 고정 높이를 골라도 어느 한 상태에서는 잘리거나
+ * 빈 칸이 남는다. 그래서 렌더된 실제 레이아웃을 재서 main 에 넘긴다.
+ *
+ * 재는 값은 창 크기와 무관한 **자연 높이**여야 한다 — 창이 작아 내용이 눌린
+ * 상태에서 clientHeight 를 재면 지금 잘려 있는 높이를 그대로 되돌려 주게 된다.
+ * 그래서 내용 래퍼의 scrollHeight(자식들은 shrink-0 이라 눌리지 않는다) 에
+ * 타이틀바 높이와 셸 테두리를 더한다. 이 값은 늘어날 때도 줄어들 때도 옳다.
+ */
+function useFitWindowToContent(): (node: HTMLDivElement | null) => void {
+  // [주의] ref 객체 + useEffect([]) 조합은 여기서 통하지 않는다. Dock 은 언어
+  // IPC 응답 전에 빈 셸을 먼저 렌더하므로 최초 effect 시점에 측정 대상 노드가
+  // 아직 없고, 의존성이 비어 있으면 effect 는 두 번 다시 돌지 않는다 (실제로
+  // 이 경로로 한 번 새서 창이 130px 에 그대로 남았다). 노드가 붙는 바로 그
+  // 순간에 관측을 시작하도록 callback ref 를 쓴다.
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => cleanupRef.current?.(), []);
+
+  return useCallback((el: HTMLDivElement | null) => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    if (!el) return;
+
+    let raf = 0;
+    let lastSent = '';
+
+    const measure = () => {
+      raf = 0;
+      const node = el.isConnected ? el : null;
+      const shell = node?.closest('.overlay-shell') as HTMLElement | null;
+      if (!node || !shell) return;
+      const titlebar = shell.querySelector(
+        '.overlay-titlebar'
+      ) as HTMLElement | null;
+      // offsetHeight 에는 있고 clientHeight 에는 없는 차이 = 위아래 테두리.
+      const borders = Math.max(0, shell.offsetHeight - shell.clientHeight);
+      // 프레임리스라 보통 0 이지만, 창 테두리가 있으면 그만큼 더한다.
+      const chrome = Math.max(0, window.outerHeight - window.innerHeight);
+      const target = Math.ceil(
+        borders + (titlebar?.offsetHeight ?? 0) + node.scrollHeight + chrome
+      );
+      // 같은 목표를 같은 창 높이에서 두 번 보내지 않는다. 창 높이를 키에 넣는
+      // 이유: 사용자가 창을 내용보다 작게 줄이면 목표는 그대로여도 다시 알려
+      // 잘림을 풀어야 한다 (main 이 "줄이지는 않고 잘릴 때만 키운다" 를 판정).
+      const key = `${target}:${window.innerHeight}`;
+      if (key === lastSent) return;
+      lastSent = key;
+      window.api.fitContentHeight(target);
+    };
+
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(measure);
+    };
+
+    // 배너가 붙거나 떨어질 때, 그리고 폭이 바뀌어 버튼이 다시 줄바꿈될 때.
+    const observer = new ResizeObserver(schedule);
+    observer.observe(el);
+    window.addEventListener('resize', schedule);
+    // 폰트 로드 전에 재면 줄바꿈이 달라 높이가 틀린다.
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    void (fonts?.ready ?? Promise.resolve()).then(schedule);
+
+    cleanupRef.current = () => {
+      if (raf) cancelAnimationFrame(raf);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+    };
+  }, []);
+}
+
 export default function DockApp() {
   const t = useT();
   const [states, setStates] = useState<WindowState[]>([]);
@@ -223,6 +298,8 @@ export default function DockApp() {
   // 마지막이 닫힐 때만 줄어들도록 ref-count.
   const popoverCountRef = useRef(0);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  // 내용 높이 측정 대상. 배너 유무에 따라 높이가 바뀌는 영역 전체를 감싼다.
+  const contentRef = useFitWindowToContent();
   const onPopoverOpenChange = useCallback((open: boolean) => {
     const prev = popoverCountRef.current;
     const next = Math.max(0, prev + (open ? 1 : -1));
@@ -481,11 +558,14 @@ export default function DockApp() {
       shortcutId="toggleAll"
       className={popoverOpen ? '!h-fit !shadow-none' : undefined}
     >
+      {/* 높이 측정 래퍼 — 자식은 모두 shrink-0 이라 창이 작아도 눌리지 않고,
+          그래서 scrollHeight 가 "잘리지 않으려면 필요한 높이" 그 자체가 된다. */}
+      <div ref={contentRef} className="flex flex-col">
       {/* 구독 배너 — D-7 / 만료 / 결제실패 / 차단 안내. 정상 구독 중엔 없다. */}
       {(bannerKey || blockedMsg) && (
         <div
           className={cn(
-            'flex items-center gap-2 border-b px-3 py-2 text-[11px]',
+            'flex shrink-0 items-center gap-2 border-b px-3 py-2 text-[11px]',
             sub?.entitled
               ? 'border-amber-400/30 bg-amber-500/15 text-amber-100'
               : 'border-rose-400/30 bg-rose-500/15 text-rose-100'
@@ -505,7 +585,7 @@ export default function DockApp() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-center gap-2 p-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 p-3">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -1348,6 +1428,7 @@ export default function DockApp() {
           </TooltipTrigger>
           <TooltipContent side="bottom">프로그램 종료</TooltipContent>
         </Tooltip>
+      </div>
       </div>
     </OverlayShell>
   );

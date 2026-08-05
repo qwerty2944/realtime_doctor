@@ -158,6 +158,7 @@ import {
   initWindowSnap,
   restoreSnaps
 } from './windowSnap.js';
+import { fitWindowToContent, initWindowFit } from './windowFit.js';
 import {
   MAIN_WINDOW_KEYS,
   OVERLAYS,
@@ -739,6 +740,26 @@ function tempExpandLeave(win: BrowserWindow): void {
   if (st.userResized) return; // 사용자가 정한 크기 유지
   win.setBounds(st.prev);
 }
+
+// ── 내용에 맞춘 창 높이 (content fit) ──────────────────────────────────────
+// 판정 본체는 windowFit.ts 에 있다. 여기서는 팝오버 임시 확장(tempExpand)과
+// 서로를 존중하도록 두 경로를 이어 준다.
+initWindowFit({
+  isTempExpanded: (win) => tempExpandStates.has(win.id),
+  noteNaturalHeightWhileExpanded: (win, height) => {
+    const st = tempExpandStates.get(win.id);
+    // 확장 중 사용자가 직접 크기를 정했으면 그 선택이 이긴다.
+    if (!st || st.userResized) return;
+    st.prev = { ...st.prev, height };
+  },
+  windowKeyOf: (win) => windowKeyOf(win)
+});
+
+ipcMain.on('window:fit-content', (event, height: number) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  fitWindowToContent(win, height);
+});
 
 ipcMain.on(
   'window:popover-enter',
