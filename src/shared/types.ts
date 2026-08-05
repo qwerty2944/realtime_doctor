@@ -5,6 +5,11 @@ export const IPC = {
   TranscriptLabel: 'transcript:label',
   TranscriptRelabel: 'transcript:relabel',
   TranscriptRemove: 'transcript:remove',
+  /**
+   * 감별진단 근거를 눌렀다 (E1). main 이 전사 창을 앞으로 꺼낸 뒤 같은 이름으로
+   * 전 창에 broadcast 하고, 전사 창이 해당 발화를 강조·스크롤한다.
+   */
+  TranscriptFocusUtterance: 'transcript:focus-utterance',
   AnalysisUpdate: 'analysis:update',
   AnalysisRequest: 'analysis:request',
   AnalysisPending: 'analysis:pending',
@@ -402,16 +407,59 @@ export interface EphemeralSession {
 
 export type Speaker = 'doctor' | 'patient' | 'unknown';
 
+/**
+ * 이 환자에게서 실제로 관찰된 근거 한 줄 (E1).
+ *
+ * **검증을 통과한 것만 이 타입이 된다.** `utteranceId` 와 `quote` 는 모델이
+ * 아니라 검증기(`src/shared/findings.ts`)가 원문에서 직접 꺼내 채운다. 모델이
+ * 댄 참조가 실재하지 않으면 애초에 이 타입의 값이 만들어지지 않는다 — 화면에
+ * 미검증 근거가 뜰 수 없다는 것을 타입으로 보장한다.
+ *
+ * 문헌근거(`EvidenceReference`, M4)와는 다른 축이다. 이쪽은 "이 환자가 뭐라고
+ * 했는가", 저쪽은 "이 진단을 일반적으로 어떻게 판단하는가"다.
+ */
+export interface SupportingFinding {
+  /** 모델이 요약한 관찰. 예: "3일 전부터 우안 통증". */
+  finding: string;
+  /** 모델이 쓴 원본 참조 문자열. 감사 목적으로 그대로 보관한다. */
+  source: string;
+  /** 검증기가 해석한 발화 id. 전사 창이 이 id 로 해당 발화를 찾는다. */
+  utteranceId: string;
+  /** 검증기가 원문에서 그대로 가져온 발화 텍스트. 모델이 쓴 문장이 아니다. */
+  quote: string;
+}
+
+/** 근거를 하나도 검증하지 못한 이유. */
+export type UnverifiedReason =
+  /** 모델이 근거를 아예 대지 않았다 (구버전 문진 기록 포함). */
+  | 'no-findings'
+  /** 근거를 댔지만 가리킨 발화가 원문에 없었다. */
+  | 'unresolved-source';
+
+/**
+ * 검증 가능한 근거가 하나도 남지 않은 감별진단 (E1).
+ *
+ * 조용히 버리지 않는다 — 내려간 감별진단은 그 자체로 임상 정보다.
+ * 감별진단 창의 "근거 미확인" 섹션에 흐리게 따로 표시한다.
+ */
+export interface UnverifiedDifferential {
+  diagnosis: DifferentialDiagnosis;
+  reason: UnverifiedReason;
+  /** 모델이 댔지만 원문에서 찾지 못한 참조 문자열들. */
+  rejectedSources: string[];
+}
+
 export interface DifferentialDiagnosis {
   name: string;
   nameEn?: string;
   icd10?: string;
-  /**
-   * 0~1 가능성. 실시간 분석은 항상 채우지만 문진 결과(키오스크)는 순위만 주고
-   * 확률을 주지 않으므로 optional — 없으면 UI 가 순위 배지로 대체한다.
-   */
-  confidence?: number;
   reasoning: string;
+  /**
+   * 이 환자에게서 관찰된 근거 (E1). 검증을 통과한 항목만 들어 있고, 하나도
+   * 남지 않은 진단은 여기까지 오지 않고 `UnverifiedDifferential` 로 빠진다.
+   * 구버전 저장 데이터를 읽을 수 있어야 하므로 optional.
+   */
+  supportingFindings?: SupportingFinding[];
   /**
    * PubMed 조회로 붙는 문헌근거. LLM 분석 결과에는 없다(모델이 인용을 지어내지
    * 않도록 프롬프트에서 제외했다) — 그래서 optional.
@@ -454,6 +502,11 @@ export interface SuggestedQuestion {
 
 export interface AnalysisResult {
   differentialDiagnoses: DifferentialDiagnosis[];
+  /**
+   * 근거 검증에서 내려온 감별진단 (E1). 구버전 저장 결과에는 없으므로 optional.
+   * TODO(E2): 확인 요청 큐가 생기면 이 목록이 그쪽으로도 흘러가야 한다.
+   */
+  unverifiedDiagnoses?: UnverifiedDifferential[];
   medicalTerms: MedicalTerm[];
   suggestedQuestions: SuggestedQuestion[];
   redFlags: string[];

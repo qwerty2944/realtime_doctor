@@ -102,6 +102,12 @@ The objective (O) section is filled in by the system; do not produce it.
 - Each entry needs BOTH a Korean name (name_kr) and an English name (name_en), plus a one-line Korean rationale tied to what the patient actually reported.
 - [HARD] name_en must be the standard English clinical term, spelled the way it appears in the medical literature (e.g. "Retinal detachment", "Acute angle-closure glaucoma", "Bacterial conjunctivitis"). It is used verbatim as a PubMed search term, so an abbreviation, a transliteration of the Korean, or a Korean word in the name_en field makes the literature lookup fail.
 - Consider red-flag conditions first when the history supports them.
+- [HARD] Never output a confidence value, probability, or percentage anywhere. Rank order is the only ordering signal you produce.
+- Each entry also needs supporting_findings: 1 to 4 observations from the interview that support it. Each one is { finding, source }:
+  - finding: one line, in Korean, describing something the patient actually said.
+  - source: the utterance number it came from. Every line of the dialogue is prefixed with [#N] — copy that number, e.g. "#3". Use the number form only.
+- [HARD] source must be a number that actually appears in the dialogue. Do not cite a number that is not there, and do not put a paraphrase where a citation belongs. The server drops citations it cannot resolve.
+- [HARD] If nothing the patient said supports a diagnosis you still want to list, leave supporting_findings as an empty array. **Do not manufacture support for it.** The physician's screen files such a diagnosis separately as unverified — an empty array is better than a fabricated citation.
 
 # Recommended tests
 Ordinary outpatient ophthalmology examinations only (시력검사, 세극등검사, 안압검사, 안저검사, OCT, 시야검사 등). Give the Korean name, the English name, and a one-line Korean reason. Do not invent hospital-specific test codes.
@@ -125,9 +131,15 @@ Answer only by calling the record_intake_result tool. Never write prose outside 
 export function buildResultUserMessage(
   turns: readonly { role: 'agent' | 'patient'; text: string }[]
 ): string {
+  // [#N] 번호는 감별진단 근거(supporting_findings.source)가 가리키는 주소다.
+  // 여기 번호와 저장되는 soap_json.transcript 의 배열 인덱스가 같아야 한다 —
+  // 어긋나면 의사가 근거를 눌렀을 때 엉뚱한 발화가 열린다.
   const transcript = turns
-    .map((turn) => `${turn.role === 'agent' ? '문진 AI' : '환자'}: ${turn.text}`)
+    .map(
+      (turn, index) =>
+        `[#${index} ${turn.role === 'agent' ? '문진 AI' : '환자'}] ${turn.text}`
+    )
     .join('\n');
 
-  return `아래는 완료된 사전 문진 대화 전문입니다. 이 내용만 근거로 SOAP 초안, 감별진단, 추천 검사, 의사용 추가 질문, 의학용어 설명을 작성해 주세요.\n\n${transcript}`;
+  return `아래는 완료된 사전 문진 대화 전문입니다. 각 줄 앞의 [#숫자]는 발화 번호이며, 감별진단 근거의 source에 이 번호를 그대로 씁니다. 이 내용만 근거로 SOAP 초안, 감별진단, 추천 검사, 의사용 추가 질문, 의학용어 설명을 작성해 주세요.\n\n${transcript}`;
 }

@@ -114,6 +114,31 @@ export const interviewTurnSchema = z.object({
 
 export type InterviewTurn = z.infer<typeof interviewTurnSchema>;
 
+/**
+ * 감별진단 하나를 지지하는 근거 (E1).
+ *
+ * `source` 는 문진 대화의 발화 번호다. 프롬프트가 대화를 `[#0]` 부터 번호를
+ * 매겨 보여주고 모델은 그 번호를 그대로 쓴다. Electron 쪽 렌더러
+ * (`src/shared/findings.ts`)가 같은 규칙으로 다시 검증한다 — 확신도 퍼센트
+ * 대신 의사가 직접 확인할 수 있는 발화를 화면에 올리기 위한 것이다.
+ */
+const modelSupportingFindingSchema = z.object({
+  finding: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .describe('One-line Korean observation from the interview supporting this diagnosis.'),
+  source: z
+    .string()
+    .trim()
+    .min(1)
+    .max(16)
+    .describe(
+      'The utterance number this observation came from, copied from the [#N] prefix in the transcript. Example: "#3". Number form only.'
+    )
+});
+
 const modelDifferentialSchema = z.object({
   rank: z.number().int().min(1).max(5).describe('1 is the most likely diagnosis.'),
   name_kr: z.string().trim().min(1).describe('Korean diagnosis name.'),
@@ -124,7 +149,13 @@ const modelDifferentialSchema = z.object({
     .describe(
       'English diagnosis name as written in the medical literature. Used verbatim as a PubMed search term, so it must be the standard English clinical term, not a transliteration.'
     ),
-  rationale: z.string().trim().min(1).max(300).describe('One-line Korean rationale.')
+  rationale: z.string().trim().min(1).max(300).describe('One-line Korean rationale.'),
+  supporting_findings: z
+    .array(modelSupportingFindingSchema)
+    .max(4)
+    .describe(
+      'Observations from the interview that support this diagnosis. Leave the array empty rather than citing an utterance that does not exist.'
+    )
 });
 
 const modelRecommendedTestSchema = z.object({
@@ -223,7 +254,20 @@ export const differentialsJsonSchema = z
       rank: z.number().int().min(1),
       name_kr: z.string().trim().min(1),
       name_en: z.string().trim().min(1),
-      rationale: z.string().trim().min(1)
+      rationale: z.string().trim().min(1),
+      /**
+       * Electron 감별진단 창이 읽는다 (E1, `src/shared/findings.ts`).
+       * 빈 배열을 허용한다 — 서버가 존재하지 않는 발화를 가리킨 근거를
+       * 저장 전에 떨어내고 나면 하나도 안 남을 수 있다. 그 경우 Electron 은
+       * 그 진단을 "근거 미확인" 으로 따로 표시한다. 지어낸 근거를 남기는
+       * 것보다 낫다.
+       */
+      supporting_findings: z.array(
+        z.object({
+          finding: z.string().trim().min(1),
+          source: z.string().trim().min(1)
+        })
+      )
     })
   )
   .min(3)

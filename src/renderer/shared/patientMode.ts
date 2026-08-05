@@ -7,6 +7,12 @@ import type {
   SuggestedQuestion,
   SummaryResult
 } from '../../shared/types';
+import {
+  partitionDifferentials,
+  type DifferentialWithRawFindings,
+  type PartitionResult,
+  type SourceUtterance
+} from '../../shared/findings';
 import type { TKey } from './i18n';
 
 /**
@@ -43,10 +49,6 @@ function asText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function asNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /** 여러 후보 키 중 처음으로 문자열이 있는 것. 키오스크 스키마 변주 흡수용. */
@@ -150,6 +152,29 @@ export function patientTranscript(detail: PatientDetail): IntakeDialogueTurn[] {
   return turns;
 }
 
+/**
+ * 근거 검증용 발화 목록 (E1).
+ *
+ * **원본 배열의 인덱스를 그대로 보존한다.** `patientTranscript` 는 읽을 수 없는
+ * 줄을 건너뛰므로 그 결과의 위치는 키오스크 프롬프트가 매긴 번호와 어긋날 수
+ * 있고, 그러면 근거가 옆 발화를 가리킨다. 읽을 수 없는 줄은 빈 텍스트로
+ * 자리만 채우고, 검증기가 그것을 인용 불가로 거절한다.
+ */
+export function patientTranscriptSources(
+  detail: PatientDetail
+): SourceUtterance[] {
+  const soap = soapOf(detail);
+  const raw = soap?.transcript ?? soap?.dialogue ?? soap?.turns;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry, index) => ({
+    id: `intake-${index}`,
+    text:
+      asText(entry) ??
+      pickText(asRecord(entry), 'text', 'content', 'message', 'utterance') ??
+      ''
+  }));
+}
+
 /** 대화 기록이 없는 옛 문진 레코드용 폴백 — SOAP 의 S 서술. 대화가 아니다. */
 export interface IntakeNarrativeItem {
   labelKey: TKey;
@@ -179,12 +204,20 @@ export function patientHistoryFallback(
   return items;
 }
 
-/** 문진 감별진단 → 기존 DifferentialDiagnosis 형태. confidence 는 없을 수 있다. */
-export function patientDifferentials(
+/**
+ * 문진 감별진단 → 기존 DifferentialDiagnosis 형태 + 근거 검증 (E1).
+ *
+ * 실시간 분석과 **같은 검증기**(`src/shared/findings.ts`)를 쓴다. 근거의
+ * `source` 는 `soap_json.transcript` 의 발화 번호이고, 그 번호가 실제 대화에
+ * 없으면 근거를 버린다. 근거가 하나도 안 남은 진단은 `unverified` 로 빠진다 —
+ * 구버전 문진 기록(근거 필드 자체가 없던 시절)이 통째로 여기 들어온다.
+ * 그것이 정확하다: 그 기록에는 검증 가능한 근거가 실제로 없다.
+ */
+export function patientDifferentialsPartitioned(
   detail: PatientDetail
-): DifferentialDiagnosis[] {
+): PartitionResult {
   const rows = detail.intakeResult?.differentials ?? [];
-  const mapped: DifferentialDiagnosis[] = [];
+  const mapped: DifferentialWithRawFindings[] = [];
   for (const raw of rows) {
     const row = asRecord(raw);
     if (!row) continue;
@@ -192,17 +225,25 @@ export function patientDifferentials(
       pickText(row, 'name_kr', 'nameKr', 'name', 'name_en', 'nameEn') ?? null;
     if (!name) continue;
     const nameEn = pickText(row, 'name_en', 'nameEn');
-    const confidence = asNumber(row.confidence);
+    const icd10 = pickText(row, 'icd10', 'icd_10');
     mapped.push({
       name,
       // 한글명과 영문명이 같으면 괄호 중복 표기를 만들지 않는다.
       ...(nameEn && nameEn !== name ? { nameEn } : {}),
-      ...(pickText(row, 'icd10', 'icd_10') ? { icd10: pickText(row, 'icd10', 'icd_10') as string } : {}),
-      ...(confidence !== null ? { confidence } : {}),
-      reasoning: pickText(row, 'rationale', 'reasoning', 'reason') ?? ''
+      ...(icd10 ? { icd10 } : {}),
+      reasoning: pickText(row, 'rationale', 'reasoning', 'reason') ?? '',
+      rawFindings: row.supporting_findings ?? row.supportingFindings
     });
   }
-  return mapped;
+  // 검증 대상은 환자가 실제로 말한 대화다.
+  return partitionDifferentials(mapped, patientTranscriptSources(detail));
+}
+
+/** 근거가 확인된 감별진단만. 창이 정상 목록으로 그리는 것. */
+export function patientDifferentials(
+  detail: PatientDetail
+): DifferentialDiagnosis[] {
+  return patientDifferentialsPartitioned(detail).supported;
 }
 
 /** HPI + 과거력/복용약/알레르기. 라벨 번역기가 없으면 HPI 만 반환한다. */

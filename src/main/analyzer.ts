@@ -1,8 +1,14 @@
 import type {
   AnalysisResult,
+  DifferentialDiagnosis,
   Speaker,
   TranscriptChunk
 } from '../shared/types.js';
+import {
+  partitionDifferentials,
+  sourceRefFor,
+  type SourceUtterance
+} from '../shared/findings.js';
 import {
   describeAxiosError,
   extractText,
@@ -26,6 +32,16 @@ type Listener = (result: AnalysisResult) => void;
 
 interface StoredChunk extends TranscriptChunk {
   speaker: Speaker;
+}
+
+/**
+ * 모델이 돌려준 원시 응답.
+ *
+ * `supportingFindings` 는 아직 검증 전이라 `SupportingFinding` 이 아니다 —
+ * 그 타입은 검증기만 만들 수 있다.
+ */
+interface RawAnalysisPayload extends Omit<AnalysisResult, 'updatedAt' | 'differentialDiagnoses'> {
+  differentialDiagnoses?: Array<DifferentialDiagnosis & { supportingFindings?: unknown }>;
 }
 
 class Analyzer {
@@ -91,27 +107,53 @@ class Analyzer {
     this.timer = setTimeout(() => void this.run(), delay);
   }
 
-  private buildTranscript(labels: { doctor: string; patient: string; unknown: string }): string {
-    const lines = this.chunks.map((c) => {
-      const tag =
-        c.speaker === 'doctor'
-          ? labels.doctor
-          : c.speaker === 'patient'
-            ? labels.patient
-            : labels.unknown;
-      return `[${tag}] ${c.text}`;
-    });
-    let text = lines.join('\n');
-    if (text.length > MAX_TRANSCRIPT_CHARS) {
-      text = text.slice(text.length - MAX_TRANSCRIPT_CHARS);
+  /**
+   * 모델에게 줄 transcript 와, 근거 검증에 쓸 발화 목록을 **함께** 만든다.
+   *
+   * 두 개가 반드시 같은 슬라이스에서 나와야 한다. 예전에는 join 한 문자열의
+   * 뒤쪽만 잘라냈는데, 그러면 `[#N]` 접두사가 중간에서 잘리고 번호와 실제
+   * 발화가 어긋난다 — 근거가 엉뚱한 발화를 가리키게 된다. 그래서 문자열이
+   * 아니라 **발화 단위로** 앞에서부터 버린다.
+   */
+  private buildTranscript(labels: {
+    doctor: string;
+    patient: string;
+    unknown: string;
+  }): { text: string; utterances: SourceUtterance[] } {
+    const tagOf = (speaker: Speaker): string =>
+      speaker === 'doctor'
+        ? labels.doctor
+        : speaker === 'patient'
+          ? labels.patient
+          : labels.unknown;
+
+    // 뒤에서부터 예산만큼만 담고 원래 순서로 되돌린다.
+    const shown: StoredChunk[] = [];
+    let budget = MAX_TRANSCRIPT_CHARS;
+    for (let i = this.chunks.length - 1; i >= 0; i -= 1) {
+      const chunk = this.chunks[i];
+      const cost = chunk.text.length + tagOf(chunk.speaker).length + 8;
+      if (shown.length > 0 && budget - cost < 0) break;
+      budget -= cost;
+      shown.push(chunk);
     }
-    return text;
+    shown.reverse();
+
+    const utterances: SourceUtterance[] = shown.map((c) => ({
+      id: c.id,
+      text: c.text
+    }));
+    const text = shown
+      .map((c, index) => `[${sourceRefFor(index)} ${tagOf(c.speaker)}] ${c.text}`)
+      .join('\n');
+    return { text, utterances };
   }
 
   private async run(): Promise<void> {
     const lang = getLanguage() ?? 'ko';
     const labels = speakerLabels(lang);
-    const transcript = this.buildTranscript(labels).trim();
+    const { text: built, utterances } = this.buildTranscript(labels);
+    const transcript = built.trim();
     if (!transcript) return;
 
     if (this.inflight) this.inflight.abort();
@@ -148,8 +190,28 @@ class Analyzer {
 
       const text = extractText(data);
       if (!text) throw new Error('Analyzer returned no content');
-      const parsed = JSON.parse(text) as Omit<AnalysisResult, 'updatedAt'>;
-      const result: AnalysisResult = { ...parsed, updatedAt: Date.now() };
+      const parsed = JSON.parse(text) as RawAnalysisPayload;
+      // [E1] 근거 검증. 모델이 가리킨 발화 번호를 **이번 요청에 실제로 보낸**
+      // 발화 목록과 대조한다. 통과하지 못한 진단은 버리지 않고 따로 담는다.
+      const { supported, unverified } = partitionDifferentials(
+        (parsed.differentialDiagnoses ?? []).map((d) => {
+          const { supportingFindings, ...rest } = d;
+          return { ...rest, rawFindings: supportingFindings };
+        }),
+        utterances
+      );
+      if (unverified.length > 0) {
+        console.warn(
+          `[analyzer] 근거 미확인 감별진단 ${unverified.length}건:`,
+          unverified.map((u) => `${u.diagnosis.name}(${u.reason})`).join(', ')
+        );
+      }
+      const result: AnalysisResult = {
+        ...parsed,
+        differentialDiagnoses: supported,
+        unverifiedDiagnoses: unverified,
+        updatedAt: Date.now()
+      };
       this.firstChunkSinceRunAt = 0;
       for (const listener of this.listeners) listener(result);
     } catch (err) {

@@ -39,13 +39,43 @@ const RESULT_MAX_TOKENS = 4096;
 const MAX_GENERATION_ATTEMPTS = 2;
 
 /**
+ * 감별진단 근거의 발화 참조를 실제 대화와 대조한다 (E1).
+ *
+ * 모델은 프롬프트로 아무리 못 박아도 가끔 존재하지 않는 번호를 댄다. 지어낸
+ * 참조가 DB 에 들어가면 그 뒤로는 진짜와 구별할 수 없으므로 **저장 전에**
+ * 떨어낸다. 하나도 안 남으면 빈 배열로 저장하고, Electron 감별진단 창이 그
+ * 진단을 "근거 미확인" 으로 따로 표시한다 (`src/shared/findings.ts`).
+ *
+ * 번호는 `buildResultUserMessage` 가 붙인 [#N] 이고, 그것은 저장되는
+ * `soap_json.transcript` 의 배열 인덱스와 같다.
+ */
+function resolveSupportingFindings(
+  findings: readonly { finding: string; source: string }[],
+  turns: readonly DialogueTurn[]
+): { finding: string; source: string }[] {
+  const resolved: { finding: string; source: string }[] = [];
+  for (const item of findings) {
+    const matched = item.source.match(/-?\d+/);
+    if (!matched) continue;
+    const index = Number.parseInt(matched[0], 10);
+    if (!Number.isInteger(index) || index < 0 || index >= turns.length) continue;
+    // source 는 정규화해서 저장한다 — 읽는 쪽이 표기 변주를 다시 풀지 않도록.
+    resolved.push({ finding: item.finding, source: `#${index}` });
+  }
+  return resolved;
+}
+
+/**
  * 모델 출력을 행 페이로드로 조립한다.
  *
- * 모델에 맡기지 않고 여기서 결정하는 것 두 가지:
+ * 모델에 맡기지 않고 여기서 결정하는 것 세 가지:
  *   - O 는 언제나 고정 문구,
- *   - assessment 에는 언제나 "확정 진단 아님" 단서가 붙는다.
+ *   - assessment 에는 언제나 "확정 진단 아님" 단서가 붙는다,
+ *   - 감별진단 근거는 실제 대화와 대조해 통과한 것만 남긴다 (E1).
  */
-function assembleRow(
+// export 인 이유: 검증 프로브(`scripts/probe-findings.mjs`)가 OpenAI 를 태우지
+// 않고 이 조립·검증 경로를 그대로 부른다. 앱 코드에서는 아래에서만 쓴다.
+export function assembleRow(
   model: ModelIntakeResult,
   turns: readonly DialogueTurn[]
 ): IntakeResultRow {
@@ -56,7 +86,8 @@ function assembleRow(
       rank: index + 1,
       name_kr: item.name_kr,
       name_en: item.name_en,
-      rationale: item.rationale
+      rationale: item.rationale,
+      supporting_findings: resolveSupportingFindings(item.supporting_findings, turns)
     }));
 
   const assessment = model.soap.a.includes('확정')

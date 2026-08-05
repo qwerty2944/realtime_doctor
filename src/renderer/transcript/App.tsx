@@ -103,6 +103,9 @@ export default function TranscriptApp() {
     patient && intakeTurns.length === 0 ? patientHistoryFallback(patient) : [];
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  // 감별진단 근거를 눌렀을 때 강조할 발화 (E1). 실시간 발화와 문진 대화가
+  // 같은 id 공간을 쓰지 않으므로 어느 쪽이 떠 있든 id 하나로 찾을 수 있다.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const [loadOpen, setLoadOpen] = useState(false);
   const [sessionList, setSessionList] = useState<SessionSummary[] | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -147,8 +150,31 @@ export default function TranscriptApp() {
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
+    // 근거를 눌러 위쪽 발화를 보고 있는데 새 발화가 오면 아래로 끌려간다.
+    if (focusedId) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [utterances.length, partial]);
+  }, [utterances.length, partial, focusedId]);
+
+  /**
+   * 감별진단 근거 클릭 수신 (E1).
+   *
+   * main 이 이 창을 이미 앞으로 꺼낸 뒤 보낸다. 여기서는 해당 발화로 스크롤하고
+   * 강조만 한다. 강조는 자동으로 풀지 않는다 — 의사가 그 발화를 읽는 동안
+   * 사라지면 어느 줄이었는지 다시 찾아야 한다. 다음 근거를 누르면 옮겨간다.
+   */
+  useEffect(() => {
+    const off = window.api.onFocusUtterance((utteranceId) => {
+      setFocusedId(utteranceId);
+      // 렌더 후에 DOM 이 존재한다. rAF 로 한 프레임 미룬다.
+      requestAnimationFrame(() => {
+        const node = document.querySelector(
+          `[data-utterance-id="${CSS.escape(utteranceId)}"]`
+        );
+        node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+    return off;
+  }, []);
 
   return (
     <OverlayShell
@@ -305,7 +331,13 @@ export default function TranscriptApp() {
               return (
                 <div
                   key={turn.id}
-                  className={cn('rounded-md px-2 py-1.5', style.bubble)}
+                  data-utterance-id={turn.id}
+                  className={cn(
+                    'rounded-md px-2 py-1.5 transition-shadow',
+                    style.bubble,
+                    focusedId === turn.id &&
+                      'ring-2 ring-amber-300 ring-offset-1 ring-offset-background'
+                  )}
                 >
                   <div className="mb-1 flex items-center gap-1.5">
                     <span
@@ -360,7 +392,13 @@ export default function TranscriptApp() {
             return (
               <div
                 key={u.id}
-                className={cn('rounded-md px-2 py-1.5', style.bubble)}
+                data-utterance-id={u.id}
+                className={cn(
+                  'rounded-md px-2 py-1.5 transition-shadow',
+                  style.bubble,
+                  focusedId === u.id &&
+                    'ring-2 ring-amber-300 ring-offset-1 ring-offset-background'
+                )}
               >
                 <div className="group mb-1 flex items-center gap-1.5">
                   <button

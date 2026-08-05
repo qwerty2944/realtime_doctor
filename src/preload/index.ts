@@ -49,6 +49,16 @@ const api = {
   resetTranscript(): void {
     ipcRenderer.send(IPC.TranscriptReset);
   },
+  /** 감별진단 근거 클릭 — main 이 전사 창을 꺼낸 뒤 전 창에 알린다 (E1). */
+  focusUtterance(utteranceId: string): void {
+    ipcRenderer.send(IPC.TranscriptFocusUtterance, utteranceId);
+  },
+  /** 전사 창이 강조·스크롤할 발화 id 를 받는다 (E1). */
+  onFocusUtterance(handler: (utteranceId: string) => void): () => void {
+    const listener = (_e: unknown, utteranceId: string) => handler(utteranceId);
+    ipcRenderer.on(IPC.TranscriptFocusUtterance, listener);
+    return () => ipcRenderer.removeListener(IPC.TranscriptFocusUtterance, listener);
+  },
   setClickThrough(ignore: boolean): void {
     ipcRenderer.send(IPC.WindowToggleClickThrough, ignore);
   },

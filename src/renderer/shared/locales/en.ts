@@ -151,8 +151,17 @@ const en: Record<keyof typeof ko, string> = {
   'dictation.templateNarrative': 'Narrative',
 
   'diagnosis.empty': 'No differentials yet.',
-  'diagnosis.confidence': 'Likelihood',
   'diagnosis.reasoning': 'Reasoning',
+
+  // Patient evidence (E1) — observed in THIS patient. A different axis from literature.
+  'findings.title': 'Patient evidence',
+  'findings.hint': 'Click to jump to that utterance in the transcript window',
+  'findings.unverifiedTitle': 'Unverified',
+  'findings.unverifiedNote':
+    'Removed from the list because no supporting utterance could be verified. The call is yours.',
+  'findings.reasonNoFindings': 'No supporting evidence offered',
+  'findings.reasonUnresolved': 'Cited an utterance that is not in the transcript',
+  'findings.rejectedSources': 'Unresolved citations',
 
   // evidence
   'evidence.title': 'Literature',

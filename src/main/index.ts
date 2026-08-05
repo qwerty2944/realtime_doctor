@@ -824,6 +824,28 @@ ipcMain.handle(
   }
 );
 
+/**
+ * 감별진단 근거 클릭 → 전사 창의 해당 발화로 (E1).
+ *
+ * main 이 창을 꺼내는 이유: 전사 창이 탭 그룹에 합쳐져 있거나 최소화돼 있을 수
+ * 있고, 그 상태는 렌더러가 모른다. 창을 앞으로 낸 뒤 broadcast 하면 전사 창이
+ * 해당 발화를 강조·스크롤한다. 발화 id 는 검증기가 원문에서 채운 값이라
+ * 렌더러가 지어낼 수 없다.
+ */
+ipcMain.on(IPC.TranscriptFocusUtterance, (_event, utteranceId: string) => {
+  if (typeof utteranceId !== 'string' || utteranceId.length === 0) return;
+  const win = windows.get('transcript');
+  if (win && !win.isDestroyed()) {
+    // 탭 그룹에 묶여 있으면 창을 올리는 것만으로는 뒤에 가려진 채로 남는다.
+    activateTab('transcript');
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.show();
+    win.focus();
+    broadcastWindowState();
+  }
+  broadcast(IPC.TranscriptFocusUtterance, utteranceId);
+});
+
 /** 참고문헌 열기. PubMed 주소가 아니면 조용히 무시하지 않고 false 를 돌려준다. */
 ipcMain.handle(IPC.EvidenceOpen, async (_event, url: string) => {
   if (typeof url !== 'string' || !isPubmedUrl(url)) {

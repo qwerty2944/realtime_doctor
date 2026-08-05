@@ -155,8 +155,17 @@ const ko = {
 
   // diagnosis
   'diagnosis.empty': '아직 감별진단이 없습니다.',
-  'diagnosis.confidence': '가능성',
   'diagnosis.reasoning': '근거',
+
+  // 환자 근거 (E1) — 이 환자에게서 실제로 관찰된 것. 문헌근거와 다른 축이다.
+  'findings.title': '환자 근거',
+  'findings.hint': '클릭하면 전사 창의 해당 발화로 이동합니다',
+  'findings.unverifiedTitle': '근거 미확인',
+  'findings.unverifiedNote':
+    '전사에서 근거를 확인하지 못해 목록에서 내렸습니다. 판단은 의사가 합니다.',
+  'findings.reasonNoFindings': '제시된 근거 없음',
+  'findings.reasonUnresolved': '전사에 없는 발화를 인용함',
+  'findings.rejectedSources': '확인 실패한 참조',
 
   // evidence (문헌근거)
   'evidence.title': '문헌근거',
