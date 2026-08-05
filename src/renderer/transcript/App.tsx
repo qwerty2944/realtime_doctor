@@ -23,6 +23,11 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import type { DictationTemplate, SessionSummary, Speaker } from '../../shared/types';
 import { OverlayShell } from '../shared/OverlayShell';
+import {
+  patientHistoryFallback,
+  patientTranscript,
+  usePatientDetail
+} from '../shared/patientMode';
 import { useLang, useT } from '../shared/i18n';
 import { useRealtime } from './useRealtime';
 
@@ -87,6 +92,16 @@ export default function TranscriptApp() {
     swapAll
   } = useRealtime();
 
+  // 환자 모드: 키오스크가 저장한 문진 "대화" 를 실시간 발화와 같은 버블로 보여준다.
+  // 녹음 컨트롤은 그대로 둔다 — 이 환자를 보면서 녹음하는 것이 정상 흐름이고,
+  // 녹취는 main 에서 그 진료(encounter)에 연결된다.
+  const patient = usePatientDetail();
+  const intakeTurns = patient ? patientTranscript(patient) : [];
+  // 대화 기록이 없는 옛 레코드만 S 서술로 폴백한다. 환자가 말한 것처럼 보이면
+  // 안 되므로 버블이 아니라 경고색 패널로 그린다.
+  const historyFallback =
+    patient && intakeTurns.length === 0 ? patientHistoryFallback(patient) : [];
+
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [loadOpen, setLoadOpen] = useState(false);
   const [sessionList, setSessionList] = useState<SessionSummary[] | null>(null);
@@ -139,6 +154,7 @@ export default function TranscriptApp() {
     <OverlayShell
       title={t('window.transcript')}
       shortcutId="toggleTranscript"
+      patientName={patient?.patient.name}
       actions={
         <div className="flex items-center gap-1" data-no-drag>
           <Button
@@ -275,6 +291,62 @@ export default function TranscriptApp() {
         <div className="px-3 pt-2 text-xs text-destructive">{error}</div>
       )}
 
+      {patient ? (
+        <ScrollArea className="flex-1">
+          <div className="space-y-2 px-3 py-2 text-sm leading-relaxed">
+            <p className="text-[10px] uppercase tracking-wide text-emerald-200/80">
+              {intakeTurns.length > 0
+                ? t('patient.intakeDialogue')
+                : t('patient.intakeSource')}
+            </p>
+            {intakeTurns.map((turn) => {
+              const style = speakerStyle(turn.speaker, t);
+              const { Icon } = style;
+              return (
+                <div
+                  key={turn.id}
+                  className={cn('rounded-md px-2 py-1.5', style.bubble)}
+                >
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide',
+                        style.chip
+                      )}
+                    >
+                      <Icon className="h-2.5 w-2.5" />
+                      {t(turn.labelKey)}
+                    </span>
+                  </div>
+                  <div className="whitespace-pre-wrap">{turn.text}</div>
+                </div>
+              );
+            })}
+            {intakeTurns.length === 0 && historyFallback.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {patient.intakeResult ? t('patient.noData') : t('patient.noIntake')}
+              </p>
+            )}
+            {intakeTurns.length === 0 && historyFallback.length > 0 && (
+              <div className="space-y-2 rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-100">
+                  {t('patient.noDialogue')} · {t('patient.historyNotDialogue')}
+                </p>
+                {historyFallback.map((item) => (
+                  <div key={item.labelKey} className="space-y-1">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-200/80">
+                      {t(item.labelKey)}
+                    </div>
+                    <p className="whitespace-pre-wrap text-amber-50/90">
+                      {item.body}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      ) : (
       <ScrollArea className="flex-1" viewportRef={viewportRef}>
         <div className="space-y-2 px-3 py-2 text-sm leading-relaxed">
           {utterances.length === 0 && !partial && (
@@ -327,6 +399,7 @@ export default function TranscriptApp() {
           )}
         </div>
       </ScrollArea>
+      )}
 
       <Separator />
       <div className="flex items-center justify-between px-3 py-1.5 text-[10px] text-muted-foreground">

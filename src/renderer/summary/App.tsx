@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { OverlayShell } from '../shared/OverlayShell';
+import { patientSummary, usePatientDetail } from '../shared/patientMode';
 import { useLang, useT } from '../shared/i18n';
 import type { TKey } from '../shared/i18n';
 import type { SummaryResult, SummaryStatus } from '../../shared/types';
@@ -47,7 +48,12 @@ export default function SummaryApp() {
     onSuccess: (s) => setStatus(s)
   });
 
-  const result = status.state === 'ready' ? status.result : null;
+  // 환자 모드에서는 실시간 요약 상태 머신을 건드리지 않고 문진 SOAP 을 대신
+  // 보여준다 — 선택을 해제하면 그대로 원래 요약으로 돌아온다.
+  const patient = usePatientDetail();
+  const patientResult = patient ? patientSummary(patient, t) : null;
+  const liveResult = status.state === 'ready' ? status.result : null;
+  const result = patient ? patientResult : liveResult;
 
   const copy = () => {
     if (!result) return;
@@ -58,6 +64,7 @@ export default function SummaryApp() {
     <OverlayShell
       title={t('window.summary')}
       shortcutId="toggleSummary"
+      patientName={patient?.patient.name}
       badge={
         result ? (
           <Badge variant="outline" className="gap-1 font-mono tabular-nums">
@@ -68,9 +75,15 @@ export default function SummaryApp() {
       }
       actions={
         <div className="flex items-center gap-1" data-no-drag>
+          {/* 환자 모드에서 재생성하면 결과가 화면에 안 뜨고 조용히 실시간 캐시만
+              바뀐다 — 오해를 막기 위해 비활성화하고 선택 해제 시 복구된다. */}
           <Button
             size="sm"
-            disabled={status.state === 'pending' || requestMutation.isPending}
+            disabled={
+              patient !== null ||
+              status.state === 'pending' ||
+              requestMutation.isPending
+            }
             onClick={() => requestMutation.mutate()}
           >
             {status.state === 'pending' || requestMutation.isPending ? (
@@ -95,23 +108,36 @@ export default function SummaryApp() {
     >
       <ScrollArea className="flex-1">
         <div className="space-y-3 p-3 text-sm leading-relaxed">
-          {status.state === 'idle' && (
+          {patient && (
+            <p className="text-[10px] uppercase tracking-wide text-emerald-200/80">
+              {t('patient.intakeSource')}
+            </p>
+          )}
+          {patient && !patientResult && (
+            <p className="text-xs text-muted-foreground">{t('patient.noIntake')}</p>
+          )}
+          {!patient && status.state === 'idle' && (
             <p className="text-xs text-muted-foreground">
               {lang === 'en'
                 ? 'Press "Regenerate" to produce a chart-note summary of the conversation so far.'
                 : '"요약" 버튼을 눌러 지금까지 진료 대화를 임상 노트 형식으로 정리합니다.'}
             </p>
           )}
-          {(status.state === 'pending' || requestMutation.isPending) && !result && (
-            <p className="text-xs text-muted-foreground">{t('summary.statusPending')}</p>
-          )}
-          {status.state === 'error' && (
+          {!patient &&
+            (status.state === 'pending' || requestMutation.isPending) &&
+            !result && (
+              <p className="text-xs text-muted-foreground">
+                {t('summary.statusPending')}
+              </p>
+            )}
+          {!patient && status.state === 'error' && (
             <p className="text-xs text-destructive">
               {t('summary.statusError')}: {status.message}
             </p>
           )}
           {result &&
-            SECTIONS.map(({ key, tkey }) => (
+            // 빈 섹션은 그리지 않는다 — 문진 SOAP 은 o/a/p 가 비어 있을 수 있다.
+            SECTIONS.filter(({ key }) => String(result[key] ?? '').length > 0).map(({ key, tkey }) => (
               <div key={key} className="space-y-1">
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {t(tkey)}

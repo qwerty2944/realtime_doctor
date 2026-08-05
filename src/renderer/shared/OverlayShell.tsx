@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Droplet, Minus, PictureInPicture2 } from 'lucide-react';
+import { Droplet, Minus, PictureInPicture2, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import {
@@ -26,6 +26,11 @@ interface OverlayShellProps {
   className?: string;
   hideMinimize?: boolean;
   hideOpacity?: boolean;
+  /**
+   * 환자 모드에서 표시할 환자명. 어느 환자의 데이터를 보고 있는지 항상 보이게
+   * 하는 안전장치라 탭 그룹으로 묶여 제목이 탭바로 바뀌어도 계속 표시한다.
+   */
+  patientName?: string;
   /** 이 창의 토글 단축키 id. 지정 시 Cmd/Ctrl 누르고 있을 때 hint 오버레이 표시. */
   shortcutId?: ShortcutId;
 }
@@ -214,6 +219,7 @@ export function OverlayShell({
   className,
   hideMinimize = false,
   hideOpacity = false,
+  patientName,
   shortcutId
 }: OverlayShellProps) {
   const t = useT();
@@ -248,6 +254,15 @@ export function OverlayShell({
             <TabStrip group={group} />
           ) : (
             <span className="flex-1 truncate">{title}</span>
+          )}
+          {patientName && (
+            <span
+              className="flex min-w-0 shrink items-center gap-1 rounded-md border border-emerald-400/50 bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-100"
+              title={`${t('patient.modeBadge')} · ${patientName}`}
+            >
+              <UserRound className="h-2.5 w-2.5 shrink-0" />
+              <span className="truncate">{patientName}</span>
+            </span>
           )}
           {badge}
           {actions}

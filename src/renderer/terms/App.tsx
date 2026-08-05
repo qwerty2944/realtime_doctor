@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { OverlayShell } from '../shared/OverlayShell';
 import { AnalyzeButton } from '../shared/AnalyzeButton';
 import { ANALYSIS_KEY } from '../shared/queryClient';
+import { patientTerms, usePatientDetail } from '../shared/patientMode';
 import { useLang, useT } from '../shared/i18n';
 import type { AnalysisResult } from '../../shared/types';
 
@@ -16,13 +17,21 @@ export default function TermsApp() {
     queryKey: ANALYSIS_KEY,
     queryFn: () => null
   });
+  // 문진 결과에 용어가 없으면 실시간 용어를 남기지 않고 비운다 (질문 창과 동일 규칙).
+  const patient = usePatientDetail();
 
-  const items = data?.medicalTerms ?? [];
+  const items = patient ? patientTerms(patient) : data?.medicalTerms ?? [];
+  const emptyMessage = patient
+    ? patient.intakeResult
+      ? t('patient.noData')
+      : t('patient.noIntake')
+    : t('terms.empty');
 
   return (
     <OverlayShell
       title={t('window.terms')}
       shortcutId="toggleTerms"
+      patientName={patient?.patient.name}
       badge={
         <Badge variant="outline" className="gap-1">
           <BookOpen className="h-2.5 w-2.5" />
@@ -35,7 +44,7 @@ export default function TermsApp() {
         <div className="space-y-2 p-2">
           {items.length === 0 && (
             <p className="px-1 py-4 text-center text-xs text-muted-foreground">
-              {t('terms.empty')}
+              {emptyMessage}
             </p>
           )}
           {items.map((term, i) => (
@@ -49,7 +58,9 @@ export default function TermsApp() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-1">
-                <p className="text-xs leading-relaxed">{term.definition}</p>
+                {term.definition && (
+                  <p className="text-xs leading-relaxed">{term.definition}</p>
+                )}
                 {term.contextQuote && (
                   <p className="border-l-2 border-white/20 pl-2 text-[11px] italic text-muted-foreground">
                     "{term.contextQuote}"

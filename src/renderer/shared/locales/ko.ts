@@ -121,13 +121,78 @@ const ko = {
   'diagnosis.confidence': '가능성',
   'diagnosis.reasoning': '근거',
 
+  // evidence (문헌근거)
+  'evidence.title': '문헌근거',
+  'evidence.load': '문헌근거 찾기',
+  'evidence.loading': 'PubMed 조회 중…',
+  'evidence.empty': '관련 문헌을 찾지 못했습니다.',
+  'evidence.error': '문헌 조회에 실패했습니다.',
+  'evidence.rateLimited': 'PubMed 요청이 많아 잠시 후 다시 시도하세요.',
+  'evidence.retry': '다시 시도',
+  'evidence.cached': '저장된 결과',
+  'evidence.openHint': '클릭하면 브라우저에서 열립니다',
+
   // terms
   'terms.empty': '아직 의학용어가 없습니다.',
   'terms.context': '인용',
 
   // questions
   'questions.empty': '아직 추천 질문이 없습니다.',
-  'questions.rationale': '근거'
+  'questions.rationale': '근거',
+
+  // patients (대기목록)
+  'patients.empty': '대기 중인 환자가 없습니다.',
+  'patients.signedOut': '로그인하면 대기목록이 표시됩니다.',
+  'patients.refresh': '새로고침',
+  'patients.waitingCount': '대기',
+  'patients.redFlagCount': '응급 의심',
+  'patients.redFlag': '응급 의심',
+  'patients.redFlagFallback': '레드플래그 감지',
+  'patients.inConsult': '진료 중',
+  'patients.registrationNo': '등록번호',
+  'patients.registrationNoNone': '미등록',
+  'patients.chiefComplaintNone': '주소증 정리 중',
+  'patients.waitPrefix': '대기',
+  'patients.waitJustNow': '방금',
+  'patients.waitMinutes': '분',
+  'patients.waitHours': '시간',
+  'patients.unit': '명',
+
+  // patient mode (환자 선택 시 각 창에 주입되는 문진 데이터)
+  'patient.modeBadge': '문진 데이터',
+  'patient.noData': '이 환자에는 해당 데이터가 없음',
+  'patient.noIntake': '이 환자의 문진 결과가 아직 없습니다.',
+  'patient.intakeSource': '문진 결과',
+  'patient.pmh': '과거력',
+  'patient.medications': '복용약',
+  'patient.allergies': '알레르기',
+  'patient.intake': '문진 내용',
+  'patient.intakeDialogue': '문진 대화',
+  'patient.speakerIntakeAgent': '문진 AI',
+  'patient.noDialogue': '이 문진에는 대화 기록이 없습니다.',
+  'patient.historyNotDialogue': '요약 · 환자 발언 아님',
+  'patient.rankPrefix': '순위',
+
+  // shortcut labels — 단축키 설정 다이얼로그가 SHORTCUT_IDS 를 그대로 순회한다.
+  'shortcut.toggleAll': '전체 창 보이기/숨기기',
+  'shortcut.toggleTranscript': '전사 창',
+  'shortcut.toggleDiagnosis': '감별진단 창',
+  'shortcut.toggleTerms': '의학용어 창',
+  'shortcut.toggleQuestions': '다음 질문 창',
+  'shortcut.toggleSummary': '요약 창',
+  'shortcut.toggleDictation': '받아쓰기 창',
+  'shortcut.togglePatients': '대기목록 창',
+  'shortcut.recordStartStop': '녹음 시작/정지',
+  'shortcut.runAnalyze': '감별 분석 새로 실행',
+  'shortcut.runSummary': '요약 새로 생성',
+  'shortcut.runDictation': '받아쓰기 새로 생성',
+  'shortcut.fontIncrease': '글씨 크게',
+  'shortcut.fontDecrease': '글씨 작게',
+  'shortcut.fontReset': '글씨 크기 초기화',
+  'shortcut.windowWiden': '창 너비 늘리기',
+  'shortcut.windowNarrow': '창 너비 줄이기',
+  'shortcut.windowTaller': '창 높이 늘리기',
+  'shortcut.windowShorter': '창 높이 줄이기'
 } as const;
 
 export default ko;

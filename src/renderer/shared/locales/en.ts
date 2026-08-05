@@ -115,11 +115,75 @@ const en: Record<keyof typeof ko, string> = {
   'diagnosis.confidence': 'Likelihood',
   'diagnosis.reasoning': 'Reasoning',
 
+  // evidence
+  'evidence.title': 'Literature',
+  'evidence.load': 'Find literature',
+  'evidence.loading': 'Searching PubMed…',
+  'evidence.empty': 'No matching literature found.',
+  'evidence.error': 'Literature lookup failed.',
+  'evidence.rateLimited': 'PubMed is busy — try again shortly.',
+  'evidence.retry': 'Retry',
+  'evidence.cached': 'Cached',
+  'evidence.openHint': 'Opens in your browser',
+
   'terms.empty': 'No medical terms yet.',
   'terms.context': 'Quote',
 
   'questions.empty': 'No suggested questions yet.',
-  'questions.rationale': 'Rationale'
+  'questions.rationale': 'Rationale',
+
+  'patients.empty': 'No patients waiting.',
+  'patients.signedOut': 'Sign in to see the waiting list.',
+  'patients.refresh': 'Refresh',
+  'patients.waitingCount': 'Waiting',
+  'patients.redFlagCount': 'Red flag',
+  'patients.redFlag': 'Red flag',
+  'patients.redFlagFallback': 'Red flag detected',
+  'patients.inConsult': 'In consult',
+  'patients.registrationNo': 'Reg. no.',
+  'patients.registrationNoNone': 'none',
+  'patients.chiefComplaintNone': 'Chief complaint pending',
+  'patients.waitPrefix': 'Waiting',
+  'patients.waitJustNow': 'just now',
+  'patients.waitMinutes': 'm',
+  'patients.waitHours': 'h',
+  'patients.unit': '',
+
+  // patient mode (intake data injected into each window on selection)
+  'patient.modeBadge': 'Intake data',
+  'patient.noData': 'No such data for this patient',
+  'patient.noIntake': 'No intake result for this patient yet.',
+  'patient.intakeSource': 'Intake result',
+  'patient.pmh': 'Past medical history',
+  'patient.medications': 'Medications',
+  'patient.allergies': 'Allergies',
+  'patient.intake': 'Intake',
+  'patient.intakeDialogue': 'Intake conversation',
+  'patient.speakerIntakeAgent': 'Intake AI',
+  'patient.noDialogue': 'No conversation was recorded for this intake.',
+  'patient.historyNotDialogue': 'Summary - not spoken by the patient',
+  'patient.rankPrefix': 'Rank',
+
+  // shortcut labels
+  'shortcut.toggleAll': 'Show/hide all windows',
+  'shortcut.toggleTranscript': 'Transcript window',
+  'shortcut.toggleDiagnosis': 'Differential window',
+  'shortcut.toggleTerms': 'Medical terms window',
+  'shortcut.toggleQuestions': 'Suggested questions window',
+  'shortcut.toggleSummary': 'Summary window',
+  'shortcut.toggleDictation': 'Dictation window',
+  'shortcut.togglePatients': 'Waiting list window',
+  'shortcut.recordStartStop': 'Start/stop recording',
+  'shortcut.runAnalyze': 'Re-run differential analysis',
+  'shortcut.runSummary': 'Regenerate summary',
+  'shortcut.runDictation': 'Regenerate dictation',
+  'shortcut.fontIncrease': 'Increase font size',
+  'shortcut.fontDecrease': 'Decrease font size',
+  'shortcut.fontReset': 'Reset font size',
+  'shortcut.windowWiden': 'Widen window',
+  'shortcut.windowNarrow': 'Narrow window',
+  'shortcut.windowTaller': 'Taller window',
+  'shortcut.windowShorter': 'Shorter window'
 };
 
 export default en;

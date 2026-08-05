@@ -25,14 +25,26 @@ export default function DiagnosisApp() {
     queryKey: ANALYSIS_KEY,
     queryFn: () => null
   });
+  // 환자가 선택돼 있으면 실시간 분석 대신 그 환자의 문진 감별진단을 본다.
+  const patient = usePatientDetail();
 
-  const items = data?.differentialDiagnoses ?? [];
-  const redFlags = data?.redFlags ?? [];
+  const items = patient
+    ? patientDifferentials(patient)
+    : data?.differentialDiagnoses ?? [];
+  const redFlags = patient
+    ? patientRedFlags(patient, t('patients.redFlagFallback'))
+    : data?.redFlags ?? [];
+  const emptyMessage = patient
+    ? patient.intakeResult
+      ? t('patient.noData')
+      : t('patient.noIntake')
+    : t('diagnosis.empty');
 
   return (
     <OverlayShell
       title={t('window.diagnosis')}
       shortcutId="toggleDiagnosis"
+      patientName={patient?.patient.name}
       badge={
         <Badge variant="outline" className="gap-1">
           <Activity className="h-2.5 w-2.5" />
@@ -58,7 +70,7 @@ export default function DiagnosisApp() {
         <div className="space-y-2 p-2">
           {items.length === 0 && (
             <p className="px-1 py-4 text-center text-xs text-muted-foreground">
-              {t('diagnosis.empty')}
+              {emptyMessage}
             </p>
           )}
           {items.map((d, i) => (
@@ -91,15 +103,29 @@ export default function DiagnosisApp() {
                     </p>
                   )}
                 </div>
-                <Badge variant={d.confidence >= 0.7 ? 'default' : 'secondary'}>
-                  {confidenceLabel(d.confidence, lang)} · {Math.round(d.confidence * 100)}%
-                </Badge>
+                {/* 문진 결과는 확률을 주지 않는다 — 없으면 순위 배지로 대체. */}
+                {typeof d.confidence === 'number' ? (
+                  <Badge variant={d.confidence >= 0.7 ? 'default' : 'secondary'}>
+                    {confidenceLabel(d.confidence, lang)} ·{' '}
+                    {Math.round(d.confidence * 100)}%
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">
+                    {t('patient.rankPrefix')} {i + 1}
+                  </Badge>
+                )}
               </CardHeader>
-              <CardContent>
-                <p className="text-xs leading-relaxed text-foreground/80">
-                  {d.reasoning}
-                </p>
-              </CardContent>
+              {(d.reasoning || selected === i) && (
+                <CardContent>
+                  {d.reasoning && (
+                    <p className="text-xs leading-relaxed text-foreground/80">
+                      {d.reasoning}
+                    </p>
+                  )}
+                  {/* 근거 조회는 카드를 펼쳤을 때만 — 지연 로딩 트리거. */}
+                  {selected === i && <EvidenceSection diagnosis={d} />}
+                </CardContent>
+              )}
             </Card>
           ))}
         </div>
