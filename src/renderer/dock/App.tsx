@@ -66,6 +66,7 @@ import type {
   AuthState,
   CloudSyncSettings,
   DeviceInfo,
+  DeviceLimitNotice,
   LocalSaveSettings
 } from '../../shared/types';
 
@@ -378,6 +379,27 @@ export default function DockApp() {
     try {
       await window.api.devices.revoke(d.id);
       setDevices(await window.api.devices.list());
+    } finally {
+      setDeviceBusy(null);
+    }
+  };
+
+  /**
+   * 한도 초과 화면에서 기기 하나를 내리고 이 기기를 등록한다 (S5).
+   * 해지와 재등록은 main 에서 한 호출로 묶여 있다 -- 사이가 벌어지면 그 틈에
+   * 다른 기기가 들어와 다시 한도에 걸린다.
+   */
+  const releaseDevice = async (d: DeviceInfo) => {
+    setDeviceBusy(d.id);
+    setDeviceLimitError(null);
+    try {
+      const res = await window.api.devices.releaseAndRegister(d.id);
+      if (res.ok) {
+        setDeviceLimit(null);
+        setDevices(null);
+      } else {
+        setDeviceLimitError(res.error ?? t('dock.deviceLimitFailed'));
+      }
     } finally {
       setDeviceBusy(null);
     }
@@ -994,6 +1016,65 @@ export default function DockApp() {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/*
+          기기 수 한도 초과 (S5).
+
+          [HARD] 여기서 아무 기기도 자동으로 내리지 않는다. 가장 오래된 기기를
+          자동 해제하면, 집에서 잠깐 로그인한 탓에 진료실 데스크톱이 조용히
+          끊기고 다음 날 아침 진료 직전에 그 사실을 알게 된다. 취소하면 새
+          기기만 등록되지 않고 기존 환경은 그대로 남는다.
+        */}
+        <Dialog
+          open={!!deviceLimit}
+          onOpenChange={(open) => {
+            if (!open) setDeviceLimit(null);
+          }}
+        >
+          <DialogContent className="max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{t('dock.deviceLimitTitle')}</DialogTitle>
+              <DialogDescription>
+                {t('dock.deviceLimitDesc')} ({deviceLimit?.limit ?? 0}
+                {t('sub.deviceLimitUnit')})
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              {deviceLimit?.devices.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-center gap-2 rounded border border-white/10 bg-white/5 px-2 py-1.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium">
+                      {d.name || d.device_id.slice(0, 8)}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {d.platform} · v{d.app_version} ·{' '}
+                      {new Date(d.last_seen_at).toLocaleString()}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[11px]"
+                    disabled={deviceBusy !== null}
+                    onClick={() => void releaseDevice(d)}
+                  >
+                    {t('dock.deviceRelease')}
+                  </Button>
+                </div>
+              ))}
+              {deviceLimitError && (
+                <p className="text-[11px] text-destructive">{deviceLimitError}</p>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                {t('dock.deviceLimitHint')}
+              </p>
+            </div>
           </DialogContent>
         </Dialog>
 

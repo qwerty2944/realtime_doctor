@@ -147,6 +147,19 @@ export interface DeviceInfo {
   isCurrent: boolean;
 }
 
+/**
+ * 플랜 기기 수 초과 안내 (S5).
+ *
+ * 서버(`device` Edge Function)가 등록을 거부하면서 함께 돌려준 목록이다.
+ * 앱은 이 목록에서 하나를 골라 내리고 다시 등록을 시도한다 -- **자동으로
+ * 밀어내지 않는다.** 진료실 데스크톱이 조용히 끊기면 다음 날 아침 진료 직전에
+ * 알게 된다.
+ */
+export interface DeviceLimitNotice {
+  limit: number;
+  devices: DeviceInfo[];
+}
+
 /** 로컬 디스크 세션 저장 설정 (클라우드 동기화와 독립). */
 export interface LocalSaveSettings {
   enabled: boolean;

@@ -36,7 +36,12 @@ import {
 } from './shortcuts.js';
 import { analyzer } from './analyzer.js';
 import { getCurrentUser, setAuthCallbacks } from './auth.js';
-import { initDeviceAuth, listDevices, revokeDevice } from './device.js';
+import {
+  initDeviceAuth,
+  listDevices,
+  releaseAndRegister,
+  revokeDevice
+} from './device.js';
 import { classifySpeaker } from './diarizer.js';
 import { generateDictation } from './dictator.js';
 import {
@@ -735,6 +740,98 @@ ipcMain.handle(IPC.DevicesRevoke, async (_event, rowId: string) => {
   const user = getCurrentUser();
   if (!user) return { ok: false, error: '로그인이 필요합니다.' };
   return revokeDevice(user.id, rowId);
+});
+// 기기 한도 초과 대화상자에서 "이 기기 내리기"를 눌렀을 때. 해지와 재등록이
+// 한 호출로 묶여 있어야 한다 -- 사이가 벌어지면 그 틈에 다른 기기가 들어와
+// 다시 한도에 걸리고, 의사는 왜 안 되는지 알 수 없다 (S5).
+ipcMain.handle(IPC.DevicesReleaseAndRegister, async (_event, rowId: string) => {
+  const user = getCurrentUser();
+  if (!user) return { ok: false, error: '로그인이 필요합니다.' };
+  return releaseAndRegister(rowId);
+});
+
+// ── 구독 ────────────────────────────────────────────────────────────────
+// 조회·갱신·결제 페이지 열기. 이 세 개는 잠긴 상태에서도 당연히 열려 있어야
+// 한다 (잠금을 푸는 경로 자체를 잠그면 안 된다).
+ipcMain.handle(IPC.SubscriptionGet, () => getSubscriptionState());
+ipcMain.handle(IPC.SubscriptionRefresh, () => refreshEntitlement('manual'));
+ipcMain.handle(IPC.SubscriptionOpenBilling, () => openBillingPage());
+
+// ── 환자 대기목록 ───────────────────────────────────────────────────────
+let waitingSub: WaitingSubscription | null = null;
+/** 마지막으로 성공한 목록. 채널 에러 때 목록을 비우지 않기 위해 들고 있는다. */
+let lastWaiting: WaitingEncounter[] = [];
+
+/** 대기목록 구독 시작/재시작. 로그인 직후에만 의미가 있다. */
+function startWaitingSubscription(): void {
+  waitingSub?.stop();
+  waitingSub = subscribeWaitingChanges(
+    (items) => {
+      lastWaiting = items;
+      broadcast(IPC.PatientsWaitingChanged, { items, error: null });
+    },
+    (message) =>
+      broadcast(IPC.PatientsWaitingChanged, { items: lastWaiting, error: message })
+  );
+}
+
+ipcMain.handle(IPC.PatientsListWaiting, () => listWaitingEncounters());
+ipcMain.handle(IPC.PatientsLoadDetail, (_event, encounterId: string) =>
+  loadPatientDetail(encounterId)
+);
+/**
+ * 환자 선택/해제.
+ *
+ * 선택 결과를 모든 창에 broadcast 해서 트랜스크립트/감별진단/용어/질문/요약 창이
+ * 문진 데이터를 보여주게 한다. 동시에 진행 중인 녹취 세션을 그 진료에 연결한다
+ * (선택을 자동 해제하지 않는다 — 환자를 보면서 녹음하는 것이 정상 흐름이다).
+ */
+ipcMain.handle(IPC.PatientsSelect, async (_event, encounterId: string | null) => {
+  // [게이트] 환자를 선택하는 것 = 그 환자의 문진 데이터를 받아 새 진료를
+  // 시작하는 것. 해제(null)는 막지 않는다 — 잠긴 상태에서 선택을 못 풀면
+  // 화면에 남의 PHI 가 붙박이가 된다.
+  if (encounterId !== null && !ensureEntitled('patient-intake').ok) return null;
+  const detail = await selectEncounter(encounterId);
+  linkSessionToEncounter(detail?.encounter.id ?? null);
+  broadcast(IPC.PatientsActiveChanged, detail);
+  return detail;
+});
+ipcMain.handle(IPC.PatientsGetActive, () => getActiveDetail());
+
+// ── 문헌근거 (PubMed) ───────────────────────────────────────────────────
+/**
+ * 진단명 하나의 근거 조회.
+ *
+ * 결과를 invoke 응답으로 돌려주는 동시에 broadcast 한다. 같은 진단을 띄운 다른
+ * 창(예: 탭 그룹으로 떠 있는 감별진단 사본)이 다시 조회하지 않게 하기 위함이다.
+ * lookupEvidence 는 던지지 않지만, 여기서도 방어적으로 error 상태로 환원한다.
+ */
+ipcMain.handle(
+  IPC.EvidenceRequest,
+  async (_event, payload: { diagnosis: string; diagnosisEn?: string | null }) => {
+    const diagnosis = payload?.diagnosis ?? '';
+    let status: EvidenceStatus;
+    try {
+      status = await lookupEvidence(diagnosis, payload?.diagnosisEn ?? null);
+    } catch (err) {
+      status = {
+        state: 'error',
+        message: err instanceof Error ? err.message : 'lookup failed'
+      };
+    }
+    broadcast(IPC.EvidenceUpdated, { diagnosis, status });
+    return status;
+  }
+);
+
+/** 참고문헌 열기. PubMed 주소가 아니면 조용히 무시하지 않고 false 를 돌려준다. */
+ipcMain.handle(IPC.EvidenceOpen, async (_event, url: string) => {
+  if (typeof url !== 'string' || !isPubmedUrl(url)) {
+    console.warn('[evidence] 허용되지 않은 외부 링크 요청을 차단했습니다.');
+    return false;
+  }
+  await shell.openExternal(url);
+  return true;
 });
 
 // ── 로컬 저장 설정 ──────────────────────────────────────────────────────
