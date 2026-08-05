@@ -46,6 +46,36 @@
 --
 -- Nothing here changes behaviour for a legitimate caller. Every revoke below is
 -- paired with an explicit grant to the roles that were already using it.
+--
+-- ---------------------------------------------------------------------------
+-- [HARD] SUPERSEDED BY 0013. This file is insufficient, and its guard cannot
+-- say so.
+-- ---------------------------------------------------------------------------
+-- `revoke ... from public` removes the ACL entry with an EMPTY grantee
+-- (`=X/postgres`) and nothing else. Supabase separately ships
+-- `alter default privileges ... grant execute on functions to anon,
+-- authenticated`, which puts NAMED entries (`anon=X/postgres`) into every new
+-- function's ACL. Those are not the PUBLIC entry, so every revoke in this file
+-- left them standing on the hosted project. An audit of the live catalogue
+-- after 0006-0012 found `anon` and `authenticated` holding explicit EXECUTE on
+-- every function in `public`, including redeem_visit_access_code() -- the exact
+-- function 0009 was written to protect.
+--
+-- The guard at the bottom of this file anchors on `acl like '=%'`, which can
+-- only ever match the PUBLIC entry. It CANNOT see a named grantee by
+-- construction, and it passed on the live database while the hole was wide
+-- open. It is kept unchanged because it must still pass at this point in the
+-- migration chain (0013 is what closes the named grants, and it runs after this
+-- file), and because a check that is merely incomplete is not wrong about what
+-- it does check. Do not read a pass from it as a clean bill of health.
+--
+-- The complete check -- named grantees as well as PUBLIC, relations as well as
+-- functions, driven by an allowlist that states the intended caller of every
+-- object -- is in 0013_named_role_privileges.sql, and is re-runnable against
+-- production as supabase/audit/named-role-privileges.sql.
+--
+-- The same applies to the `alter default privileges` below: it closes the
+-- silent path for PUBLIC only. 0013 closes it for anon and authenticated too.
 
 -- ---------------------------------------------------------------------------
 -- 0000 -- is_admin()

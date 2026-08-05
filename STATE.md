@@ -461,9 +461,28 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   확인하지 못했다. 라우트·DB 반영은 실제 서버로 검증됨.
 - **실제 Supabase 프로젝트 접근 불가.** `yqdzxitlmtawznzwpkra` 가 현재 로그인 계정에
   안 잡힌다. 0001/0002 마이그레이션이 로컬 스택에만 적용돼 있다.
-- ~~0006~0008 의 RPC 에 `revoke ... from public` 이 없다~~ → **0010 에서 해결.**
-  전수 감사 결과 10개였고(0000 의 `is_admin` 과 0002 의 `set_updated_at` 포함),
-  스키마 기본값까지 바꿔 다음 마이그레이션이 잊어도 안전하게 만들었다.
+- ~~0006~0008 의 RPC 에 `revoke ... from public` 이 없다~~ → 0010 에서 **부분** 해결.
+  → **0013 에서 완결.** 0010 은 틀린 게 아니라 절반이었다. `revoke ... from public` 은
+  ACL 에서 **권한부여자가 빈** 항목(`=X/postgres`)만 지운다. Supabase 는 별도로
+  `alter default privileges ... grant execute on functions to anon, authenticated` 를
+  깔아두므로 새 함수마다 **이름이 붙은** 항목(`anon=X/postgres`)이 생기고, 이건 PUBLIC
+  항목이 아니라서 0010 의 revoke 가 하나도 건드리지 못했다. 운영 프로젝트
+  (`yhwvwojjwwlcrvpfxgag`) 실사 결과 public 의 **모든 함수**를 anon/authenticated 가
+  EXECUTE 로 들고 있었다 — 0009 가 지키려고 만든 `redeem_visit_access_code` 포함.
+  [HARD] 0010 의 가드는 `acl like '=%'` 에 앵커돼 있어 이 부류를 **원리상 볼 수 없고**,
+  구멍이 열린 채로 통과했다. 0013 이 허용목록(`public.role_privilege_allowlist`) 기반
+  가드로 대체했고, 프로브가 진짜 구멍을 뚫어 가드가 울리는 것까지 확인한다.
+- **[HARD] 0013 은 운영에 아직 적용되지 않았다.** 로컬 통과는 "마이그레이션이 적용된다"만
+  증명한다 — 로컬 스택의 `pg_default_acl` 은 운영과 달라서(로컬 함수 기본값에는
+  anon/authenticated 가 없다) 결함 자체를 재현하지 못한다. 적용 후 반드시
+  `psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/audit/named-role-privileges.sql`
+  를 운영에 돌려 PART 1/C 가 0행인지 확인할 것.
+- **`supabase_admin` 의 기본 권한은 닫지 못했다.** `pg_default_acl` 에서
+  (supabase_admin, public, functions/tables) 는 여전히 anon/authenticated 를 준다.
+  `postgres` 는 supabase_admin 의 멤버가 아니라 `alter default privileges for role
+  supabase_admin` 이 애초에 실패한다. 이 레포는 supabase_admin 으로 객체를 만들지
+  않으므로 실사용 경로는 없지만, 대시보드에서 손으로 만든 객체는 열린 채 태어날 수 있다.
+  → 감사 스크립트의 PART 1/A 가 이걸 매번 보여주고, PART 1/C 가 결과를 잡는다.
 - **RLS 미적용 (기존 테이블).** sessions/transcript_chunks/analyses 등은 여전히 RLS off 이고
   anon 키가 커밋돼 있다. 구독 게이트는 이를 우회하도록 설계했지만(서버 판정) 근본 정리는 남아 있다.
 

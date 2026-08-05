@@ -20,6 +20,10 @@
 //   7. anon 이 새 RPC 들을 부를 수 있는가. (불가여야 한다)
 //   8. RLS 가 임상의 A 와 B 를 갈라놓는가.
 //   9. 0010 이후 public 스키마에 PUBLIC EXECUTE 가 남아 있는가. (0건이어야 한다)
+//  10. 0013 의 권한 감사가 **실제로 울리는가**. 조용한 가드는 증거가 아니므로
+//      진짜 구멍(anon EXECUTE / anon TRUNCATE / authenticated SELECT)을 뚫어
+//      놓고 잡아내는지 확인하고, 같은 구멍을 0010 의 옛 가드가 못 본다는 것도
+//      함께 보인다.
 //
 // 로컬 스택(포트 553xx)에만 붙는다. 실제 프로젝트는 건드리지 않는다.
 //
@@ -28,6 +32,7 @@
 //   node --import ./scripts/probe-findings-register.mjs scripts/probe-provenance.mjs
 
 import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 
 const API = 'http://127.0.0.1:55321';
@@ -65,6 +70,38 @@ function sql(text) {
 const sqlValue = (text) => sql(text).split('\n')[0].trim();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const esc = (s) => String(s).replaceAll("'", "''");
+
+// ---------------------------------------------------------------------------
+// 0013 권한 감사 스크립트를 "있는 그대로" 돌린다
+// ---------------------------------------------------------------------------
+// 프로브가 감사 쿼리를 따로 베껴 들고 있으면, 베낀 쪽만 맞고 실제로 운영에
+// 돌릴 파일은 틀린 상태가 될 수 있다. 그래서 검사 대상을 재구현하지 않고
+// supabase/audit/named-role-privileges.sql 을 통째로 psql 에 먹인다 —
+// 오케스트레이터가 운영 프로젝트에 돌릴 바로 그 파일이다.
+const AUDIT_SQL = readFileSync(
+  new URL('../supabase/audit/named-role-privileges.sql', import.meta.url),
+  'utf8'
+);
+
+function runPrivilegeAudit() {
+  // psql 의 NOTICE(통과 메시지)는 stderr 로 나간다. 컨테이너 안에서 2>&1 로
+  // 합쳐야 성공 경로의 출력까지 볼 수 있다 — 성공을 눈으로 확인할 수 없는
+  // 검사는 이 파일이 고치려는 문제와 같은 문제다.
+  try {
+    const out = execFileSync(
+      'docker',
+      [
+        'exec', '-i', 'supabase_db_realtime_doctor',
+        'sh', '-c',
+        'psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - 2>&1'
+      ],
+      { encoding: 'utf8', input: AUDIT_SQL, stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    return { ok: true, output: out };
+  } catch (err) {
+    return { ok: false, output: `${err.stdout ?? ''}${err.stderr ?? ''}` };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 가짜 Gemini — 키오스크 문진과 데스크톱 실시간 분석을 모두 받는다
@@ -835,6 +872,109 @@ const main = async () => {
      ) t`
   );
   check('PUBLIC EXECUTE 를 가진 함수가 0건이다', leaked === '', leaked);
+
+  // -------------------------------------------------------------------------
+  // 0013: 이름 붙은 권한 부여자(anon/authenticated)까지 보는 가드
+  // -------------------------------------------------------------------------
+  // [HARD] 가드가 "조용하다"는 것은 가드가 동작한다는 증거가 아니다. 0010 의
+  // 가드는 운영 DB 에서 조용했고, 그 순간 그 DB 의 모든 함수는 anon 이 부를 수
+  // 있었다. 그래서 여기서는 **진짜 구멍을 뚫어놓고** 가드가 그것을 잡아내는지
+  // 확인한다. 잡지 못하면 가드가 아니다.
+  console.log('\n  ── 0013: 권한 감사가 실제로 "울리는가" (구멍을 뚫어서 확인) ──');
+
+  const baseline = runPrivilegeAudit();
+  check('구멍이 없을 때 감사는 통과한다', baseline.ok, baseline.ok ? '' : baseline.output.slice(-400));
+  check(
+    '통과 시 PASS 를 명시적으로 말한다 (조용한 통과가 아니다)',
+    /PASS -- anon and authenticated hold nothing/.test(baseline.output)
+  );
+
+  // (1) 함수 구멍: 0009 가 지키려고 만든 바로 그 함수를 anon 에게 연다.
+  //     운영 DB 가 실제로 어떤 상태였는지를 그대로 재현한 것이다.
+  sql(
+    `grant execute on function public.redeem_visit_access_code(uuid,text,text,boolean) to anon`
+  );
+
+  //     같은 상태를 0010 의 가드에 물어본다. 0010 은 빈 권한부여자('=%')만
+  //     찾으므로 'anon=X/postgres' 를 원리상 볼 수 없다 — 이 프로브가 증명해야
+  //     하는 것은 새 가드가 잡는다는 사실뿐 아니라, 옛 가드가 못 잡는다는
+  //     사실이다. 그것이 0010 을 교체해야 하는 이유 전체다.
+  const oldGuardOnHole = sql(
+    `select coalesce(string_agg(t.sig, ', '), '') from (
+       select p.oid::regprocedure::text as sig
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname='public'
+         and (p.proacl is null or exists (select 1 from unnest(p.proacl::text[]) a where a like '=%'))
+     ) t`
+  );
+  check(
+    '0010 의 옛 가드는 이 구멍을 보지 못한다 (원리상 볼 수 없다)',
+    oldGuardOnHole === '',
+    `옛 가드 결과: "${oldGuardOnHole}"`
+  );
+
+  const fnHole = runPrivilegeAudit();
+  check('0013 감사는 anon 함수 구멍에서 실패한다', !fnHole.ok);
+  check(
+    '실패 메시지가 어떤 함수인지 지목한다',
+    /redeem_visit_access_code/.test(fnHole.output),
+    fnHole.output.slice(-300)
+  );
+  check(
+    '실패 메시지가 SECURITY DEFINER 임을 알린다',
+    /SECURITY DEFINER/.test(fnHole.output)
+  );
+
+  sql(`revoke execute on function public.redeem_visit_access_code(uuid,text,text,boolean) from anon`);
+  check('구멍을 막으면 감사는 다시 통과한다', runPrivilegeAudit().ok);
+
+  // (2) 테이블 구멍: TRUNCATE 는 RLS 가 걸러주지 않는다. 로컬 스택의
+  //     pg_default_acl 이 0013 이전까지 anon 에게 실제로 주고 있던 권한이다.
+  sql(`grant truncate on public.clinical_decision_events to anon`);
+  const tableHole = runPrivilegeAudit();
+  check('0013 감사는 anon 테이블 구멍에서 실패한다', !tableHole.ok);
+  check(
+    '실패 메시지가 RLS 가 TRUNCATE 를 거르지 못한다고 말한다',
+    /clinical_decision_events/.test(tableHole.output) &&
+      /RLS does not filter TRUNCATE/.test(tableHole.output),
+    tableHole.output.slice(-300)
+  );
+  sql(`revoke truncate on public.clinical_decision_events from anon`);
+
+  // (3) authenticated 도 예외가 아니다. 허용목록에 없는 SELECT 하나면 울린다.
+  sql(`grant select on public.visit_access_code_attempts to authenticated`);
+  const authHole = runPrivilegeAudit();
+  check('0013 감사는 authenticated 의 미허용 SELECT 에서도 실패한다', !authHole.ok);
+  check(
+    '실패 메시지가 어떤 테이블/역할인지 지목한다',
+    /visit_access_code_attempts/.test(authHole.output) && /authenticated/.test(authHole.output),
+    authHole.output.slice(-300)
+  );
+  sql(`revoke select on public.visit_access_code_attempts from authenticated`);
+
+  // (4) 허용목록이 없으면 "깨끗하다"가 아니라 "판정 거부"여야 한다.
+  //     기준을 못 찾아서 통과하는 감사가 이 작업 전체의 실패 모드다.
+  sql(`alter table public.role_privilege_allowlist rename to role_privilege_allowlist_probe_tmp`);
+  const noAllowlist = runPrivilegeAudit();
+  sql(`alter table public.role_privilege_allowlist_probe_tmp rename to role_privilege_allowlist`);
+  check('허용목록이 없으면 감사는 통과가 아니라 실패한다', !noAllowlist.ok);
+  check(
+    '그 실패는 "0013 이 적용되지 않았다"고 말한다',
+    /migration 0013 has not been applied/.test(noAllowlist.output),
+    noAllowlist.output.slice(-300)
+  );
+
+  const restored = runPrivilegeAudit();
+  check('모든 구멍을 되돌린 뒤 감사는 통과 상태로 복귀한다', restored.ok);
+
+  // 허용목록의 모든 항목에 근거가 달려 있어야 한다. 근거 없는 항목은 추측이고,
+  // 0007/0008 의 구멍이 정확히 추측에서 나왔다.
+  check(
+    '허용목록의 모든 항목에 근거(rationale)가 있다',
+    sqlValue(
+      `select count(*) from public.role_privilege_allowlist where coalesce(trim(rationale),'') = ''`
+    ) === '0'
+  );
 
   // -------------------------------------------------------------------------
   console.log('\n=== 8) RLS: 임상의 A 와 B 는 서로의 기록을 보지 못한다 ===');
