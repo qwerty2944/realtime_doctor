@@ -149,6 +149,27 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
     `out/` 와 `.next/static` 에서 시크릿 9종 grep — 0건.
 - 실제 Supabase 프로젝트(yqdzxitlmtawznzwpkra)에는 **아직 아무것도 적용하지 않았다.**
 
+### 진행 중: 근거 우선 전환 (E1~E4)
+계획: `tasks/evidence-first-plan.md`.
+
+- **E1 완료** (커밋 `3f4279b`, `c625831`) — confidence 퍼센트를 검증 가능한 근거로 교체.
+  - 스키마: `confidence` 제거, `supporting_findings[] = { finding, source }` 도입.
+    `source` 는 프롬프트가 transcript 각 줄에 붙인 `[#N]` 번호다.
+  - **검증기는 한 벌**(`src/shared/findings.ts`)이고 main(실시간)과 renderer(환자 모드)가
+    같이 쓴다. 두 벌이 되면 한쪽만 고쳐지는 날 지어낸 근거가 그대로 뜬다.
+    `SupportingFinding.quote` 는 모델 문장이 아니라 원문에서 꺼낸 값이라
+    **미검증 근거가 화면에 뜰 수 없다는 것을 타입으로 보장**한다.
+  - analyzer 의 transcript 절삭을 문자열 자르기 → 발화 단위로 바꿨다. 예전 방식은
+    `[#N]` 접두사를 중간에서 잘라 번호와 발화를 어긋나게 만든다.
+  - 근거 0건 진단은 **버리지 않고** 감별진단 창의 "근거 미확인" 섹션에 남긴다.
+    E2 확인 요청 큐로 보낼 이음매에 `TODO(E2)`.
+  - 키오스크도 같은 모양을 만들고 `assembleRow` 가 저장 전에 참조를 대조한다.
+  - 검증: `scripts/probe-findings.mjs`(로컬 스택, 실제 assembleRow →
+    loadPatientDetail → patientDifferentialsPartitioned, 21 PASS),
+    `scripts/probe-findings-live.mjs`(실제 gemini-2.5-flash 1회, 5 PASS).
+  - **육안 검증 미완료** — 화면 캡처 권한이 없어 근거 클릭 → 전사 창 포커스/강조를
+    눈으로 확인하지 못했다. IPC·매퍼·검증기는 실제 코드로 검증됨.
+
 ## 미해결 실패
 
 - **GUI 육안 검증 미완료.** 이 머신은 화면 캡처·합성 키 입력 권한이 없어
