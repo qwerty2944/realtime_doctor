@@ -356,8 +356,38 @@ export interface DifferentialDiagnosis {
   name: string;
   nameEn?: string;
   icd10?: string;
-  confidence: number;
+  /**
+   * 0~1 가능성. 실시간 분석은 항상 채우지만 문진 결과(키오스크)는 순위만 주고
+   * 확률을 주지 않으므로 optional — 없으면 UI 가 순위 배지로 대체한다.
+   */
+  confidence?: number;
   reasoning: string;
+  /**
+   * PubMed 조회로 붙는 문헌근거. LLM 분석 결과에는 없다(모델이 인용을 지어내지
+   * 않도록 프롬프트에서 제외했다) — 그래서 optional.
+   */
+  references?: EvidenceReference[];
+}
+
+/** PubMed 논문 한 편. 전부 PubMed 가 돌려준 값이며 모델이 만든 값이 아니다. */
+export interface EvidenceReference {
+  pmid: string;
+  title: string;
+  journal: string | null;
+  year: number | null;
+  /** 항상 https://pubmed.ncbi.nlm.nih.gov/{pmid}/ 형태. */
+  url: string;
+}
+
+export type EvidenceStatus =
+  | { state: 'loading' }
+  | { state: 'ready'; references: EvidenceReference[]; cached: boolean }
+  | { state: 'error'; message: string };
+
+/** 근거 broadcast 페이로드. diagnosis 는 요청에 쓰인 표시용 진단명. */
+export interface EvidenceUpdate {
+  diagnosis: string;
+  status: EvidenceStatus;
 }
 
 export interface MedicalTerm {

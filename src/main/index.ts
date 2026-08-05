@@ -1,5 +1,5 @@
 import './wsPolyfill.js';
-import { app, BrowserWindow, ipcMain, nativeImage, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, screen, shell } from 'electron';
 
 app.setName('Realtime Doctor');
 if (process.platform === 'darwin') {
