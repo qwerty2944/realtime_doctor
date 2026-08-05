@@ -117,7 +117,7 @@ console.log('\n=== 1) 네 방향 흡착: 딱 맞닿고 관계가 기록되는가
     }[c.edge];
     // 드래그 자체는 짧게(32px) — DETACH_PX 와 무관한 순수 흡착 검증.
     mover.place({ x: want.x + off.x - 16, y: want.y + off.y - 16, ...m });
-    mover.userDrag(16, 16);
+    await mover.userDrag(16, 16);
 
     const got = b(mover);
     check(
@@ -134,8 +134,10 @@ console.log('\n=== 1) 네 방향 흡착: 딱 맞닿고 관계가 기록되는가
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== 2) 임계값 경계: 24px 이내는 붙고, 그 밖은 안 붙는다 ===');
-for (const gap of [24, 25]) {
+// ENGAGE_PX = 48 (windowSnap.ts). 손으로 끌어 붙이는 정확도를 고려한 값이라
+// 예전 24 보다 넓다. 경계 자체는 여전히 딱 떨어져야 한다.
+console.log('\n=== 2) 임계값 경계: 48px 이내는 붙고, 그 밖은 안 붙는다 ===');
+for (const gap of [48, 49]) {
   const W = freshWorld();
   const target = W.get('diagnosis');
   const mover = W.get('patients');
@@ -143,28 +145,28 @@ for (const gap of [24, 25]) {
   const t = b(target);
   // 드래그 8스텝으로 정확히 gap 만큼 떨어진 곳에 도착시킨다.
   mover.place({ x: t.x - SPECS.patients.width - gap - 16, y: t.y, ...SPECS.patients });
-  mover.userDrag(16, 0);
+  await mover.userDrag(16, 0);
   check(
-    `간격 ${gap}px → ${gap <= 24 ? '흡착' : '무시'}`,
-    rel('patients', 'diagnosis') === (gap <= 24),
+    `간격 ${gap}px → ${gap <= 48 ? '흡착' : '무시'}`,
+    rel('patients', 'diagnosis') === (gap <= 48),
     `x=${b(mover).x}`
   );
 }
 
-console.log('\n--- 모서리만 스친 경우(공유 변 24px 미만)는 붙지 않아야 한다 ---');
+console.log('\n--- 모서리만 스친 경우(공유 변 40px 미만)는 붙지 않아야 한다 ---');
 {
   const W = freshWorld();
   const target = W.get('diagnosis');
   const mover = W.get('patients');
   target.place({ x: 900, y: 300 });
   const t = b(target);
-  // 세로로 10px 만 겹치도록 아래로 밀어둔다 (MIN_SHARE_PX = 24 미만).
+  // 세로로 10px 만 겹치도록 아래로 밀어둔다 (MIN_SHARE_PX = 40 미만).
   mover.place({
     x: t.x - SPECS.patients.width - 18,
     y: t.y + t.height - 10,
     ...SPECS.patients
   });
-  mover.userDrag(2, 0);
+  await mover.userDrag(2, 0);
   check('세로 공유 10px → 흡착 안 함', !rel('patients', 'diagnosis'));
 }
 
@@ -176,7 +178,7 @@ console.log('\n=== 3) 클러스터 이동: 어느 멤버를 끌어도 전원이 
   const B = W.get('patients');
   A.place({ x: 800, y: 300 });
   B.place({ x: 800 - 380 - 18, y: 310, ...SPECS.patients });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
   check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
 
   for (const [label, leader] of [
@@ -185,7 +187,7 @@ console.log('\n=== 3) 클러스터 이동: 어느 멤버를 끌어도 전원이 
   ]) {
     const before = { a: b(A), b: b(B) };
     const before2 = snap.getSnapDiagnostics().appliedBoundsCount;
-    leader.userDrag(40, 24);
+    await leader.userDrag(40, 24);
     const after = { a: b(A), b: b(B) };
     const da = { x: after.a.x - before.a.x, y: after.a.y - before.a.y };
     const db = { x: after.b.x - before.b.x, y: after.b.y - before.b.y };
@@ -217,10 +219,10 @@ console.log('\n=== 4) 3창 사슬 A-B-C 가 한 덩어리로 움직인다 ===');
   B.place({ x: 700, y: 300 });
   // A 를 B 왼쪽에 붙인다.
   A.place({ x: 700 - 380 - 18, y: 300, ...SPECS.terms });
-  A.userDrag(2, 0);
+  await A.userDrag(2, 0);
   // C 를 B 오른쪽에 붙인다.
   C.place({ x: 700 + 380 + 18, y: 300, ...SPECS.patients });
-  C.userDrag(-2, 0);
+  await C.userDrag(-2, 0);
   check('사슬 구성 A-B, B-C', rel('terms', 'diagnosis') && rel('patients', 'diagnosis'));
   check(
     'clusterOf 가 3개 전부 반환',
@@ -229,7 +231,7 @@ console.log('\n=== 4) 3창 사슬 A-B-C 가 한 덩어리로 움직인다 ===');
   );
 
   const before = [b(A), b(B), b(C)];
-  B.userDrag(-50, 30); // 가운데 창을 끈다
+  await B.userDrag(-50, 30); // 가운데 창을 끈다
   const after = [b(A), b(B), b(C)];
   const deltas = after.map((r, i) => `${r.x - before[i].x},${r.y - before[i].y}`);
   check(
@@ -254,12 +256,12 @@ console.log('\n=== 5) 분리는 명시적 동작으로만 — 드래그 거리�
   // 클램프가 개입하지 않도록 왼쪽 위에 여유를 두고 배치한다.
   A.place({ x: 600, y: 100 });
   B.place({ x: 600 - 380 - 18, y: 100, ...SPECS.patients });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
   check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
 
   // 한 번의 드래그로 600px — 예전 DETACH_PX(96) 라면 여기서 떨어졌다.
   const before = { a: b(A), b: b(B) };
-  B.userDrag(600, 0);
+  await B.userDrag(600, 0);
   const after = { a: b(A), b: b(B) };
   check(
     '600px 한 번에 이동해도 관계 유지',
@@ -275,7 +277,7 @@ console.log('\n=== 5) 분리는 명시적 동작으로만 — 드래그 거리�
 
   // 아래로도 큰 거리 — 방향 무관하게 천장이 없다는 확인.
   const beforeY = { a: b(A).y, b: b(B).y };
-  B.userDrag(0, 400);
+  await B.userDrag(0, 400);
   check(
     '세로 400px 이동해도 관계 유지 + 동일 delta',
     rel('patients', 'diagnosis') &&
@@ -298,7 +300,7 @@ console.log('\n=== 5) 분리는 명시적 동작으로만 — 드래그 거리�
 
   // 분리 후: 맞닿은 변에서 멀어지면 더 이상 따라오지 않는다.
   const aBefore2 = b(A);
-  B.userDrag(-300, 0);
+  await B.userDrag(-300, 0);
   check(
     '분리 후: 이 창의 이동이 상대를 끌지 않음',
     b(A).x === aBefore2.x && b(A).y === aBefore2.y
@@ -314,9 +316,9 @@ console.log('\n=== 5b) 사슬 A-B-C 에서 가운데 B 를 분리하면 사슬�
   const C = W.get('patients'); // 380x420
   B.place({ x: 700, y: 300 });
   A.place({ x: 700 - 380 - 18, y: 300, ...SPECS.terms });
-  A.userDrag(2, 0);
+  await A.userDrag(2, 0);
   C.place({ x: 700 + 380 + 18, y: 300, ...SPECS.patients });
-  C.userDrag(-2, 0);
+  await C.userDrag(-2, 0);
   check('사전 조건: A-B-C 클러스터', snap.clusterOf('terms').length === 3);
 
   check('가운데 B 분리', snap.detachFromCluster('diagnosis') === true);
@@ -329,7 +331,7 @@ console.log('\n=== 5b) 사슬 A-B-C 에서 가운데 B 를 분리하면 사슬�
 
   const aBefore = b(A);
   const bBefore = b(B);
-  C.userDrag(0, 300);
+  await C.userDrag(0, 300);
   check(
     '분리된 B 는 더 이상 따라오지 않음',
     b(B).x === bBefore.x && b(B).y === bBefore.y
@@ -343,9 +345,9 @@ console.log('\n=== 5b) 사슬 A-B-C 에서 가운데 B 를 분리하면 사슬�
   const C2 = W2.get('patients');
   B2.place({ x: 700, y: 300 });
   A2.place({ x: 700 - 380 - 18, y: 300, ...SPECS.terms });
-  A2.userDrag(2, 0);
+  await A2.userDrag(2, 0);
   C2.place({ x: 700 + 380 + 18, y: 300, ...SPECS.patients });
-  C2.userDrag(-2, 0);
+  await C2.userDrag(-2, 0);
   check('사전 조건: A-B-C', snap.clusterOf('terms').length === 3);
   snap.detachFromCluster('patients');
   check(
@@ -355,7 +357,7 @@ console.log('\n=== 5b) 사슬 A-B-C 에서 가운데 B 를 분리하면 사슬�
   );
   const cBefore = b(C2);
   const bBefore2 = b(B2);
-  A2.userDrag(-120, 0);
+  await A2.userDrag(-120, 0);
   check(
     '남은 A-B 는 함께 이동',
     b(B2).x - bBefore2.x === -120,
@@ -375,12 +377,12 @@ console.log('\n=== 6) 되먹임 루프 없음: 사용자 이동 1회당 프로�
   for (const k of keys.slice(1)) {
     x += 380;
     W.get(k).place({ x: x + 18, y: 300, ...SPECS[k] });
-    W.get(k).userDrag(-2, 0);
+    await W.get(k).userDrag(-2, 0);
   }
   check('4창 클러스터 구성', snap.clusterOf('terms').length === 4, snap.clusterOf('terms').join(','));
 
   const before = snap.getSnapDiagnostics().appliedBoundsCount;
-  W.get('summary').userDrag(20, 20);
+  await W.get('summary').userDrag(20, 20);
   const applied = snap.getSnapDiagnostics().appliedBoundsCount - before;
   check(
     `사용자 이동 1회 → 프로그램 setBounds ${applied}회 (멤버 4 이하, 폭주 아님)`,
@@ -390,7 +392,7 @@ console.log('\n=== 6) 되먹임 루프 없음: 사용자 이동 1회당 프로�
   // 스텁의 setBounds 는 실제 Electron 처럼 'move' 를 다시 쏜다. 위 숫자가
   // 유한하다는 것 자체가 가드(applyingBounds)가 재진입을 막았다는 증거다.
   const before2 = snap.getSnapDiagnostics().appliedBoundsCount;
-  W.get('terms').userDrag(-10, 0);
+  await W.get('terms').userDrag(-10, 0);
   const applied2 = snap.getSnapDiagnostics().appliedBoundsCount - before2;
   check(`반대쪽 끝을 끌어도 ${applied2}회로 유한`, applied2 >= 1 && applied2 <= 4, `${applied2}`);
 }
@@ -404,10 +406,10 @@ console.log('\n=== 7) 클러스터는 작업 영역 밖으로 밀려나지 않�
   const rightEdge = WORK_AREA.x + WORK_AREA.width;
   A.place({ x: rightEdge - 380 - 10, y: 300 });
   B.place({ x: rightEdge - 380 - 10 - 380 - 18, y: 300, ...SPECS.patients });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
   check('사전 조건: 우측 끝에 붙어 있음', rel('patients', 'diagnosis'));
 
-  B.userDrag(80, 0); // 오른쪽으로 밀기 — 10px 만 남았다
+  await B.userDrag(80, 0); // 오른쪽으로 밀기 — 10px 만 남았다
   const ra = b(A);
   const rb = b(B);
   check(
@@ -423,8 +425,8 @@ console.log('\n=== 7) 클러스터는 작업 영역 밖으로 밀려나지 않�
   const D = W2.get('patients');
   C.place({ x: 600, y: WORK_AREA.y + 8 });
   D.place({ x: 600 - 380 - 18, y: WORK_AREA.y + 8, ...SPECS.patients });
-  D.userDrag(2, 0);
-  D.userDrag(0, -60);
+  await D.userDrag(2, 0);
+  await D.userDrag(0, -60);
   check(
     '위쪽 클램프',
     b(C).y >= WORK_AREA.y && b(D).y >= WORK_AREA.y,
@@ -440,7 +442,7 @@ console.log('\n=== 8) 재시작 후 관계 유지 / 없는 창을 가리키는 �
   const B = W.get('patients');
   A.place({ x: 800, y: 300 });
   B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
   const savedBounds = { a: b(A), b: b(B) };
   check('저장소에 관계가 기록됨', (BACKING.windowSnaps ?? []).length === 1, JSON.stringify(BACKING.windowSnaps));
 
@@ -461,7 +463,7 @@ console.log('\n=== 8) 재시작 후 관계 유지 / 없는 창을 가리키는 �
 
   // 복원된 관계가 실제로 살아 있는지 — 이동으로 확인
   const beforeA = windows2.get('diagnosis').getBounds();
-  windows2.get('patients').userDrag(24, 0);
+  await windows2.get('patients').userDrag(24, 0);
   check(
     '복원된 클러스터가 함께 움직임',
     windows2.get('diagnosis').getBounds().x - beforeA.x === 24,
@@ -527,18 +529,20 @@ console.log('\n=== 9) applyLayout 은 스냅을 해체한다 ===');
   const B = W.get('patients');
   A.place({ x: 800, y: 300 });
   B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
   check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
   snap.dissolveAllSnaps(); // index.ts 의 'layout:apply' 핸들러가 하는 일
   check('해체 후 관계 없음', snap.getSnapRelations().length === 0);
   check('저장소도 비워짐', (BACKING.windowSnaps ?? []).length === 0);
   const aBefore = b(A);
-  B.userDrag(40, 0);
+  await B.userDrag(40, 0);
   check('해체 후 한 창 이동이 다른 창을 끌지 않음', b(A).x === aBefore.x);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== 10) 겹치면 스냅이 아니라 탭 머지 (경계 규칙) ===');
+// 우선순위 규칙: 커서가 상대 rect 안이면 머지가 이긴다 (겹침 여부가 아니라
+// 커서 위치가 기준이다 — windowSnap.ts 상단 주석 참고).
+console.log('\n=== 10) 커서가 상대 창 안이면 스냅이 아니라 탭 머지 (우선순위 규칙) ===');
 {
   const W = freshWorld();
   const target = W.get('diagnosis');
@@ -547,7 +551,7 @@ console.log('\n=== 10) 겹치면 스냅이 아니라 탭 머지 (경계 규칙) 
   // 타깃 위로 확실히 겹치게 놓고, 커서도 타깃 안에 둔다 (머지 조건).
   mover.place({ x: 820, y: 320, ...SPECS.patients });
   setCursor(900, 400);
-  mover.userDrag(8, 8);
+  await mover.userDrag(8, 8);
 
   const gs = groups.getGroupsState();
   check('탭 그룹이 생성됨', gs.length === 1 && gs[0].tabs.length === 2, JSON.stringify(gs));
@@ -560,31 +564,46 @@ console.log('\n=== 10) 겹치면 스냅이 아니라 탭 머지 (경계 규칙) 
   const X = W2.get('terms');
   T.place({ x: 800, y: 300 });
   M.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
-  M.userDrag(2, 0);
+  await M.userDrag(2, 0);
   check('사전 조건: patients-diagnosis 스냅', rel('patients', 'diagnosis'));
   X.place({ x: 200, y: 700, ...SPECS.terms });
   // patients 를 terms 위로 끌어 머지.
   M.place({ x: 210, y: 710, ...SPECS.patients });
   setCursor(300, 760);
-  M.userDrag(8, 8);
+  await M.userDrag(8, 8);
   check('머지된 창은 스냅 클러스터에서 빠짐', !rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
   check('탭 그룹은 정상 생성', groups.getGroupsState().length === 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log("\n=== 11) 'moved' 가 오지 않는 플랫폼(win32) 경로: 디바운스로 드랍 판정 ===");
+console.log("\n=== 11) 드랍 판정은 '조용해지면' — 'moved' 유무와 무관하게 같은 결과 ===");
 {
+  // (a) 'moved' 가 아예 없는 플랫폼(win32/linux)
   const W = freshWorld();
   const target = W.get('diagnosis');
   const mover = W.get('patients');
   target.place({ x: 800, y: 300 });
   mover.place({ x: 800 - 380 - 18 - 16, y: 300, ...SPECS.patients });
-  // emitMoved:false = 'moved' 이벤트가 없는 플랫폼 재현.
-  mover.userDrag(16, 0, { emitMoved: false });
-  check("'moved' 직후에는 아직 흡착 안 함", !rel('patients', 'diagnosis'));
-  await sleep(420); // DROP_DEBOUNCE_MS = 320
-  check('디바운스 만료 후 흡착', rel('patients', 'diagnosis'), `x=${b(mover).x}`);
+  await mover.userDrag(16, 0, { emitMoved: false, settle: false });
+  check('드랍 직후에는 아직 흡착 전 (판정을 미룬다)', !rel('patients', 'diagnosis'));
+  await sleep(420); // DROP_SETTLE_MS = 320
+  check("'moved' 없이도 정착 후 흡착", rel('patients', 'diagnosis'), `x=${b(mover).x}`);
   check('흡착 위치가 정확히 맞닿음', b(mover).x + b(mover).width === b(target).x);
+
+  // (b) macOS 실측 동작: 이동마다 'moved' 가 온다.
+  //     예전 코드는 이 신호로 매번 finishDrag 를 해서 move 카운트가 임계값에
+  //     닿지 못했다 = macOS 에서 스냅이 아예 발동하지 않았던 진짜 원인.
+  const W2 = freshWorld();
+  const t2 = W2.get('diagnosis');
+  const m2 = W2.get('patients');
+  t2.place({ x: 800, y: 300 });
+  m2.place({ x: 800 - 380 - 18 - 16, y: 300, ...SPECS.patients });
+  await m2.userDrag(16, 0, { movedPerStep: true });
+  check(
+    "이동마다 'moved' 가 와도 흡착 (macOS 실제 이벤트 열)",
+    rel('patients', 'diagnosis'),
+    `x=${b(m2).x}`
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -595,7 +614,7 @@ console.log('\n=== 12) 멤버 리사이즈는 상대 오프셋을 유지한다 (
   const B = W.get('patients');
   A.place({ x: 800, y: 300 });
   B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
   const aBefore = b(A);
   // 마우스 리사이즈 ('resized' 발생) 와 단축키 리사이즈 (이벤트 없음) 둘 다.
   B.userResize(340, 420);
@@ -604,7 +623,7 @@ console.log('\n=== 12) 멤버 리사이즈는 상대 오프셋을 유지한다 (
   check('단축키 리사이즈: 관계 유지', rel('patients', 'diagnosis'));
   const aNow = b(A);
   const bNow = b(B);
-  B.userDrag(30, 0);
+  await B.userDrag(30, 0);
   check(
     '리사이즈 후에도 클러스터는 함께 이동',
     b(A).x - aNow.x === 30 && b(B).x - bNow.x === 30,

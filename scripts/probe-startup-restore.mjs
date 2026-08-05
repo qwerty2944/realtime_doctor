@@ -144,7 +144,7 @@ console.log('\n=== 3) 스냅 클러스터가 재시작을 살아서 넘어간다
   }
   placeAndSave(A, 'diagnosis', { x: 800, y: 300, width: 380, height: 460 });
   placeAndSave(B, 'patients', { x: 800 - 380 - 18, y: 300, width: 380, height: 420 });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
   const relOf = () =>
     snap.getSnapRelations().some(
       (r) =>
@@ -171,7 +171,7 @@ console.log('\n=== 3) 스냅 클러스터가 재시작을 살아서 넘어간다
   check('스냅 관계 복원', relOf(), JSON.stringify(snap.getSnapRelations()));
 
   const beforeA = second.windows.get('diagnosis').getBounds();
-  second.windows.get('patients').userDrag(220, 60);
+  await second.windows.get('patients').userDrag(220, 60);
   const afterA = second.windows.get('diagnosis').getBounds();
   check(
     '복원된 클러스터가 함께 움직임 (거리 제한 없음)',

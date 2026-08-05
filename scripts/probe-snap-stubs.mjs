@@ -41,6 +41,12 @@ export function setCursor(x, y) {
 
 let nextWindowId = 1;
 
+/**
+ * 드랍 판정이 끝나기를 기다리는 시간.
+ * windowSnap 의 DROP_SETTLE_MS(320) 보다 넉넉히 길어야 한다.
+ */
+export const SETTLE_MS = 420;
+
 export class FakeWindow extends EventEmitter {
   #b;
   #visible = true;
@@ -85,8 +91,21 @@ export class FakeWindow extends EventEmitter {
     this.#b = { ...this.#b, ...b };
   }
 
-  /** 사용자 드래그 시뮬레이션: will-move → move 를 steps 번, 마지막에 moved. */
-  userDrag(dx, dy, { steps = 8, emitMoved = true } = {}) {
+  /**
+   * 사용자 드래그 시뮬레이션: will-move → move 를 steps 번, 마지막에 moved.
+   *
+   * 드랍 판정이 "마지막 이동 이벤트로부터 조용해지면" 으로 바뀌었으므로 기본적으로
+   * 정착(settle)까지 기다린 뒤 resolve 한다 — 호출부는 await 해야 한다.
+   *
+   * @param movedPerStep true 면 macOS 실측 동작대로 이동마다 'moved' 를 쏜다.
+   *   ('moved' 는 드래그가 끝날 때 한 번' 이라는 가정이 틀렸던 것이 실제 버그다.)
+   * @param settle false 면 이벤트만 쏘고 즉시 반환 — 타이밍을 직접 검사할 때 쓴다.
+   */
+  async userDrag(
+    dx,
+    dy,
+    { steps = 8, emitMoved = true, movedPerStep = false, settle = true } = {}
+  ) {
     const x0 = this.#b.x;
     const y0 = this.#b.y;
     for (let i = 1; i <= steps; i += 1) {
@@ -98,8 +117,10 @@ export class FakeWindow extends EventEmitter {
         y: y0 + Math.round((dy * i) / steps)
       };
       this.emit('move');
+      if (movedPerStep) this.emit('moved');
     }
-    if (emitMoved) this.emit('moved');
+    if (emitMoved && !movedPerStep) this.emit('moved');
+    if (settle) await new Promise((r) => setTimeout(r, SETTLE_MS));
   }
 
   /** 사용자 리사이즈 시뮬레이션. */

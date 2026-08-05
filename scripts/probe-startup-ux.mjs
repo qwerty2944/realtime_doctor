@@ -364,7 +364,7 @@ console.log('\n=== 6) 로그인 전에도 스냅이 걸린다 (사용자가 보�
   placeAndSave(A, 'diagnosis', { x: 800, y: 300, width: 380, height: 460 });
   // 흡착 거리 안쪽(왼쪽 18px 틈)에 두고 2px 만 밀어 붙인다.
   placeAndSave(B, 'patients', { x: 800 - 380 - 18, y: 300, width: 380, height: 420 });
-  B.userDrag(2, 0);
+  await B.userDrag(2, 0);
 
   const rels = snap.getSnapRelations();
   check(
@@ -383,7 +383,7 @@ console.log('\n=== 6) 로그인 전에도 스냅이 걸린다 (사용자가 보�
   );
 
   const beforeA = A.getBounds();
-  B.userDrag(120, 40);
+  await B.userDrag(120, 40);
   const afterA = A.getBounds();
   check(
     '클러스터가 함께 움직인다',
