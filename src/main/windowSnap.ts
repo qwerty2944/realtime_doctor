@@ -1,6 +1,7 @@
 import { BrowserWindow, screen } from 'electron';
+import { appendFileSync } from 'node:fs';
 import { saveBounds, store, type WindowKey } from './store.js';
-import { groupOf, isMergePending } from './windowGroups.js';
+import { groupOf, isMergePending, mergeTargetAtCursor } from './windowGroups.js';
 
 /**
  * 창 가장자리 스냅(자석 붙이기).
@@ -16,13 +17,31 @@ import { groupOf, isMergePending } from './windowGroups.js';
  * 옮기려면 여러 번 끌어야 했다. 신호가 겹치지 않게 분리하면 드래그 거리에
  * 제한이 사라진다.
  *
- * ── 스냅 vs 탭 머지 경계 ────────────────────────────────────────────────
- * windowGroups.ts 의 탭 머지는 "드랍 시점 커서가 다른 창 rect 안"일 때
- * 발동한다. 커서는 드래그 중인 창의 타이틀바 위에 있으므로 그 조건은
- * 반드시 두 창 rect 의 겹침을 동반한다. 그래서 스냅은 정반대 조건 —
- * **두 rect 가 전혀 겹치지 않을 때만** 발동하도록 정의한다. 두 기능의
- * 발동 조건이 논리적으로 배타적이라 한 드랍이 둘 다 트리거할 수 없다.
- * 안전장치로 isMergePending() 도 확인해 머지가 예약된 드랍은 건너뛴다.
+ * ── 스냅 vs 탭 머지 우선순위 (명시) ─────────────────────────────────────
+ * **머지가 이긴다.** 판정 근거는 커서 위치 하나다:
+ *
+ *   드랍 시점 커서가 다른 창 rect 안에 있다  → 탭 머지. 스냅은 관여하지 않는다.
+ *   그렇지 않다                              → 스냅. 가장 가까운 변에 흡착한다.
+ *
+ * 커서를 상대 창 **안** 까지 끌고 들어가는 것은 의도적인 행위이므로 머지의
+ * 신호로 삼고, 변끼리 가까워지는 것은 스냅의 신호로 삼는다. 두 신호는 겹치지
+ * 않으므로 한 드랍이 둘 다 트리거할 수 없다.
+ *
+ * [왜 바뀌었나] 예전에는 "rect 가 겹치면 머지, 안 겹치면 스냅" 으로 갈랐다.
+ * 그런데 창을 이웃 안으로 살짝 밀어 넣는 것 — 붙이려 할 때 사람이 실제로 하는
+ * 동작 — 은 rect 를 겹치게 만들면서도 커서는 상대 창 밖에 남긴다. 그 구간에서
+ * 스냅은 "겹쳤다"며 거부하고 머지는 "커서가 밖"이라며 거부해서 아무 일도
+ * 일어나지 않는 사각지대가 생겼다 (실제 사용자 신고). 그래서 스냅이 겹침을
+ * 허용하도록 바꾸고, 경계는 커서 위치로 다시 그었다.
+ * 회귀 프로브: scripts/probe-snap-overlap.mjs
+ *
+ * ── 진단 로그 ───────────────────────────────────────────────────────────
+ * 화면을 볼 수 없는 환경에서 "왜 안 붙었는지" 를 숫자로 받기 위한 옵트인 로그.
+ * 기본은 꺼져 있고, 켜는 방법은 한 줄이다:
+ *
+ *   RD_SNAP_DEBUG=1 npm run dev        # 기록 위치: /tmp/dev.log
+ *
+ * (기록 위치를 바꾸려면 RD_SNAP_DEBUG_LOG=/path/to/file)
  *
  * ── 드래그 중에는 아무 창도 프로그램적으로 움직이지 않는다 ──────────────
  * OS 의 네이티브 드래그 루프(Windows 의 WM_ENTERSIZEMOVE 모달 루프) 안에서
@@ -41,23 +60,54 @@ export interface SnapRelation {
 }
 
 // ── 임계값 ────────────────────────────────────────────────────────────────
+//
+// [튜닝 근거] 오버레이 창은 폭 380~420px 이고 테두리 없는 프레임리스라 잡을 수
+// 있는 곳이 타이틀바뿐이다. 손으로 끌어 놓는 정확도는 실측상 수십 px 단위이므로
+// 예전의 24px 밴드는 사람이 맞히기 어려웠다. 아래 값은 "창 폭의 1/8 정도면
+// 붙이려던 것" 이라는 기준으로 잡았다.
+
 /**
- * 붙는 거리. 드랍 시점 두 변 사이 간격이 이 이하면 흡착한다.
- * 마우스 손떨림(수 px)보다 넉넉하고, 의도치 않은 이웃을 잡아채기엔 작다.
+ * 바깥쪽 흡착 거리. 드랍 시점 두 변 사이 간격이 이 이하면 흡착한다.
+ * 380px 폭의 1/8. 손으로 겨눌 수 있는 폭이면서, 옆 창을 우연히 잡아채기엔
+ * 여전히 창 폭보다 한참 작다.
  */
-const ENGAGE_PX = 24;
-/** 맞닿는 변이 최소 이만큼은 겹쳐야 한다. 모서리만 스친 대각선 흡착 방지. */
-const MIN_SHARE_PX = 24;
-/** 수직축 정렬(예: 오른쪽에 붙일 때 위쪽 맞추기) 허용 오차. */
-const ALIGN_PX = 24;
+const ENGAGE_PX = 48;
+/**
+ * 안쪽 흡착 거리(파고든 깊이). 이웃 안으로 이만큼까지 밀어 넣어도 밀려나며
+ * 딱 붙는다 — "밀어서 붙인다" 는 자연스러운 동작을 그대로 받아준다.
+ * ENGAGE 의 두 배로, 창 폭의 1/4 만큼 파묻힐 때까지 허용한다. 그보다 깊으면
+ * 붙이려는 게 아니라 포개는 동작으로 보고 아무것도 하지 않는다(원치 않는
+ * 순간이동 방지 — 대개 그 지점에서는 커서가 상대 창 안이라 머지가 가져간다).
+ */
+const PENETRATE_PX = 96;
+/**
+ * 맞닿는 변이 최소 이만큼은 겹쳐야 한다. 모서리만 스친 대각선 흡착 방지.
+ * 겹침을 허용하게 되면서 모서리 근처 오검출 여지가 늘었으므로 24 → 40 으로
+ * 올렸다 (창 높이 240~460 기준으로도 "변이 맞닿았다" 고 부를 최소치).
+ */
+const MIN_SHARE_PX = 40;
+/** 수직축 정렬(예: 오른쪽에 붙일 때 위쪽 맞추기) 허용 오차. ENGAGE 와 동일 감각. */
+const ALIGN_PX = 48;
 
 /** 사용자 드래그로 인정할 최소 move 이벤트 수 (windowGroups 와 동일 규율). */
 const DRAG_MOVE_THRESHOLD = 4;
 /**
- * 'moved' 가 오지 않는 플랫폼용 드랍 판정 디바운스.
+ * 드랍 판정: 마지막 이동 이벤트로부터 이만큼 조용하면 드래그가 끝난 것으로 본다.
+ *
+ * [왜 'moved' 로 즉시 끝내지 않나] macOS 의 'moved' 는 "드래그 한 번의 끝"에
+ * 한 번만 오지 않는다. 실측(scripts/probe-snap-electron.mjs)에서는 'move' 하나마다
+ * 'moved' 가 뒤따라 왔다 — NSWindowDidMoveNotification 이 이동마다 발생하기
+ * 때문이다. 그 신호로 곧바로 finishDrag 를 하면 매 스텝마다 드래그가 리셋되어
+ * move 카운트가 영영 DRAG_MOVE_THRESHOLD 에 닿지 못한다. 즉 macOS 에서는 스냅이
+ * 조건과 무관하게 **한 번도** 발동할 수 없었다. 그래서 'move'/'moved' 를 모두
+ * "아직 움직이는 중" 신호로만 쓰고, 조용해질 때 한 번 판정한다. 플랫폼 분기도
+ * 사라진다('moved' 가 없는 win32/linux 도 같은 경로).
+ *
  * windowGroups 의 250ms 보다 길게 잡아 머지 판정이 항상 먼저 끝나게 한다.
+ * 드래그 도중 이만큼 멈춰 있으면 드랍으로 오인할 수 있지만, 그 경우에도 결과는
+ * "이미 흡착 범위 안이던 이웃에 붙는 것" 이라 사용자가 향하던 방향과 어긋나지 않는다.
  */
-const DROP_DEBOUNCE_MS = 320;
+const DROP_SETTLE_MS = 320;
 
 // ── 상태 ──────────────────────────────────────────────────────────────────
 let relations: SnapRelation[] = [];
@@ -79,6 +129,30 @@ function win(key: WindowKey): BrowserWindow | null {
   const w = windowsRef?.get(key);
   return w && !w.isDestroyed() ? w : null;
 }
+
+// ── 진단 로그 (옵트인) ─────────────────────────────────────────────────────
+// 켜기: RD_SNAP_DEBUG=1 npm run dev   (기본 출력 /tmp/dev.log)
+
+const SNAP_DEBUG = process.env.RD_SNAP_DEBUG === '1';
+const SNAP_DEBUG_LOG = process.env.RD_SNAP_DEBUG_LOG || '/tmp/dev.log';
+
+/** 로그 실패가 창 동작을 막아서는 안 된다 — 조용히가 아니라 '한 번만' 알린다. */
+let debugWriteFailed = false;
+
+function debugWrite(lines: string[]): void {
+  if (!SNAP_DEBUG || lines.length === 0) return;
+  try {
+    appendFileSync(SNAP_DEBUG_LOG, lines.map((l) => `${l}\n`).join(''));
+  } catch (err) {
+    if (!debugWriteFailed) {
+      debugWriteFailed = true;
+      console.error(`[snap] 진단 로그를 쓸 수 없다 (${SNAP_DEBUG_LOG}):`, err);
+    }
+  }
+}
+
+const fmtRect = (r: Electron.Rectangle): string =>
+  `${r.x},${r.y} ${r.width}x${r.height}`;
 
 function persist(): void {
   store.set(
@@ -264,37 +338,76 @@ interface EngageResult {
   y: number;
 }
 
-/** 드랍한 창이 흡착할 이웃과 최종 위치를 찾는다. 겹치는 쌍은 후보에서 제외. */
-function findEngage(key: WindowKey, b: Electron.Rectangle): EngageResult | null {
+/**
+ * 드랍한 창이 흡착할 이웃과 최종 위치를 찾는다.
+ *
+ * 간격은 음수(= 이웃 안으로 파고든 상태)도 허용한다. 파고들었으면 밀려나며
+ * 딱 붙는다. 후보 정렬 기준은 |간격| 이라 "가장 얕게 빠져나가는 변" 이 이긴다.
+ *
+ * @param trace 넘기면 후보별 계산값과 탈락 사유를 여기에 쌓는다 (진단 로그용).
+ */
+function findEngage(
+  key: WindowKey,
+  b: Electron.Rectangle,
+  trace?: string[]
+): EngageResult | null {
   const own = new Set(clusterOf(key));
   let best: (EngageResult & { gap: number }) | null = null;
 
   for (const [other, w] of windowsRef ?? []) {
     if (own.has(other)) continue;
-    if (!w || w.isDestroyed() || !w.isVisible() || w.isMinimized()) continue;
+    if (!w || w.isDestroyed()) continue;
+    if (!w.isVisible() || w.isMinimized()) {
+      trace?.push(`  후보 ${other}: 탈락 — 보이지 않음(hidden/minimized)`);
+      continue;
+    }
     // 탭 그룹에 속한 창은 스냅에 참여하지 않는다 (아래 finishDrag 와 같은 규칙).
-    if (groupOf(other)) continue;
+    if (groupOf(other)) {
+      trace?.push(`  후보 ${other}: 탈락 — 탭 그룹 멤버`);
+      continue;
+    }
     const t = w.getBounds();
-    // 겹치면 탭 머지의 영역이다 — 스냅은 관여하지 않는다.
-    if (overlaps(b, t)) continue;
 
     const vShare = overlapLength(b.y, b.y + b.height, t.y, t.y + t.height);
     const hShare = overlapLength(b.x, b.x + b.width, t.x, t.x + t.width);
 
-    const candidates: Array<{ edge: SnapEdge; gap: number; x: number; y: number }> = [];
-    if (vShare >= MIN_SHARE_PX) {
-      // 내 오른쪽 변을 상대 왼쪽 변에.
-      candidates.push({ edge: 'right', gap: t.x - (b.x + b.width), x: t.x - b.width, y: b.y });
-      // 내 왼쪽 변을 상대 오른쪽 변에.
-      candidates.push({ edge: 'left', gap: b.x - (t.x + t.width), x: t.x + t.width, y: b.y });
+    const candidates: Array<{ edge: SnapEdge; gap: number; share: number; x: number; y: number }> =
+      [
+        // 내 오른쪽 변을 상대 왼쪽 변에.
+        { edge: 'right', gap: t.x - (b.x + b.width), share: vShare, x: t.x - b.width, y: b.y },
+        // 내 왼쪽 변을 상대 오른쪽 변에.
+        { edge: 'left', gap: b.x - (t.x + t.width), share: vShare, x: t.x + t.width, y: b.y },
+        { edge: 'bottom', gap: t.y - (b.y + b.height), share: hShare, x: b.x, y: t.y - b.height },
+        { edge: 'top', gap: b.y - (t.y + t.height), share: hShare, x: b.x, y: t.y + t.height }
+      ];
+
+    // 로그 가독성: 애초에 근처에도 없는 창은 변별 없이 한 줄로 접는다.
+    // (판정에는 영향이 없다 — 어차피 아래 필터에서 전부 탈락한다.)
+    const nearestGap = Math.min(...candidates.map((c) => Math.abs(c.gap)));
+    if (trace && nearestGap > ENGAGE_PX * 4) {
+      trace.push(`  후보 ${other}: bounds=${fmtRect(t)} → 탈락: 멀리 떨어짐 (최소 |gap|=${nearestGap})`);
+      continue;
     }
-    if (hShare >= MIN_SHARE_PX) {
-      candidates.push({ edge: 'bottom', gap: t.y - (b.y + b.height), x: b.x, y: t.y - b.height });
-      candidates.push({ edge: 'top', gap: b.y - (t.y + t.height), x: b.x, y: t.y + t.height });
-    }
+    trace?.push(
+      `  후보 ${other}: bounds=${fmtRect(t)} vShare=${vShare} hShare=${hShare}` +
+        `${overlaps(b, t) ? ' (겹침)' : ''}`
+    );
 
     for (const c of candidates) {
-      if (c.gap < 0 || c.gap > ENGAGE_PX) continue;
+      if (c.share < MIN_SHARE_PX) {
+        trace?.push(
+          `    edge=${c.edge} gap=${c.gap} share=${c.share} → 탈락: 공유 변 부족 (< ${MIN_SHARE_PX})`
+        );
+        continue;
+      }
+      if (c.gap > ENGAGE_PX) {
+        trace?.push(`    edge=${c.edge} gap=${c.gap} → 탈락: 너무 멂 (> ${ENGAGE_PX})`);
+        continue;
+      }
+      if (c.gap < -PENETRATE_PX) {
+        trace?.push(`    edge=${c.edge} gap=${c.gap} → 탈락: 너무 깊이 겹침 (< -${PENETRATE_PX})`);
+        continue;
+      }
       // 수직축 정렬: 이미 거의 맞아 있으면 딱 맞춘다. 크기는 절대 바꾸지
       // 않는다 — 오버레이마다 의도된 높이/폭이 다르기 때문(dock 130 vs
       // diagnosis 460). 강제로 맞추면 정보가 잘린다.
@@ -304,7 +417,11 @@ function findEngage(key: WindowKey, b: Electron.Rectangle): EngageResult | null 
       } else if (Math.abs(b.x - t.x) <= ALIGN_PX) {
         x = t.x;
       }
-      if (!best || c.gap < best.gap) best = { target: other, edge: c.edge, x, y, gap: c.gap };
+      const better = !best || Math.abs(c.gap) < Math.abs(best.gap);
+      trace?.push(
+        `    edge=${c.edge} gap=${c.gap} share=${c.share} → 통과 (→ ${x},${y})${better ? ' [현재 최선]' : ''}`
+      );
+      if (better) best = { target: other, edge: c.edge, x, y, gap: c.gap };
     }
   }
 
@@ -327,17 +444,49 @@ function resetDrag(): void {
 function finishDrag(): void {
   const key = draggingKey;
   const start = dragStart;
+  const moves = dragMoveCount;
   const wasRealDrag = dragMoveCount >= DRAG_MOVE_THRESHOLD;
   resetDrag();
-  if (!key || !start || !wasRealDrag) return;
+  if (!key || !start) return;
+
+  const trace: string[] = [];
+  const log = SNAP_DEBUG ? trace : undefined;
+  const decide = (line: string): void => {
+    if (!SNAP_DEBUG) return;
+    trace.push(`  결정: ${line}`);
+    debugWrite(trace);
+  };
+  log?.push(
+    `[snap] ${new Date().toISOString()} 드랍 key=${key} ` +
+      `start=${fmtRect(start)} move이벤트=${moves}`
+  );
+
+  if (!wasRealDrag) {
+    decide(`무시 — 사용자 드래그로 보기엔 move 가 적다 (${moves} < ${DRAG_MOVE_THRESHOLD})`);
+    return;
+  }
 
   const w = win(key);
-  if (!w) return;
-  // 탭 머지가 예약된 드랍은 머지가 가져간다 (경계 규칙 1).
-  if (isMergePending(key)) return;
+  if (!w) {
+    decide('무시 — 창이 사라짐');
+    return;
+  }
+  // ── 우선순위: 머지가 스냅을 이긴다 ──────────────────────────────────────
+  // 근거는 커서 위치 하나다. 커서가 다른 창 rect 안이면 그건 "포개겠다" 는
+  // 의도적 행위이므로 머지가 가져간다. mergeTargetAtCursor 는 드래그 상태가
+  // 아니라 커서/rect 로 다시 계산하므로, windowGroups 와 windowSnap 중
+  // 어느 쪽 'moved' 핸들러가 먼저 돌든 답이 같다.
+  const mergeTarget = mergeTargetAtCursor(key);
+  if (mergeTarget || isMergePending(key)) {
+    decide(`스냅 안 함 — 커서가 ${mergeTarget ?? '(pending)'} 안 → 탭 머지가 가져간다`);
+    return;
+  }
   // 탭 그룹 멤버는 스냅에 참여하지 않는다 — 그룹은 하나의 rect 를 공유하므로
   // 개별 멤버의 스냅 관계는 눈에 보이지 않는 기하가 되어 버린다.
-  if (groupOf(key)) return;
+  if (groupOf(key)) {
+    decide('스냅 안 함 — 끌린 창이 탭 그룹 멤버');
+    return;
+  }
 
   const dropped = w.getBounds();
   const dx = dropped.x - start.x;
@@ -347,19 +496,28 @@ function finishDrag(): void {
     // 붙어 있는 창의 드래그는 언제나 클러스터 통째 이동이다 — 거리 제한 없음.
     // 빼내려면 명시적 분리 동작(detachFromCluster)을 써야 한다.
     moveCluster(key, start, dx, dy);
+    decide(`클러스터 통째 이동 delta=${dx},${dy} 멤버=[${clusterOf(key).join(',')}]`);
     return;
   }
 
   const current = win(key)?.getBounds();
-  if (!current) return;
-  const engage = findEngage(key, current);
-  if (!engage) return;
+  if (!current) {
+    decide('무시 — 창이 사라짐');
+    return;
+  }
+  log?.push(`  드랍 bounds=${fmtRect(current)}`);
+  const engage = findEngage(key, current, log);
+  if (!engage) {
+    decide('흡착 없음 — 조건을 통과한 후보가 없다');
+    return;
+  }
 
   // 흡착도 강체 이동으로 적용한다 — key 가 이미 다른 창을 달고 있으면
   // 그 창들도 같이 따라와야 배치가 깨지지 않는다.
   moveCluster(key, current, engage.x - current.x, engage.y - current.y);
   relations.push({ a: key, b: engage.target, edge: engage.edge });
   persist();
+  decide(`흡착 ${key} → ${engage.target} (edge=${engage.edge}) 위치=${engage.x},${engage.y}`);
 }
 
 function onDragTick(key: WindowKey): void {
@@ -372,21 +530,25 @@ function onDragTick(key: WindowKey): void {
     dragMoveCount = 0;
   }
   dragMoveCount += 1;
+  scheduleDrop();
+}
 
-  // 'moved' 가 오지 않는 플랫폼(win32/linux)용 백스톱. 'moved' 가 오는
-  // 플랫폼에서는 finishDrag 가 먼저 타이머를 지우므로 중복 실행되지 않는다.
+/** 드랍 판정을 뒤로 민다. 이동 이벤트가 올 때마다 다시 밀린다. */
+function scheduleDrop(): void {
   if (dropTimer) clearTimeout(dropTimer);
-  dropTimer = setTimeout(finishDrag, DROP_DEBOUNCE_MS);
+  dropTimer = setTimeout(finishDrag, DROP_SETTLE_MS);
 }
 
 export function attachSnapDragHandlers(w: BrowserWindow, key: WindowKey): void {
   // will-move 는 실제 이동 직전에 오므로 드래그 시작 위치를 정확히 잡을 수 있다.
   w.on('will-move', () => onDragTick(key));
   w.on('move', () => onDragTick(key));
+  // macOS 의 'moved' 는 이동마다 오므로 여기서 즉시 끝내지 않는다 —
+  // 다른 이동 이벤트와 똑같이 "아직 움직이는 중" 으로 취급하고 판정을 미룬다.
   w.on('moved', () => {
     if (applyingBounds > 0) return;
     if (draggingKey !== key) return;
-    finishDrag();
+    scheduleDrop();
   });
   w.on('closed', () => dropSnapsFor([key]));
 }
@@ -401,7 +563,6 @@ function stillAdjacent(a: WindowKey, b: WindowKey, edge: SnapEdge): boolean {
   const wa = win(a)?.getBounds();
   const wb = win(b)?.getBounds();
   if (!wa || !wb) return false;
-  if (overlaps(wa, wb)) return false;
   const vShare = overlapLength(wa.y, wa.y + wa.height, wb.y, wb.y + wb.height);
   const hShare = overlapLength(wa.x, wa.x + wa.width, wb.x, wb.x + wb.width);
   const gap =
@@ -413,7 +574,9 @@ function stillAdjacent(a: WindowKey, b: WindowKey, edge: SnapEdge): boolean {
           ? wb.y - (wa.y + wa.height)
           : wa.y - (wb.y + wb.height);
   const share = edge === 'right' || edge === 'left' ? vShare : hShare;
-  return gap >= 0 && gap <= ENGAGE_PX && share >= MIN_SHARE_PX;
+  // 흡착 판정과 같은 밴드를 쓴다 (겹침 허용). 스냅이 만든 배치는 간격 0 이지만,
+  // 재시작 사이에 리사이즈 등으로 약간 어긋났다고 관계를 버릴 이유는 없다.
+  return gap >= -PENETRATE_PX && gap <= ENGAGE_PX && share >= MIN_SHARE_PX;
 }
 
 /**

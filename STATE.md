@@ -577,9 +577,25 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
 - 버전 0.6.0.
 - **Windows**: `win-build/v0.6.0/Realtime Doctor Setup 0.6.0.exe` (86,390,975 bytes).
   미러 `mole-bi-com/realtime-doctor-winbuild` run 30850827147. CI 에서 16키 임베딩 검증 통과.
+- **데모 계정 발급 (2026-08-05)**: `demo.friend@righthand-demo.com` / 비밀번호는 사용자에게 전달됨.
+  user_id `a79fdc6c-f356-413a-b08d-206dd7e3bfeb`. 공개 `/auth/v1/signup` 경로로 가입 →
+  트리거가 standard 7일 체험 생성(`trial_ends_at` 2026-08-12). is_admin=false, 기기 2대 한도.
+  체험 만료 후에는 잠기므로 계속 쓰려면 `subscriptions.trial_ends_at` 연장 필요.
+- **데모 환자 데이터 시드 (2026-08-05)**: `scripts/seed-demo.sql`(신규, 멱등 — 고정 UUID +
+  `on conflict do nothing`, 파일 하단에 주석 처리된 정리 블록). 위 데모 계정 소유로 원격
+  프로젝트에 적용 완료: 환자 4(김데모/이시연/박준호/최영자) + encounters 4
+  (`intake_done` 2 — 김데모 red_flag, `in_consult` 1, `completed` 1) + intake_results 4
+  (키오스크 `soapJsonSchema` 형태, transcript 6턴, 0011 트리거가 facts_fingerprint 채움 —
+  4행 전부 확인) + 박준호 방문에 sessions 1/transcript_chunks 6/summaries 1/analyses 1/
+  dictations 1. `differentials_json[].supporting_findings[].source`의 `#N`은 실제 환자
+  발화 인덱스를 가리키게 맞췄다(어긋나면 감별진단 창이 "근거 미확인"으로 떨어뜨림).
+  전부 합성 데이터이며 PHI 없음. RLS 때문에 일반 authenticated 세션으로는 안 들어간다 —
+  service_role 또는 SQL 에디터로 실행할 것.
 
 ## 알려진 문제
 
+- [해결됨] Email > Confirm email: 2026-08-05 signup 이 세션을 즉시 반환하는 것을 확인 —
+  현재 꺼져 있다. (아래 원 기록은 이력으로 남김)
 - [HARD] **Supabase 대시보드에서 Email > Confirm email 을 꺼야 한다.**
   앱의 가입 로직은 signUp 직후 signInWithPassword 를 호출하므로, 켜져 있으면 신규 가입자가
   로그인할 수 없다. 2026-08-04 기준 아직 켜져 있음.
@@ -588,3 +604,42 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   근본 수정은 electron.vite.config.ts 의 loadDotenv 에 `override: true`.
   당장은 .env 값을 환경에 주입해 빌드하는 것으로 우회한다.
 - 로컬 브랜치 `winbuild/v0.6.0` 에는 시크릿 주입 워크플로가 있다. **공개 저장소로 푸시 금지.**
+
+## 창 스냅 (2026-08-05)
+
+- `src/main/windowSnap.ts` — 가장자리 근접 시 흡착, 붙은 창은 클러스터로 함께 이동.
+- **우선순위(2026-08-06 재정의)**: 커서가 상대 창 rect 안 → 탭 머지, 아니면 → 스냅.
+  기준은 "겹침 여부"가 아니라 **커서 위치**다. 스냅은 겹침을 허용한다:
+  바깥 48px(ENGAGE_PX) ~ 안쪽 96px(PENETRATE_PX) 밴드, 공유 변 40px 이상.
+- **실사용 실패 두 건 수정 (2026-08-06)**:
+  1. 사각지대 — 이웃 안으로 살짝 밀어 넣는 자연스러운 동작에서 스냅(겹침이라 거부)도
+     머지(커서가 상대 밖이라 거부)도 발동하지 않았다. 회귀 프로브 `scripts/probe-snap-overlap.mjs`.
+  2. **macOS 에서 스냅·머지가 아예 발동 불가였다** — 'moved' 가 "드래그 끝에 한 번"이
+     아니라 **이동마다** 온다(실측). 그 신호로 즉시 finishDrag 를 해서 move 카운트가
+     DRAG_MOVE_THRESHOLD(4)에 영영 닿지 못했다. 이제 'move'/'moved' 모두 "아직 움직이는 중"
+     으로만 쓰고 조용해질 때(스냅 320ms / 머지 250ms) 한 번 판정한다. 플랫폼 분기 제거.
+     이 결함은 가짜 창 프로브가 'moved' 를 1회만 쏘는 바람에 가려져 있었다.
+- 진단 로그(옵트인): `RD_SNAP_DEBUG=1 npm run dev` → `/tmp/dev.log` 에 드랍마다 후보별
+  gap·공유 변·탈락 사유·최종 결정이 남는다. (`RD_SNAP_DEBUG_LOG` 로 경로 변경)
+- 실제 Electron 검증: `npx electron scripts/probe-snap-electron.mjs --user-data-dir=$(mktemp -d)`
+  — 진짜 이벤트 열을 태운다. 프로브와 현실이 갈라졌던 지점이 바로 여기다.
+- 분리는 **명시적 동작**이다: `Control+Alt+D` 또는 타이틀바 Unlink 버튼(클러스터 소속일 때만 표시).
+  거리로 분리를 판정하던 초기 구현은 클러스터를 한 번에 96px 밖에 못 옮기게 만들어 폐기했다.
+- 사슬 A-B-C 에서 가운데를 빼면 사슬이 끊긴다 — 남은 둘 사이엔 실제로 빈 공간이 있고,
+  이어두면 떨어진 창이 보이지 않는 이유로 함께 움직인다.
+- 크기는 강제로 맞추지 않는다 (dock 130 vs diagnosis 460 은 의도된 값).
+
+## 시작 시 배치 복원 (기존 결함 수정)
+
+- 시작할 때마다 `applyLayout` 이 무조건 돌아 저장된 창 위치를 덮어쓰고 있었다.
+  창 위치·크기 저장이 재시작 시점에 통째로 무력화되던 기존 결함이다 (M5 의 크기 단축키 포함).
+- 이제 저장된 위치가 하나도 없을 때만 프리셋을 적용한다. 명시적 레이아웃 적용은 그대로 동작.
+- `applyLayout` 이 적용한 좌표를 직접 `saveBounds` 한다 — 프로그램적 `setBounds` 는 `moved` 를
+  쏘지 않아서, 이게 없으면 UI 에서 고른 레이아웃이 다음 실행에 사라진다.
+- 화면 밖 좌표는 `clampBoundsToDisplays()` 가 되돌린다 (가로·세로 80px 이상 보이면 유지).
+
+## 미해결 — 육안 검증
+
+- 스냅·분리 버튼·감사 추적 IPC 배선은 **화면으로 확인하지 못했다.** 이 머신에 화면 기록 권한이
+  없다. 전부 bounds 숫자와 관계 그래프로만 검증됐다.
+- 타이틀바가 이미 좁은데 Unlink 아이콘이 하나 더 붙었다 — 좁은 창에서 제목이 더 잘릴 수 있다.

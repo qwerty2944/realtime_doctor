@@ -55,7 +55,18 @@ let hoverTarget: WindowKey | null = null;
  */
 let dragMoveCount = 0;
 const DRAG_MOVE_THRESHOLD = 4;
-/** macOS 외 플랫폼은 'moved' 이벤트가 없어 move 디바운스로 드랍을 판정. */
+/**
+ * 드랍 판정: 마지막 이동 이벤트로부터 이만큼 조용하면 놓은 것으로 본다.
+ *
+ * macOS 의 'moved' 는 "드래그 끝"에 한 번이 아니라 이동마다 온다(실측:
+ * scripts/probe-snap-electron.mjs). 그걸로 즉시 finishDrag 를 하면 매 스텝마다
+ * dragMoveCount 가 0 으로 리셋되어 DRAG_MOVE_THRESHOLD 에 영영 닿지 못한다 —
+ * 머지도 스냅과 같은 이유로 발동하지 못했다. 그래서 모든 플랫폼에서 동일하게
+ * "조용해지면 판정" 으로 통일한다.
+ *
+ * windowSnap 의 320ms 보다 짧게 잡아 머지가 항상 먼저 결론난다.
+ */
+const DROP_SETTLE_MS = 250;
 let dropTimer: NodeJS.Timeout | null = null;
 
 function win(key: WindowKey): BrowserWindow | null {
@@ -90,13 +101,28 @@ function broadcastHover(target: WindowKey | null): void {
 }
 
 /**
- * 이 드래그가 드랍되면 탭 머지가 일어나는가.
+ * 이 드래그가 드랍되면 탭 머지가 일어나는가 (드래그 상태 기준).
  *
- * windowSnap 이 "머지가 가져갈 드랍"을 건너뛰기 위해 확인한다. 스냅과 머지는
- * 겹침 여부로 이미 배타적이지만, 판정 순서에 기대지 않기 위한 명시적 안전장치다.
+ * 주의: 'moved' 핸들러 등록 순서상 windowGroups 의 finishDrag 가 먼저 돌면서
+ * draggingKey/hoverTarget 을 이미 비운 뒤에 windowSnap 이 이걸 읽을 수 있다.
+ * 그래서 이 함수만으로는 배타성을 보장하지 못한다 — mergeTargetAtCursor 를 함께 쓴다.
  */
 export function isMergePending(key: WindowKey): boolean {
   return draggingKey === key && hoverTarget !== null;
+}
+
+/**
+ * "지금 이 창을 놓으면 머지가 일어나는가" 를 **드래그 상태와 무관하게** 커서와
+ * rect 로만 다시 계산한다.
+ *
+ * windowSnap 이 스냅-머지 우선순위를 판정하는 근거다. 드래그 상태를 보지 않으므로
+ * 두 모듈의 이벤트 핸들러 등록 순서가 바뀌어도 답이 달라지지 않는다.
+ * 머지가 실제로 성립하는 조건(양쪽 다 GROUPABLE)까지 여기서 확인한다 — dock 처럼
+ * 머지 대상이 아닌 창이 스냅을 못 하게 되는 오검출을 막기 위해서다.
+ */
+export function mergeTargetAtCursor(dragged: WindowKey): WindowKey | null {
+  if (!GROUPABLE.includes(dragged)) return null;
+  return findHoverTarget(dragged);
 }
 
 export function groupOf(key: WindowKey): Group | null {
@@ -265,26 +291,27 @@ function onWindowMove(key: WindowKey): void {
     dragMoveCount = 0;
   }
   dragMoveCount += 1;
+  scheduleDrop();
   if (dragMoveCount < DRAG_MOVE_THRESHOLD) return;
   // 그룹 활성 탭을 드래그해서 옮기는 건 "그룹 전체 이동" — 머지 대상 탐색은
   // 하되, 숨은 멤버들은 activate 시점에 bounds 를 따라오므로 별도 동기화 불필요.
   broadcastHover(findHoverTarget(key));
+}
 
-  // win32/linux 에는 'moved'(드래그 종료) 이벤트가 없어 디바운스로 대체.
-  if (process.platform !== 'darwin') {
-    if (dropTimer) clearTimeout(dropTimer);
-    dropTimer = setTimeout(finishDrag, 250);
-  }
+/** 드랍 판정을 뒤로 민다. 이동 이벤트가 올 때마다 다시 밀린다. */
+function scheduleDrop(): void {
+  if (dropTimer) clearTimeout(dropTimer);
+  dropTimer = setTimeout(finishDrag, DROP_SETTLE_MS);
 }
 
 export function attachGroupDragHandlers(w: BrowserWindow, key: WindowKey): void {
   if (!GROUPABLE.includes(key)) return;
   w.on('move', () => onWindowMove(key));
-  // macOS: 'moved' 가 드래그 한 번이 끝날 때 1회 발생.
+  // macOS 의 'moved' 는 이동마다 온다 — 즉시 끝내지 않고 판정만 미룬다.
   w.on('moved', () => {
     if (applyingBounds > 0) return;
     if (draggingKey !== key) return;
-    finishDrag();
+    scheduleDrop();
   });
 }
 
