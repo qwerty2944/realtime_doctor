@@ -1,0 +1,7 @@
+# Vercel CLI 가 링크하면서 만든 파일. 루트 .gitignore 에도 같은 규칙이 있지만
+# 이 디렉토리가 별도 Vercel 프로젝트(Root Directory = kiosk)라 여기에도 둔다.
+.vercel
+
+# 환경변수. `.env.example` 은 비밀이 아니라 문서이므로 되살린다.
+.env*
+!.env.example

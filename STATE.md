@@ -592,6 +592,31 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   전부 합성 데이터이며 PHI 없음. RLS 때문에 일반 authenticated 세션으로는 안 들어간다 —
   service_role 또는 SQL 에디터로 실행할 것.
 
+## 키오스크 공개 배포 (2026-08-06)
+
+- **Vercel 프로젝트 `righthand-patient`** (팀 `mole-bi-coms-projects`, Root Directory `kiosk`).
+  배포 주소: <https://righthand-patient.vercel.app> — 앱은 `/righthand/patient` 하위 경로에서
+  서비스된다. 루트(`/`)와 루트 API 는 404 다(basePath 가 걸려 있으므로 정상).
+- 프로덕션 환경변수(이름만): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `KIOSK_TOKEN_SECRET`
+  (신규 생성), `KIOSK_CLINICIANS`(`main` → `fc0e40fe-…`, entanglecare@gmail.com),
+  `GEMINI_API_KEY`, `NEXT_PUBLIC_BASE_PATH=/righthand/patient`.
+  `NEXT_PUBLIC_BASE_PATH` 는 **빌드 타임에 번들로 들어간다** — 값을 바꾸면 반드시 재배포.
+- DB 는 `yhwvwojjwwlcrvpfxgag` 하나다(`tasks/domain-structure.md` 의 결정).
+  0009~0013 이 이미 적용돼 있어 방문 코드 RPC 가 운영에서 동작하는 것을 확인했다.
+- 검증: `kiosk/scripts/probe-production.mjs` — **ALL PASS**(실제 배포 + 실제 DB + 실제 Gemini).
+  하위 경로 서비스·루트 404·번들이 base path 보유 / AI 고지 5문장 / 무코드·오타 코드 거절 시
+  patients 0행·encounters 0행 / 진짜 코드로 완주 → `intake_done` + 귀속 + 동의 3종 +
+  `soap_json.transcript`(9턴)·`follow_up_questions`·`medical_terms` + 감별진단 3건 전부
+  `name_en` 과 `supporting_findings` 보유 / replay 차단.
+  **프로브가 만든 행은 전부 삭제했다** — 담당 의사 앞으로 남은 patients/encounters/
+  visit_access_codes/attempts 는 0행이다.
+- **모델 호출 0회 단언은 배포에서 못 센다.** 호출을 셀 이음매(`GEMINI_API_BASE`)가
+  운영에는 없다. 그 단언은 `scripts/probe-visit-code.mjs`(로컬)가 갖고 있고, 배포에서는
+  "거절 뒤 행이 늘지 않았다"로만 확인했다(코드 게이트가 insert 와 모델 호출 **둘 다**
+  앞에 있으므로 같은 return 이 둘을 함께 막는다).
+- 남은 것: `righthand_voice` 앱에 `/righthand/patient` rewrite 추가 (다른 세션 담당),
+  QR/키오스크 주소 설정값을 배포 주소로 지정, 접수처 운영 절차.
+
 ## 알려진 문제
 
 - [해결됨] Email > Confirm email: 2026-08-05 signup 이 세션을 즉시 반환하는 것을 확인 —
@@ -643,3 +668,45 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
 - 스냅·분리 버튼·감사 추적 IPC 배선은 **화면으로 확인하지 못했다.** 이 머신에 화면 기록 권한이
   없다. 전부 bounds 숫자와 관계 그래프로만 검증됐다.
 - 타이틀바가 이미 좁은데 Unlink 아이콘이 하나 더 붙었다 — 좁은 창에서 제목이 더 잘릴 수 있다.
+
+## 창 스냅 — 실기 디버깅에서 드러난 것들 (2026-08-06)
+
+프로브는 통과하는데 실제 앱에서는 동작하지 않았다. 진단 로그(`RD_SNAP_DEBUG=1`)를
+붙이고 사용자가 직접 끌어본 기록을 읽어가며 네 번에 걸쳐 고쳤다.
+
+1. **macOS `moved` 는 드래그 끝에 한 번이 아니라 이동마다 온다.** 그 신호로 즉시 드랍
+   판정을 하니 매 스텝마다 드래그가 리셋되어 최소 이동 횟수에 영영 닿지 못했다.
+   **macOS 에서 스냅은 한 번도 발동한 적이 없었고, 같은 코드 구조인 탭 병합도 죽어 있었다.**
+2. **데드존**: 스냅은 겹치지 않은 0~24px 틈에서만 걸리고, 탭 병합은 커서가 상대 창 안에
+   있어야 했다. 사람이 창을 붙일 때 하는 동작(이웃 쪽으로 밀어넣기)이 그 사이에 떨어졌다.
+   → 겹침 허용(96px 까지 파고들어도 흡착), 밴드 24→48px.
+3. **탭 그룹이 스냅에서 통째로 제외돼 있었다.** 병합이 잘 되니 창들이 대부분 그룹이 되고,
+   한 번 합친 창은 두 번 다시 붙지 않았다. → 스냅 단위를 창이 아니라 **unit**(홀로 있는 창
+   또는 탭 그룹 전체)으로 바꿨다. 대표 키는 `tabs[0]`.
+4. **조준하느라 멈추면 드래그가 조각났다.** 320ms 디바운스가 발동하고 각 조각이 최소
+   이동 횟수 미달로 버려졌다. → 이벤트 개수 대신 누적 변위, 판정 후에도 세션 유지.
+5. **따라오는 창이 드래그 중에는 가만히 있다가 손을 뗄 때 따라잡았다.** → 매 이동
+   이벤트마다 절대 좌표로 재계산해 추종. 오프셋 누적이 아니라 재계산이라 표류가 없다.
+
+부수적으로 잡힌 기존 결함:
+- 화면 끝에서 클러스터를 끌면 클램프가 리더에게만 걸려 **두 창이 완전히 포개졌다.**
+- 변위 0 인 이벤트 20개만으로도 흡착이 발동했다.
+- `applyLayout` 이 적용한 좌표를 저장하지 않아 UI 에서 고른 레이아웃이 다음 실행에 사라졌다.
+- 시작 시 `applyLayout` 이 무조건 돌아 저장된 창 위치를 전부 덮어썼다(M5 크기 단축키 포함).
+
+## 로그인 전 사용성 (2026-08-06)
+
+- 단축키가 sign-in 콜백에서만 등록돼 **로그인 전에는 Cmd+숫자가 전혀 동작하지 않았다.**
+  창 토글·글씨 크기·리사이즈는 유료 기능이 아니므로 시작 시 무조건 등록하도록 바꿨다.
+  잠긴 기능은 IPC 단에서 이미 막히므로 눌러도 잠금 안내가 뜬다.
+- `windowsVisibility` 는 정의만 있고 읽는 쪽도 쓰는 쪽도 없는 죽은 저장소였다. 배선했다.
+  시작 시 저장된 취향대로 복원하고, **sign-out 은 여전히 전부 숨기고 PHI 를 지운다**
+  (다만 그 숨김을 취향으로 저장하지는 않는다 — 저장하면 다음 실행이 빈 화면이 된다).
+- dock 이 130px 고정이라 S2 구독 배너가 들어오며 세 줄이 되자 잘렸다.
+  `windowFit.ts` 로 내용 높이에 맞춰 자동 조절. 사용자가 직접 키운 높이는 줄이지 않는다.
+
+## 도구
+
+- 진단: `RD_SNAP_DEBUG=1 npm run dev` → `/tmp/dev.log`. 드래그당 2줄로 요약된다.
+- 라이브 개입 끄기: `RD_SNAP_LIVE=0` (흡착·추종이 함께 꺼진다).
+- **main 프로세스 변경은 HMR 로 반영되지 않는다. 반드시 재시작.**

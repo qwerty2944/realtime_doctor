@@ -235,6 +235,63 @@ npm start           # 프로덕션 서버
 `/intake`는 `force-dynamic`이고 `Cache-Control: no-store`가 붙습니다.
 태블릿을 공유해도 앞 환자의 화면이 복원되지 않습니다.
 
+### 현재 배포 (2026-08-06)
+
+| 항목 | 값 |
+|---|---|
+| Vercel 프로젝트 | `righthand-patient` (팀 `mole-bi-coms-projects`, Root Directory `kiosk`) |
+| 배포 주소 | `https://righthand-patient.vercel.app` |
+| 앱 경로 | `https://righthand-patient.vercel.app/righthand/patient` |
+| DB | `yhwvwojjwwlcrvpfxgag` (데스크톱 앱과 **같은** 프로젝트) |
+| 키오스크 슬러그 | `main` → `entanglecare@gmail.com` |
+
+루트(`/`)는 404 입니다. `NEXT_PUBLIC_BASE_PATH` 가 걸려 있으면 Next 가 그 경로에서만
+서비스하기 때문이고, 이것이 의도된 동작입니다.
+
+### 도메인 앞단 (`entanglecare.com/righthand/patient`)
+
+도메인과 `/righthand` 네임스페이스는 `righthand_voice/app`(Vercel 프로젝트 `app`)이
+갖고 있습니다. 그 앱의 `next.config.ts` 에 rewrite 하나를 넣어 이 배포로 넘깁니다.
+
+```ts
+// righthand_voice/app/next.config.ts
+async rewrites() {
+  return [
+    // 키오스크는 realtime_doctor/kiosk 의 별도 Vercel 배포다.
+    // NEXT_PUBLIC_BASE_PATH=/righthand/patient 로 빌드돼 있어서
+    // **경로를 벗기지 않고 그대로** 넘긴다 — 벗기면 저쪽에서 404 다.
+    {
+      source: '/righthand/patient',
+      destination: 'https://righthand-patient.vercel.app/righthand/patient'
+    },
+    {
+      source: '/righthand/patient/:path*',
+      destination: 'https://righthand-patient.vercel.app/righthand/patient/:path*'
+    }
+  ];
+}
+```
+
+`next.config.ts` 에 `/righthand/patient` 로 보내는 **redirect 가 이미 있다면 지워야
+합니다.** redirect 가 rewrite 보다 먼저 걸리면 브라우저가 되돌아오며 루프가 됩니다.
+
+정적 자원(`/righthand/patient/_next/*`)과 API(`/righthand/patient/api/*`)가 전부
+`:path*` 에 들어가므로 규칙은 위의 두 줄이면 충분합니다.
+
+### 배포 검증
+
+```bash
+# 실제 배포 + 실제 DB + 실제 Gemini 를 상대로 돈다. 만든 행은 스스로 지운다.
+KIOSK_URL=https://righthand-patient.vercel.app \
+KIOSK_BASE_PATH=/righthand/patient \
+KIOSK_CLINICIAN_ID=<의사 uuid> \
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SUPABASE_ANON_KEY=... \
+node kiosk/scripts/probe-production.mjs
+```
+
+`scripts/probe-visit-code.mjs`(저장소 루트)는 로컬 스택 전용이고 모델 호출 횟수까지
+셉니다. 배포 프로브는 그 이음매가 없어 "거절 뒤 행이 늘지 않았다" 까지만 셉니다.
+
 ---
 
 ## 산출 JSON 형태 (Electron이 읽는 계약)
