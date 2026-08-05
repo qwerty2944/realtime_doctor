@@ -1,0 +1,6 @@
+code,label_ko,description_ko,category,specialty,cue_terms,negation_terms,required_speaker,min_distinct_cues,min_utterances,min_duration_seconds
+lifestyle_education,생활습관 교육 대화,식이·운동·체중에 관한 설명이 오간 구간입니다.,교육상담,,식단|식이|싱겁게|염분|운동|걷기|유산소|체중|살을|칼로리|기름진,다음에|나중에|안 했|하지 않|설명 안|생략,doctor,2,2,120
+medication_counseling,복약 지도 대화,복용 방법·시간·중단 조건에 관한 설명이 오간 구간입니다.,교육상담,,복용|드세요|식후|식전|하루 세 번|하루 두 번|끊지 마|거르지|부작용|어지러우면,다음에|나중에|안 했|하지 않|처방만,doctor,2,2,60
+smoking_cessation_counseling,금연 상담 대화,흡연과 금연에 관한 상담이 오간 구간입니다.,교육상담,,금연|담배|흡연|끊으셔야|니코틴|금연클리닉,다음에|나중에|안 피우신다|비흡연,doctor,2,2,60
+wound_dressing,상처 소독·드레싱 기록,상처 소독이나 드레싱이 진료실에서 이루어진 정황이 있는 구간입니다.,처치,,소독|드레싱|거즈|연고 발라|밴드|봉합 부위,다음에|나중에|안 했|하지 않|집에서,doctor,2,2,0
+injection_administered,주사 처치 기록,주사가 진료실에서 시행된 정황이 있는 구간입니다.,처치,,주사|놓아드릴|맞으시|엉덩이에|근육주사|정맥주사,다음에|나중에|안 맞|맞지 않|처방만|약국,doctor,2,2,0
