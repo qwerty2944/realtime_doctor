@@ -14,10 +14,13 @@ import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 
 import {
+  FONT_SCALE_DEFAULT,
+  FONT_SCALE_STEP,
   IPC,
   type AnalysisResult,
   type CloudSyncSettings,
   type DictationResult,
+  type EvidenceStatus,
   type Language,
   type LocalSaveSettings,
   type ShortcutId,
@@ -79,17 +82,22 @@ import {
   transcribeAudio
 } from './transcribers.js';
 import {
+  DEFAULT_LANGUAGE,
   clearLanguage,
   getCloudSync,
+  getFontScale,
   getLanguage,
   getLastDictationTemplate,
   getLocalSave,
   getShortcuts,
   getTranscribeProvider,
+  hasStoredLanguage,
   markLaunched,
   resetShortcuts,
+  saveBounds,
   saveOpacity,
   setCloudSync,
+  setFontScale,
   setLastDictationTemplate,
   setLocalSave,
   setShortcut,
@@ -320,6 +328,61 @@ ipcMain.handle(IPC.AnalysisRequest, () => {
 
 ipcMain.handle(IPC.SummaryRequest, async () => runSummaryNow());
 
+// ── 전역 글씨 배율 ──────────────────────────────────────────────────────
+/** 저장 + 전 창 broadcast. 렌더러는 :root 의 --font-scale 만 갈아끼운다. */
+function applyFontScale(value: number): void {
+  broadcast(IPC.FontScaleChanged, setFontScale(value));
+}
+
+function stepFontScale(delta: number): void {
+  applyFontScale(getFontScale() + delta);
+}
+
+// 나중에 뜬 창이 현재 배율을 스스로 채우기 위한 getter (PatientsGetActive 와 동일 패턴).
+ipcMain.handle(IPC.FontScaleGet, () => getFontScale());
+
+// ── 창 크기 단축키 ──────────────────────────────────────────────────────
+const WINDOW_RESIZE_STEP = 40;
+
+/**
+ * 포커스된 오버레이 창의 크기를 한 스텝 조절한다. 포커스된 오버레이가 없으면
+ * 아무것도 하지 않는다 (엉뚱한 창을 건드리지 않기 위해).
+ */
+function resizeFocusedWindow(deltaW: number, deltaH: number): void {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win || win.isDestroyed()) return;
+  const key = windowKeyOf(win);
+  if (!key) return;
+
+  const prev = win.getBounds();
+  const [minW, minH] = win.getMinimumSize();
+  const wa = screen.getDisplayMatching(prev).workArea;
+
+  const width = Math.min(Math.max(prev.width + deltaW, minW), wa.width);
+  const height = Math.min(Math.max(prev.height + deltaH, minH), wa.height);
+  if (width === prev.width && height === prev.height) return;
+
+  // 커진 쪽이 작업영역 밖으로 밀려나면 안쪽으로 당긴다.
+  let x = prev.x;
+  let y = prev.y;
+  if (x + width > wa.x + wa.width) x = wa.x + wa.width - width;
+  if (y + height > wa.y + wa.height) y = wa.y + wa.height - height;
+  if (x < wa.x) x = wa.x;
+  if (y < wa.y) y = wa.y;
+
+  const next = { x, y, width, height };
+  win.setBounds(next);
+  // 프로그램적 setBounds 는 'resized'(사용자 조작) 이벤트를 발생시키지 않으므로
+  // windows.ts 의 persist 핸들러에 기대지 않고 직접 저장한다.
+  saveBounds(key, next);
+  // 임시 확장(팝오버/언어 선택기) 중이었다면, 이 단축키는 사용자가 의도적으로
+  // 정한 크기이므로 확장 해제 시 되돌리지 않도록 알린다.
+  noteDeliberateResize(win, next);
+  // 탭 그룹은 같은 bounds 를 공유한다 — 숨은 멤버까지 맞춰 desync 를 막는다.
+  for (const member of syncGroupBounds(key, next)) saveBounds(member, next);
+  broadcastWindowState();
+}
+
 function dispatchShortcut(id: ShortcutId): void {
   switch (id) {
     case 'toggleAll':
@@ -365,6 +428,27 @@ function dispatchShortcut(id: ShortcutId): void {
       return;
     case 'runDictation':
       void runDictationNow(getLastDictationTemplate());
+      return;
+    case 'fontIncrease':
+      stepFontScale(FONT_SCALE_STEP);
+      return;
+    case 'fontDecrease':
+      stepFontScale(-FONT_SCALE_STEP);
+      return;
+    case 'fontReset':
+      applyFontScale(FONT_SCALE_DEFAULT);
+      return;
+    case 'windowWiden':
+      resizeFocusedWindow(WINDOW_RESIZE_STEP, 0);
+      return;
+    case 'windowNarrow':
+      resizeFocusedWindow(-WINDOW_RESIZE_STEP, 0);
+      return;
+    case 'windowTaller':
+      resizeFocusedWindow(0, WINDOW_RESIZE_STEP);
+      return;
+    case 'windowShorter':
+      resizeFocusedWindow(0, -WINDOW_RESIZE_STEP);
       return;
   }
 }

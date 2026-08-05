@@ -165,10 +165,18 @@ export type ShortcutId =
   | 'toggleQuestions'
   | 'toggleSummary'
   | 'toggleDictation'
+  | 'togglePatients'
   | 'recordStartStop'
   | 'runAnalyze'
   | 'runSummary'
-  | 'runDictation';
+  | 'runDictation'
+  | 'fontIncrease'
+  | 'fontDecrease'
+  | 'fontReset'
+  | 'windowWiden'
+  | 'windowNarrow'
+  | 'windowTaller'
+  | 'windowShorter';
 
 export const SHORTCUT_IDS: ShortcutId[] = [
   'toggleAll',
@@ -178,10 +186,18 @@ export const SHORTCUT_IDS: ShortcutId[] = [
   'toggleQuestions',
   'toggleSummary',
   'toggleDictation',
+  'togglePatients',
   'recordStartStop',
   'runAnalyze',
   'runSummary',
-  'runDictation'
+  'runDictation',
+  'fontIncrease',
+  'fontDecrease',
+  'fontReset',
+  'windowWiden',
+  'windowNarrow',
+  'windowTaller',
+  'windowShorter'
 ];
 
 // macOS 위주 디자인: Cmd 단일 모디파이어. Win/Linux 에서는 Ctrl 로 매핑되어
@@ -194,10 +210,23 @@ export const SHORTCUT_DEFAULTS: Record<ShortcutId, string> = {
   toggleQuestions: 'CommandOrControl+4',
   toggleSummary: 'CommandOrControl+5',
   toggleDictation: 'CommandOrControl+6',
+  togglePatients: 'CommandOrControl+7',
   recordStartStop: 'CommandOrControl+R',
   runAnalyze: 'CommandOrControl+A',
   runSummary: 'CommandOrControl+E',
-  runDictation: 'CommandOrControl+D'
+  runDictation: 'CommandOrControl+D',
+  // Cmd+0 은 toggleAll 이 이미 쓰므로 리셋은 Cmd+Shift+0.
+  // Electron 의 accelerator 는 구두점을 글자 그대로 받는다. 'Equal'/'Minus' 는
+  // 유효한 키 이름이 아니라서 globalShortcut.register 가 통째로 던지고, 글씨
+  // 크기 단축키가 조용히 하나도 등록되지 않는다.
+  fontIncrease: 'CommandOrControl+=',
+  fontDecrease: 'CommandOrControl+-',
+  fontReset: 'CommandOrControl+Shift+0',
+  // 창 크기는 Cmd 조합이 이미 0~7/R/A/E/D/=/-/Shift+0 으로 포화라 Ctrl+Alt 대역 사용.
+  windowWiden: 'Control+Alt+Right',
+  windowNarrow: 'Control+Alt+Left',
+  windowTaller: 'Control+Alt+Down',
+  windowShorter: 'Control+Alt+Up'
 };
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
@@ -208,10 +237,18 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   toggleQuestions: '다음 질문 창',
   toggleSummary: '요약 창',
   toggleDictation: '받아쓰기 창',
+  togglePatients: '대기목록 창',
   recordStartStop: '녹음 시작/정지',
   runAnalyze: '감별 분석 새로 실행',
   runSummary: '요약 새로 생성',
-  runDictation: '받아쓰기 새로 생성'
+  runDictation: '받아쓰기 새로 생성',
+  fontIncrease: '글씨 크게',
+  fontDecrease: '글씨 작게',
+  fontReset: '글씨 크기 초기화',
+  windowWiden: '창 너비 늘리기',
+  windowNarrow: '창 너비 줄이기',
+  windowTaller: '창 높이 늘리기',
+  windowShorter: '창 높이 줄이기'
 };
 
 export interface SessionSummary {

@@ -270,6 +270,36 @@ export function attachGroupDragHandlers(w: BrowserWindow, key: WindowKey): void 
   });
 }
 
+/**
+ * 그룹 멤버 창들의 bounds 를 강제로 맞춘다.
+ *
+ * 그룹은 같은 bounds 를 공유하는 게 전제인데(activateTab/ showAt), 단축키로
+ * 활성 창 하나만 리사이즈하면 숨은 멤버가 옛 크기로 남는다. 리사이즈 직후
+ * 이걸 불러 동기화한다. 반환값은 실제로 bounds 를 바꾼 멤버 키 목록 —
+ * 호출자가 저장 경로에 태울 수 있게 돌려준다.
+ */
+export function syncGroupBounds(
+  key: WindowKey,
+  bounds: Electron.Rectangle
+): WindowKey[] {
+  const g = groupOf(key);
+  if (!g) return [];
+  const changed: WindowKey[] = [];
+  for (const t of g.tabs) {
+    if (t === key) continue;
+    const w = win(t);
+    if (!w) continue;
+    applyingBounds += 1;
+    try {
+      w.setBounds(bounds);
+    } finally {
+      applyingBounds -= 1;
+    }
+    changed.push(t);
+  }
+  return changed;
+}
+
 /** 레이아웃 적용 등 전체 재배치 전에 그룹을 전부 해체한다. */
 export function dissolveAllGroups(): void {
   if (groups.length === 0) return;

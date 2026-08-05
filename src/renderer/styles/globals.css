@@ -24,6 +24,8 @@
     --destructive-foreground: 210 40% 98%;
     --ring: 215 20.2% 65.1%;
     --radius: 0.75rem;
+    /* 전역 글씨 배율. main 이 broadcast 하면 fontScale.ts 가 이 값만 바꾼다. */
+    --font-scale: 1;
   }
 
   .dark {
@@ -52,6 +54,15 @@
 @layer base {
   * {
     @apply border-border;
+  }
+
+  /*
+   * Tailwind 기본 타입 스케일(text-xs/sm/…)과 spacing 이 전부 rem 이므로
+   * 루트 font-size 한 곳만 바꾸면 shadcn 컴포넌트까지 통째로 따라온다.
+   * 16px 은 브라우저 기본 루트 크기 = 현재 앱의 실질 기준값.
+   */
+  html {
+    font-size: calc(16px * var(--font-scale));
   }
 
   html,

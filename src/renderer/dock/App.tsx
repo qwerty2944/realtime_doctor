@@ -948,7 +948,7 @@ export default function DockApp() {
               {SHORTCUT_IDS.map((id) => (
                 <ShortcutRow
                   key={id}
-                  label={SHORTCUT_LABELS[id]}
+                  label={t(`shortcut.${id}`)}
                   accel={shortcuts[id]}
                   onChange={(next) => void window.api.shortcuts.set(id, next)}
                 />

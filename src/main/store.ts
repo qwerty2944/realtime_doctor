@@ -1,8 +1,10 @@
 import Store from 'electron-store';
 import { randomUUID } from 'node:crypto';
 import {
+  FONT_SCALE_DEFAULT,
   SHORTCUT_DEFAULTS,
   SHORTCUT_IDS,
+  clampFontScale,
   type CloudSyncSettings,
   type DictationTemplate,
   type Language,
@@ -89,6 +91,19 @@ export function saveOpacity(key: WindowKey, value: number): void {
   const clamped = Math.max(0.2, Math.min(1, value));
   const all = store.get('opacity');
   store.set('opacity', { ...all, [key]: clamped });
+}
+
+/** 저장된 글씨 배율. 없거나 범위를 벗어나면 기본값으로 보정한다. */
+export function getFontScale(): number {
+  const saved = store.get('fontScale');
+  if (typeof saved !== 'number') return FONT_SCALE_DEFAULT;
+  return clampFontScale(saved);
+}
+
+export function setFontScale(value: number): number {
+  const next = clampFontScale(value);
+  store.set('fontScale', next);
+  return next;
 }
 
 export function getTranscribeProvider(): TranscribeProviderId {
