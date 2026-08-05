@@ -357,11 +357,23 @@ export default function DockApp() {
 
   const builtins = layouts.filter((l) => l.builtin);
   const customs = layouts.filter((l) => !l.builtin);
+  const bannerKey = subBannerKey(sub);
+  const subLabel = sub ? t(SUB_STATUS_TKEY[sub.status]) : t('common.loading');
+  // 남은 일수는 체험/구독 모두에 의미가 있으므로 상태와 함께 붙인다.
+  const subDays =
+    sub && sub.entitled && sub.daysRemaining !== null
+      ? sub.daysRemaining <= 0
+        ? t('sub.lastDay')
+        : `${sub.daysRemaining}${t('sub.daysLeftSuffix')}`
+      : null;
 
-  // 첫 실행 — 언어 미선택. IPC 응답 전 (undefined) 빈 화면, null 이면 picker.
+  // IPC 응답 전(undefined)에만 빈 화면. 첫 실행에도 언어를 묻지 않고 바로 dock 을
+  // 띄운다 (main 이 기본값 'ko' 를 보장).
   if (language === undefined) {
     return <OverlayShell title="Dock" hideOpacity hideMinimize><div /></OverlayShell>;
   }
+  // 안전망: main 이 어떤 이유로든 언어를 못 돌려주면(null) 선택 화면을 띄운다.
+  // 정상 동작에서는 도달하지 않으며, 도달하더라도 언어를 고르면 바로 진행된다.
   if (language === null) {
     return (
       <OverlayShell title="Dock" hideOpacity hideMinimize>

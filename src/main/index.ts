@@ -746,19 +746,22 @@ ipcMain.handle(IPC.ProviderSet, (_event, id: TranscribeProviderId) => {
   return current;
 });
 
-ipcMain.handle(IPC.LanguageGet, () => getLanguage() ?? null);
+// 언어는 항상 값이 있다 — "미선택" 상태는 더 이상 존재하지 않는다.
+ipcMain.handle(IPC.LanguageGet, () => getLanguage());
 ipcMain.handle(IPC.LanguageSet, (_event, lang: Language) => {
-  const prev = getLanguage();
   const provider = applyLanguage(lang);
-  if (!prev) markLaunched();
+  markLaunched();
   broadcast(IPC.LanguageChanged, lang);
   broadcast(IPC.ProviderChanged, provider);
   return { ok: true, language: lang, provider };
 });
+// 언어 초기화 = 기본값(한국어) 복귀. 언어 선택 화면으로 되돌아가지 않는다.
 ipcMain.handle(IPC.LanguageClear, () => {
   clearLanguage();
-  // LanguagePicker 로 돌아가도록 null 브로드캐스트.
-  broadcast(IPC.LanguageChanged, null);
+  const lang = getLanguage();
+  const provider = applyLanguage(lang);
+  broadcast(IPC.LanguageChanged, lang);
+  broadcast(IPC.ProviderChanged, provider);
   return { ok: true };
 });
 
@@ -1134,10 +1137,17 @@ function applyDockIcon(): void {
 app.whenReady().then(() => {
   loadEnvFiles();
 
-  // 저장된 language 가 있는데 저장된 provider 가 .env 변경 등으로 더 이상
-  // available 하지 않으면 preferredProviderFor 로 자동 보정.
+  // 최초 실행: 언어를 묻지 않고 기본값(한국어)을 그대로 저장하고 시작한다.
+  // 이미 언어를 고른 기존 사용자는 그 선택이 그대로 유지된다.
+  if (!hasStoredLanguage()) {
+    applyLanguage(DEFAULT_LANGUAGE);
+    markLaunched();
+  }
+
+  // 저장된 provider 가 .env 변경 등으로 더 이상 available 하지 않으면
+  // preferredProviderFor 로 자동 보정.
   const savedLang = getLanguage();
-  if (savedLang) {
+  {
     const cur = getTranscribeProvider();
     const stillAvail = listProviders().find((p) => p.id === cur)?.available;
     if (!stillAvail) setTranscribeProvider(preferredProviderFor(savedLang));

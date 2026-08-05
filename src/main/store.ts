@@ -196,15 +196,29 @@ export function setLocalSave(patch: Partial<LocalSaveSettings>): LocalSaveSettin
   return next;
 }
 
-export function getLanguage(): Language | undefined {
-  return store.get('language');
+/**
+ * 기본 언어.
+ *
+ * 국내 전용 앱이라 최초 실행 시 언어를 묻지 않고 한국어로 시작한다.
+ * (외국인 환자용 언어 전환은 dock 설정 UI 에 그대로 남아 있다.)
+ */
+export const DEFAULT_LANGUAGE: Language = 'ko';
+
+/** 저장된 언어가 실제로 있는지. 기본값 보정 전 상태를 알아야 할 때 쓴다. */
+export function hasStoredLanguage(): boolean {
+  return store.get('language') !== undefined;
+}
+
+/** 저장된 언어. 없으면 기본값(한국어). 절대 undefined 를 돌려주지 않는다. */
+export function getLanguage(): Language {
+  return store.get('language') ?? DEFAULT_LANGUAGE;
 }
 
 export function setLanguage(lang: Language): void {
   store.set('language', lang);
 }
 
+/** 언어 선택을 기본값으로 되돌린다. (더 이상 "미선택" 상태는 존재하지 않는다.) */
 export function clearLanguage(): void {
-  // delete 가 electron-store 의 union 시그너처와 안 맞아 빈 객체 캐스팅으로 우회.
-  (store as { delete: (key: keyof Schema) => void }).delete('language');
+  store.set('language', DEFAULT_LANGUAGE);
 }
