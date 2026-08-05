@@ -39,10 +39,13 @@ export function setCursor(x, y) {
   cursor = { x, y };
 }
 
+let nextWindowId = 1;
+
 export class FakeWindow extends EventEmitter {
   #b;
   #visible = true;
   #minimized = false;
+  #min;
   destroyed = false;
 
   /**
@@ -52,12 +55,17 @@ export class FakeWindow extends EventEmitter {
   constructor(opts = {}) {
     super();
     this.setMaxListeners(50);
+    // 실제 BrowserWindow 처럼 창마다 고유한 id (windowFit 이 키로 쓴다).
+    this.id = nextWindowId;
+    nextWindowId += 1;
     this.#b = {
       x: opts.x ?? 0,
       y: opts.y ?? 0,
       width: opts.width ?? 100,
       height: opts.height ?? 100
     };
+    this.#min = [opts.minWidth ?? 280, opts.minHeight ?? 180];
+    this.#visible = opts.show !== false;
   }
 
   getBounds() {
@@ -121,7 +129,10 @@ export class FakeWindow extends EventEmitter {
   focus() {}
   setAlwaysOnTop() {}
   getMinimumSize() {
-    return [280, 180];
+    return [...this.#min];
+  }
+  minimize() {
+    this.#minimized = true;
   }
 
   // ── createOverlayWindow 가 부르는 나머지 표면 ──
@@ -147,7 +158,19 @@ export const app = {
 };
 
 export const ipcMain = { handle: () => undefined, on: () => undefined };
-export const globalShortcut = { register: () => false, unregisterAll: () => undefined };
+
+/**
+ * 등록된 accelerator -> 콜백. 실제 globalShortcut 과 달리 무엇이 등록됐는지
+ * 관측할 수 있어야 "로그인 없이도 전부 등록되는가" 를 숫자로 확인할 수 있다.
+ */
+export const REGISTERED_SHORTCUTS = new Map();
+export const globalShortcut = {
+  register: (accel, cb) => {
+    REGISTERED_SHORTCUTS.set(accel, cb);
+    return true;
+  },
+  unregisterAll: () => REGISTERED_SHORTCUTS.clear()
+};
 export const shell = { openExternal: async () => undefined };
 export const safeStorage = { isEncryptionAvailable: () => false };
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   getBounds,
   getOpacity,
+  getWindowVisibility,
   saveBounds,
   type WindowKey
 } from './store.js';
@@ -167,6 +168,21 @@ export function hasSavedPlacement(): boolean {
     const b = getBounds(spec.key);
     return typeof b?.x === 'number' && typeof b?.y === 'number';
   });
+}
+
+/**
+ * 시작 시 이 창을 숨긴 채 열어야 하는가.
+ *
+ * 저장된 사용자 취향(windowsVisibility, 기본값 = 표시)만 본다. **인증 상태는
+ * 보지 않는다** — 예전에는 dock 을 뺀 전부를 숨긴 채 열고 로그인해야 보여줬고,
+ * 그래서 로그인 전에는 화면에 dock 하나뿐이라 창 토글도 스냅도 대상이 없었다.
+ * 시작 시점에는 아직 아무 PHI 도 화면에 없으므로 숨겨서 얻는 보호가 없다.
+ * PHI 보호는 로그아웃 경로(hideOverlaysAndClearPHI)가 그대로 담당한다.
+ * Dock 은 유일한 조작 수단이므로 항상 보인다.
+ */
+export function initiallyHiddenFor(key: WindowKey): boolean {
+  if (key === 'dock') return false;
+  return !getWindowVisibility(key);
 }
 
 export function createOverlayWindow(

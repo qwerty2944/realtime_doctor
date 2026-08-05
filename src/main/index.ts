@@ -111,11 +111,13 @@ import {
   getLocalSave,
   getShortcuts,
   getTranscribeProvider,
+  getWindowVisibility,
   hasStoredLanguage,
   markLaunched,
   resetShortcuts,
   saveBounds,
   saveOpacity,
+  saveWindowVisibility,
   setCloudSync,
   setFontScale,
   setLastDictationTemplate,
@@ -163,7 +165,8 @@ import {
   MAIN_WINDOW_KEYS,
   OVERLAYS,
   createOverlayWindow,
-  hasSavedPlacement
+  hasSavedPlacement,
+  initiallyHiddenFor
 } from './windows.js';
 import type {
   DictationTemplate,
@@ -1408,8 +1411,10 @@ function toggleOneWindow(key: WindowKey): void {
     if (win.isMinimized()) win.restore();
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
+    saveWindowVisibility(key, true);
   } else {
     win.minimize();
+    saveWindowVisibility(key, false);
   }
 }
 
@@ -1419,8 +1424,13 @@ function toggleAllMainWindows(): void {
   );
   const anyShown = mains.some((w) => w.isVisible() && !w.isMinimized());
   if (anyShown) {
-    for (const w of mains) {
+    for (const key of MAIN_WINDOW_KEYS) {
+      const w = windows.get(key);
+      if (!w || w.isDestroyed()) continue;
       if (w.isVisible() && !w.isMinimized()) w.hide();
+      // 사용자가 의도한 숨김이므로 다음 실행에도 이어진다. (로그아웃 시의
+      // hideOverlaysAndClearPHI 는 여기와 달리 저장하지 않는다 — 아래 참조.)
+      saveWindowVisibility(key, false);
     }
   } else {
     for (const key of MAIN_WINDOW_KEYS) {
@@ -1431,6 +1441,7 @@ function toggleAllMainWindows(): void {
       if (w.isMinimized()) w.restore();
       if (!w.isVisible()) w.show();
       w.setAlwaysOnTop(true, 'screen-saver');
+      saveWindowVisibility(key, true);
     }
   }
   broadcastWindowState();
@@ -1462,17 +1473,33 @@ ipcMain.on(IPC.ModifierHoldSet, (_event, held: boolean) => {
   broadcast(IPC.ModifierHoldChanged, next);
 });
 
-function revealOverlays(): void {
+/**
+ * 저장된 창 표시 상태를 그대로 되살린다.
+ *
+ * 예전에는 로그인 시 **모든** 창을 무조건 show 했다. 그러면 사용자가 일부러
+ * 닫아 둔 창까지 매번 되살아난다. 창 표시 여부는 인증과 무관한 사용자 취향이므로
+ * 저장된 값(store 의 windowsVisibility, 기본값 = 표시)만 따른다.
+ * 시작 시점의 복원은 createOverlayWindow 의 initiallyHidden 이 같은 판정으로 한다.
+ */
+function restoreOverlayVisibility(): void {
   for (const key of MAIN_WINDOW_KEYS) {
     const win = windows.get(key);
     if (!win || win.isDestroyed()) continue;
     if (isHiddenGroupMember(key)) continue;
+    if (!getWindowVisibility(key)) continue;
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
   }
   broadcastWindowState();
 }
 
+/**
+ * 로그아웃 시 화면에서 PHI 를 걷어낸다.
+ *
+ * [중요] 여기서는 saveWindowVisibility 를 부르지 않는다. 이 숨김은 사용자의
+ * "이 창 안 볼래" 가 아니라 보안 조치이므로, 저장된 취향을 덮어쓰면 다시
+ * 로그인하거나 앱을 재시작했을 때 아무 창도 없는 빈 화면이 된다.
+ */
 function hideOverlaysAndClearPHI(): void {
   for (const key of MAIN_WINDOW_KEYS) {
     const win = windows.get(key);
@@ -1552,8 +1579,10 @@ app.whenReady().then(() => {
   });
 
   for (const spec of OVERLAYS) {
-    const initiallyHidden = spec.key !== 'dock';
-    const win = createOverlayWindow(spec, { initiallyHidden });
+    // 시작 시 표시 여부는 저장된 사용자 취향이 정한다 (windows.ts 참조).
+    const win = createOverlayWindow(spec, {
+      initiallyHidden: initiallyHiddenFor(spec.key)
+    });
     windows.set(spec.key, win);
     attachGroupDragHandlers(win, spec.key);
     // 스냅 핸들러는 그룹 핸들러 뒤에 붙인다 — 같은 'moved' 에서 머지 판정이
@@ -1600,6 +1629,14 @@ app.whenReady().then(() => {
   restoreSnaps();
 
   setShortcutDispatch(dispatchShortcut);
+  // 단축키는 로그인과 무관하게 **시작 시점에 전부** 등록한다.
+  //
+  // 예전에는 onSignedIn 에서만 등록해서, 로그인 전에는 Cmd+0~7(창 토글), 글씨
+  // 배율, 창 크기, 스냅 분리까지 아무 키도 동작하지 않았다. 그 중 어느 것도
+  // 유료 기능이 아니다. 유료 기능(녹음/분석/요약/구술)은 main 의 IPC 게이트
+  // (ensureEntitled) 가 이미 막고 잠금 안내를 방송하므로, 여기서 키를 빼면
+  // "눌러도 아무 일도 안 일어남" 이라는 최악의 피드백만 남는다.
+  registerAllShortcuts();
 
   initDeviceAuth({
     broadcast,
@@ -1613,8 +1650,7 @@ app.whenReady().then(() => {
   setAuthCallbacks({
     broadcast,
     onSignedIn: () => {
-      revealOverlays();
-      registerAllShortcuts();
+      restoreOverlayVisibility();
       broadcastShortcuts();
       startWaitingSubscription();
       // 로그인 직후 갱신. 여기서 실패해도 잠그지 않는다 — refreshEntitlement 가
@@ -1625,7 +1661,8 @@ app.whenReady().then(() => {
     },
     onSignedOut: () => {
       hideOverlaysAndClearPHI();
-      unregisterAllShortcuts();
+      // 단축키는 해제하지 않는다 — 창 토글/크기 조절은 로그아웃 상태에서도
+      // 필요하고, 유료 동작은 ensureEntitled 가 개별로 막는다.
       broadcastShortcuts();
       setSubscriptionUser(null);
     }
@@ -1644,8 +1681,12 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (windows.size === 0) {
       for (const spec of OVERLAYS) {
-        const initiallyHidden = spec.key !== 'dock';
-        windows.set(spec.key, createOverlayWindow(spec, { initiallyHidden }));
+        windows.set(
+          spec.key,
+          createOverlayWindow(spec, {
+            initiallyHidden: initiallyHiddenFor(spec.key)
+          })
+        );
       }
     }
   });
