@@ -205,3 +205,27 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   그 공개키를 앱 `ENTITLEMENT_PUBLIC_KEY` 에 넣는다. 지금 코드에 박힌 공개키는 로컬 개발용이다.
 - GUI 육안 검증
 - 실제 Supabase 프로젝트에 0001/0002 적용
+
+## 배포 현황 (2026-08-04)
+
+- **새 Supabase 프로젝트**: `yhwvwojjwwlcrvpfxgag` (realtime-doctor, ap-northeast-2).
+  구 프로젝트 `yqdzxitlmtawznzwpkra` 는 다른 계정 소유라 접근 불가 — 폐기.
+  `righthand-previsit` 은 사용자 승인 하에 삭제 예정 (백업: ~/Desktop/righthand-previsit-backup-20260804.json, PHI 포함).
+- 마이그레이션 0000~0005 전부 적용 완료. Edge Function `entitlement`/`device` 배포 완료.
+- entitlement 운영 서명 키쌍 신규 발급. 개인키는 Supabase function secret 에만,
+  공개키는 .env `ENTITLEMENT_PUBLIC_KEY`. 로컬 개발용 키는 더 이상 쓰지 않는다.
+- 프로덕션 스모크 테스트 통과: 가입 → 트리거가 7일 체험 생성 → entitlement 서명 토큰 반환.
+- 버전 0.6.0.
+- **Windows**: `win-build/v0.6.0/Realtime Doctor Setup 0.6.0.exe` (86,390,975 bytes).
+  미러 `mole-bi-com/realtime-doctor-winbuild` run 30850827147. CI 에서 16키 임베딩 검증 통과.
+
+## 알려진 문제
+
+- [HARD] **Supabase 대시보드에서 Email > Confirm email 을 꺼야 한다.**
+  앱의 가입 로직은 signUp 직후 signInWithPassword 를 호출하므로, 켜져 있으면 신규 가입자가
+  로그인할 수 없다. 2026-08-04 기준 아직 켜져 있음.
+- **로컬 맥 빌드는 ~/.zshrc 의 OPENAI_API_KEY 를 굽는다.** dotenv 가 기존 process.env 를
+  덮어쓰지 않기 때문. 검증 스크립트(`scripts/ci-assert-embedded.mjs`)가 잡아낸다.
+  근본 수정은 electron.vite.config.ts 의 loadDotenv 에 `override: true`.
+  당장은 .env 값을 환경에 주입해 빌드하는 것으로 우회한다.
+- 로컬 브랜치 `winbuild/v0.6.0` 에는 시크릿 주입 워크플로가 있다. **공개 저장소로 푸시 금지.**
