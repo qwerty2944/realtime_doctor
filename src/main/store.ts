@@ -52,6 +52,15 @@ interface Schema {
   windowsVisibility?: Partial<Record<WindowKey, boolean>>;
   language?: Language;
   windowGroups?: Array<{ id: string; tabs: WindowKey[]; active: WindowKey }>;
+  /**
+   * 창 가장자리 스냅 관계 (windowSnap.ts). a 의 `edge` 쪽이 b 에 붙어 있다.
+   * 없어진 창을 가리키는 낡은 항목은 복원 시 조용히 버려진다.
+   */
+  windowSnaps?: Array<{
+    a: WindowKey;
+    b: WindowKey;
+    edge: 'left' | 'right' | 'top' | 'bottom';
+  }>;
   deviceId?: string;
   localSave?: LocalSaveSettings;
   /** 전역 글씨 배율 (모든 창 공용). */

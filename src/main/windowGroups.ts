@@ -36,6 +36,11 @@ let groups: Group[] = [];
 let windowsRef: Map<WindowKey, BrowserWindow> | null = null;
 let broadcastFn: ((channel: string, payload: unknown) => void) | null = null;
 let onGroupsChangedFn: (() => void) | null = null;
+/**
+ * 탭 그룹이 새로 구성되면 그 멤버들의 스냅 관계를 끊기 위한 훅.
+ * (windowSnap 을 직접 import 하면 순환 참조가 되므로 콜백으로 받는다.)
+ */
+let onGroupChangedMembersFn: ((keys: WindowKey[]) => void) | null = null;
 
 /** 프로그램이 setBounds 하는 동안 drag 핸들러가 오작동하지 않게 하는 가드. */
 let applyingBounds = 0;
@@ -82,6 +87,16 @@ function broadcastHover(target: WindowKey | null): void {
   if (hoverTarget === target) return;
   hoverTarget = target;
   broadcastFn?.(IPC.WindowGroupsHover, target);
+}
+
+/**
+ * 이 드래그가 드랍되면 탭 머지가 일어나는가.
+ *
+ * windowSnap 이 "머지가 가져갈 드랍"을 건너뛰기 위해 확인한다. 스냅과 머지는
+ * 겹침 여부로 이미 배타적이지만, 판정 순서에 기대지 않기 위한 명시적 안전장치다.
+ */
+export function isMergePending(key: WindowKey): boolean {
+  return draggingKey === key && hoverTarget !== null;
 }
 
 export function groupOf(key: WindowKey): Group | null {
@@ -202,6 +217,9 @@ function merge(dragged: WindowKey, target: WindowKey): void {
     if (t !== dragged) win(t)?.hide();
   }
   persist();
+  // 탭 그룹은 하나의 rect 를 공유한다 — 멤버가 개별 스냅 관계를 들고 있으면
+  // 보이지 않는 기하가 남으므로 편입 시점에 전부 끊는다.
+  onGroupChangedMembersFn?.([...g.tabs]);
   broadcastState();
 }
 
@@ -340,6 +358,7 @@ export function restoreGroups(): void {
     }
   }
   persist();
+  onGroupChangedMembersFn?.(groups.flatMap((g) => g.tabs));
   broadcastState();
 }
 
@@ -347,8 +366,10 @@ export function initWindowGroups(opts: {
   windows: Map<WindowKey, BrowserWindow>;
   broadcast: (channel: string, payload: unknown) => void;
   onGroupsChanged?: () => void;
+  onGroupChangedMembers?: (keys: WindowKey[]) => void;
 }): void {
   windowsRef = opts.windows;
   broadcastFn = opts.broadcast;
   onGroupsChangedFn = opts.onGroupsChanged ?? null;
+  onGroupChangedMembersFn = opts.onGroupChangedMembers ?? null;
 }

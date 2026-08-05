@@ -149,6 +149,13 @@ import {
   restoreGroups,
   syncGroupBounds
 } from './windowGroups.js';
+import {
+  attachSnapDragHandlers,
+  dissolveAllSnaps,
+  dropSnapsFor,
+  initWindowSnap,
+  restoreSnaps
+} from './windowSnap.js';
 import { MAIN_WINDOW_KEYS, OVERLAYS, createOverlayWindow } from './windows.js';
 import type {
   DictationTemplate,
@@ -1028,8 +1035,10 @@ ipcMain.handle(IPC.LocalSaveSet, (_event, patch: Partial<LocalSaveSettings>) =>
 ipcMain.handle('layout:list', () => listLayouts());
 
 ipcMain.handle('layout:apply', (_event, name: string) => {
-  // 레이아웃은 모든 창을 개별 위치로 재배치하므로 탭 그룹과 양립 불가 — 해체.
+  // 레이아웃은 모든 창을 개별 위치로 재배치하므로 탭 그룹/가장자리 스냅과
+  // 양립 불가 — 둘 다 해체한다. 프리셋이 정한 위치가 최종이다.
   dissolveAllGroups();
+  dissolveAllSnaps();
   return applyLayout(name, windows as Map<WindowKey, BrowserWindow>);
 });
 
@@ -1483,14 +1492,20 @@ app.whenReady().then(() => {
   initWindowGroups({
     windows: windows as Map<WindowKey, BrowserWindow>,
     broadcast,
-    onGroupsChanged: () => broadcastWindowState()
+    onGroupsChanged: () => broadcastWindowState(),
+    // 탭 그룹에 편입된 창은 가장자리 스냅 클러스터에서 빠진다.
+    onGroupChangedMembers: (keys) => dropSnapsFor(keys)
   });
+  initWindowSnap({ windows: windows as Map<WindowKey, BrowserWindow> });
 
   for (const spec of OVERLAYS) {
     const initiallyHidden = spec.key !== 'dock';
     const win = createOverlayWindow(spec, { initiallyHidden });
     windows.set(spec.key, win);
     attachGroupDragHandlers(win, spec.key);
+    // 스냅 핸들러는 그룹 핸들러 뒤에 붙인다 — 같은 'moved' 에서 머지 판정이
+    // 먼저 끝나야 스냅이 머지된 상태를 보고 물러설 수 있다.
+    attachSnapDragHandlers(win, spec.key);
     win.on('minimize', () => broadcastWindowState());
     win.on('restore', () => broadcastWindowState());
     win.on('show', () => broadcastWindowState());
@@ -1518,6 +1533,9 @@ app.whenReady().then(() => {
 
   // 레이아웃 적용 뒤 저장된 탭 그룹 복원 (활성 탭 위치 기준으로 멤버 숨김).
   restoreGroups();
+  // 스냅 관계 복원. 시작 시 레이아웃이 창을 재배치했다면 더 이상 맞닿아 있지
+  // 않으므로 restoreSnaps 가 인접성을 다시 확인해 스스로 걸러낸다.
+  restoreSnaps();
 
   setShortcutDispatch(dispatchShortcut);
 
