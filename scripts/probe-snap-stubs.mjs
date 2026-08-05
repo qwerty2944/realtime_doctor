@@ -15,9 +15,22 @@ const USER_DATA = mkdtempSync(join(tmpdir(), 'rd-snap-probe-'));
 /** 1920x1080, 작업영역은 상단 25px 메뉴바를 뺀 영역. */
 export const WORK_AREA = { x: 0, y: 25, width: 1920, height: 1055 };
 
+/**
+ * 현재 붙어 있는 디스플레이 목록. 기본은 주 모니터 하나.
+ * 모니터 연결/해제 시나리오에서 setDisplays 로 갈아끼운다.
+ */
+let displays = [{ workArea: { ...WORK_AREA } }];
+export function setDisplays(list) {
+  displays = list.map((workArea) => ({ workArea: { ...workArea } }));
+}
+export function resetDisplays() {
+  displays = [{ workArea: { ...WORK_AREA } }];
+}
+
 export const screen = {
-  getPrimaryDisplay: () => ({ workArea: { ...WORK_AREA } }),
-  getDisplayMatching: () => ({ workArea: { ...WORK_AREA } }),
+  getPrimaryDisplay: () => displays[0],
+  getAllDisplays: () => displays,
+  getDisplayMatching: () => displays[0],
   getCursorScreenPoint: () => ({ ...cursor })
 };
 
@@ -32,10 +45,19 @@ export class FakeWindow extends EventEmitter {
   #minimized = false;
   destroyed = false;
 
-  constructor(bounds) {
+  /**
+   * BrowserWindow 생성 옵션을 그대로 받아도 되게 x/y/width/height 만 뽑는다
+   * (createOverlayWindow 는 title·webPreferences 등을 함께 넘긴다).
+   */
+  constructor(opts = {}) {
     super();
     this.setMaxListeners(50);
-    this.#b = { ...bounds };
+    this.#b = {
+      x: opts.x ?? 0,
+      y: opts.y ?? 0,
+      width: opts.width ?? 100,
+      height: opts.height ?? 100
+    };
   }
 
   getBounds() {
@@ -101,6 +123,17 @@ export class FakeWindow extends EventEmitter {
   getMinimumSize() {
     return [280, 180];
   }
+
+  // ── createOverlayWindow 가 부르는 나머지 표면 ──
+  setVisibleOnAllWorkspaces() {}
+  setOpacity(v) {
+    this.opacity = v;
+  }
+  getOpacity() {
+    return this.opacity ?? 1;
+  }
+  loadURL() {}
+  loadFile() {}
 }
 
 export const BrowserWindow = FakeWindow;

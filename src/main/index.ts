@@ -158,7 +158,12 @@ import {
   initWindowSnap,
   restoreSnaps
 } from './windowSnap.js';
-import { MAIN_WINDOW_KEYS, OVERLAYS, createOverlayWindow } from './windows.js';
+import {
+  MAIN_WINDOW_KEYS,
+  OVERLAYS,
+  createOverlayWindow,
+  hasSavedPlacement
+} from './windows.js';
 import type {
   DictationTemplate,
   IssueVisitCodeResult,
@@ -1549,19 +1554,28 @@ app.whenReady().then(() => {
     });
   }
 
-  // 기본 레이아웃 — 사용자가 명시한 defaultLayout 이 있으면 그것을, 없으면
-  // 'wide-grid' (2×3 격자 + Dock 중앙 하단) 를 적용. 격자 + dock 을 함께
-  // 재배치하므로 시작 화면이 일관됨.
-  const explicitDefault = store.get('defaultLayout');
-  applyLayout(
-    explicitDefault ?? 'wide-grid',
-    windows as Map<WindowKey, BrowserWindow>
-  );
+  // 시작 배치: **되살릴 것이 있으면 되살린다.**
+  //
+  // 예전에는 매 실행마다 레이아웃 프리셋을 무조건 적용했다. 그러면 창을 옮기고
+  // 크기를 맞추고 서로 붙여 놓은 결과(windows.ts 의 bounds 저장, 단축키 리사이즈,
+  // 스냅 관계)가 다음 실행에서 전부 지워진다 — 저장하는 코드가 있는데 아무도
+  // 그 값을 쓰지 않는 상태였다. 저장된 위치가 하나도 없을 때(최초 실행)만
+  // 프리셋으로 첫 화면을 만든다. 창 자체는 createOverlayWindow 가 이미 저장된
+  // bounds 로 열었으므로, 여기서 할 일은 "덮어쓰지 않는 것" 뿐이다.
+  //
+  // 사용자가 UI 에서 레이아웃을 고르는 경로('layout:apply')는 그대로다.
+  if (!hasSavedPlacement()) {
+    const explicitDefault = store.get('defaultLayout');
+    applyLayout(
+      explicitDefault ?? 'wide-grid',
+      windows as Map<WindowKey, BrowserWindow>
+    );
+  }
 
-  // 레이아웃 적용 뒤 저장된 탭 그룹 복원 (활성 탭 위치 기준으로 멤버 숨김).
+  // 저장된 탭 그룹 복원 (활성 탭 위치 기준으로 멤버 숨김).
   restoreGroups();
-  // 스냅 관계 복원. 시작 시 레이아웃이 창을 재배치했다면 더 이상 맞닿아 있지
-  // 않으므로 restoreSnaps 가 인접성을 다시 확인해 스스로 걸러낸다.
+  // 스냅 관계 복원. 복원된 위치가 실제로 아직 맞닿아 있는지는 restoreSnaps 가
+  // 다시 확인한다 — 화면 밖 보정 등으로 어긋났으면 스스로 폐기한다.
   restoreSnaps();
 
   setShortcutDispatch(dispatchShortcut);

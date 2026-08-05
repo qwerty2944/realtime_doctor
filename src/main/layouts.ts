@@ -1,5 +1,5 @@
 import { type BrowserWindow, screen } from 'electron';
-import { store, type WindowKey } from './store.js';
+import { saveBounds, store, type WindowKey } from './store.js';
 
 // Dock is intentionally excluded — built-in layouts only reposition main overlays.
 const KEYS: WindowKey[] = [
@@ -237,6 +237,10 @@ export function applyLayout(
     if (!w || w.isDestroyed() || !b) continue;
     if (w.isMinimized()) w.restore();
     w.setBounds(b);
+    // 프로그램적 setBounds 는 'moved'/'resized' 를 발생시키지 않는다. 시작 시
+    // 저장된 위치를 복원하게 된 뒤로는 여기서 직접 저장하지 않으면 방금 적용한
+    // 레이아웃이 다음 실행에서 통째로 사라진다.
+    saveBounds(k as WindowKey, b);
     if (!w.isVisible()) w.show();
   }
   return true;
