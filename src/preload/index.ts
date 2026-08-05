@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  CareActivityBackfillResult,
+  CareActivityDefinitionView,
   CareActivityDisplayPayload,
   MonthlyCareActivityReport
 } from '../shared/careActivities.js';
@@ -513,6 +515,28 @@ const api = {
     /** 월 단위 집계 (B4). month 는 'YYYY-MM'. */
     report(month: string): Promise<MonthlyCareActivityReport> {
       return ipcRenderer.invoke(IPC.CareActivitiesReport, month);
+    },
+    /**
+     * 검토 화면용 정의 목록 (B5).
+     *
+     * 규칙 전문이 담겨 온다. `def.reviewStatus` 는 **이 계정 기준**이며,
+     * 다른 계정의 검토 여부는 여기 담기지도 않고 영향도 주지 않는다.
+     */
+    definitions(): Promise<CareActivityDefinitionView[]> {
+      return ipcRenderer.invoke(IPC.CareActivitiesDefs);
+    },
+    /** 검토 표시·철회 (B5). 이 계정에만 적용된다. */
+    setReview(input: {
+      activityCode: string;
+      ruleVersion: number;
+      reviewed: boolean;
+      note?: string | null;
+    }): Promise<{ ok: true } | { ok: false; error: string }> {
+      return ipcRenderer.invoke(IPC.CareActivitiesSetReview, input);
+    },
+    /** 지난 진료 재스캔 (B5). 저장만 하고 아무 창도 띄우지 않는다. */
+    backfill(months: number): Promise<CareActivityBackfillResult> {
+      return ipcRenderer.invoke(IPC.CareActivitiesBackfill, months);
     }
   },
   localSave: {

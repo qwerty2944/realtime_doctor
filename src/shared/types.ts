@@ -105,6 +105,17 @@ export const IPC = {
   CareActivitiesScan: 'care-activities:scan',
   /** 월 단위 행위 기록 집계 (B4, invoke). 금액은 담기지 않는다. */
   CareActivitiesReport: 'care-activities:report',
+  /**
+   * 검토 화면용 정의 목록 (B5, invoke).
+   *
+   * 규칙 전문(단서어·부정어·화자 조건·문턱 세 개)이 그대로 담긴다 — 검토자는
+   * 임상 책임을 지는 사람이라 무엇을 승인하는지 전부 봐야 한다.
+   */
+  CareActivitiesDefs: 'care-activities:defs',
+  /** 검토 표시·철회 (B5, invoke). 이 계정에만 적용된다. */
+  CareActivitiesSetReview: 'care-activities:set-review',
+  /** 지난 진료 재스캔 (B5, invoke). 저장만 하고 화면을 띄우지 않는다. */
+  CareActivitiesBackfill: 'care-activities:backfill',
   /** 나중에 뜬 창이 현재 글씨 배율을 스스로 채우기 위한 getter. */
   FontScaleGet: 'font-scale:get',
   /** 글씨 배율 변경을 모든 창에 알리는 broadcast. */

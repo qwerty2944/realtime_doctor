@@ -274,7 +274,38 @@ const ko = {
   'care.reportCopyCsv': 'CSV 복사',
   'care.reportCopied': '복사됨',
   'care.reportNote':
-    '규칙이 바뀌면 지난달 숫자를 고쳐 쓰지 않고 규칙 버전별로 줄이 나뉩니다.'
+    '규칙이 바뀌면 지난달 숫자를 고쳐 쓰지 않고 규칙 버전별로 줄이 나뉩니다.',
+
+  // 임상 검토 (B5)
+  //
+  // [HARD] 문구 규칙은 care.* 와 같다. 이 화면은 "이 규칙을 이 계정에서 쓸
+  // 것인가"만 묻는다. 무엇을 어떻게 하라는 말은 한 줄도 없다.
+  'review.title': '탐지 규칙 임상 검토',
+  'review.desc': '규칙 전문을 읽고, 이 계정에서 쓸 항목만 검토 완료로 표시합니다.',
+  'review.scopeNote':
+    '여기서 표시한 검토는 이 계정에만 적용됩니다. 다른 사용자의 탐지에는 영향을 주지 않습니다. 규칙이 바뀌면 검토는 자동으로 풀리며, 새 규칙을 다시 읽어야 합니다.',
+  'review.empty': '표시할 정의가 없습니다.',
+  'review.mark': '검토 완료로 표시',
+  'review.unmark': '검토 철회',
+  'review.stateReviewed': '검토 완료',
+  'review.stateUnreviewed': '검토 전',
+  'review.stateStale': '검토 이후 규칙이 바뀌었습니다. 새 규칙을 다시 읽어야 합니다.',
+  'review.stateRevoked': '검토 철회됨',
+  'review.none': '없음',
+  'review.ruleCues': '단서어',
+  'review.ruleNegations': '부정어',
+  'review.ruleSpeaker': '화자 조건',
+  'review.ruleMinCues': '서로 다른 단서 최소',
+  'review.ruleMinUtterances': '단서 발화 최소',
+  'review.ruleMinDuration': '최소 경과 시간',
+  'review.ruleVersionLabel': '규칙 버전',
+  'review.speakerDoctor': '의사 발화만',
+  'review.speakerPatient': '환자 발화만',
+  'review.speakerAny': '제한 없음',
+  'review.backfill': '지난 진료 다시 스캔',
+  'review.backfillDesc':
+    '검토를 마친 직후에는 지난 진료에 기록이 없습니다. 최근 3개월치를 다시 스캔해 채웁니다. 여러 번 눌러도 건수는 늘지 않습니다.',
+  'review.backfillResult': '진료 {scanned}건 · 새 기록 {inserted}건 · 그대로 {unchanged}건'
 } as const;
 
 export default ko;

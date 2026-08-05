@@ -55,8 +55,11 @@ import {
 import { openClovaStream, type ClovaStreamHandle } from './clovaStream.js';
 import { isPubmedUrl, lookupEvidence } from './evidence.js';
 import {
+  backfillCareActivities,
   buildCareActivityDisplay,
-  loadMonthlyCareActivityReport
+  listCareActivityDefinitions,
+  loadMonthlyCareActivityReport,
+  setCareActivityReview
 } from './careActivities.js';
 import {
   clearPatientState,
@@ -882,6 +885,46 @@ ipcMain.handle(IPC.CareActivitiesScan, async () => {
 /** 월 단위 집계 (B4). 'YYYY-MM'. 금액은 계산하지 않는다. */
 ipcMain.handle(IPC.CareActivitiesReport, async (_event, month: string) =>
   loadMonthlyCareActivityReport(typeof month === 'string' ? month : '')
+);
+
+/**
+ * 검토 화면 (B5).
+ *
+ * 게이트를 걸지 않는다. 검토는 이 계정의 설정 행위이고, 잠긴 동안 검토를
+ * 막으면 결제가 끊긴 사이 정의가 조용히 낡아간다. 실제 탐지가 붙는 지점
+ * (녹취·분석)은 이미 S2 에서 게이트돼 있다.
+ */
+ipcMain.handle(IPC.CareActivitiesDefs, async () => listCareActivityDefinitions());
+
+ipcMain.handle(
+  IPC.CareActivitiesSetReview,
+  async (
+    _event,
+    input: {
+      activityCode: string;
+      ruleVersion: number;
+      reviewed: boolean;
+      note?: string | null;
+    }
+  ) =>
+    setCareActivityReview({
+      activityCode: String(input?.activityCode ?? ''),
+      ruleVersion: Number(input?.ruleVersion ?? 0),
+      reviewed: Boolean(input?.reviewed),
+      note: typeof input?.note === 'string' ? input.note : null
+    })
+);
+
+/**
+ * 지난 진료 재스캔 (B5).
+ *
+ * 검토를 막 마친 사람이 누른다 — 그 순간 이전 진료에는 후보가 하나도 없다.
+ * 자동으로 돌리지 않는 이유는, 진료 수백 건을 훑는 일을 사용자가 모르는 채로
+ * 시작하지 않게 하기 위해서다. 여러 번 눌러도 0007 의 대체 규칙 때문에
+ * 숫자가 늘지 않는다.
+ */
+ipcMain.handle(IPC.CareActivitiesBackfill, async (_event, months: number) =>
+  backfillCareActivities({ months: typeof months === 'number' ? months : 3 })
 );
 
 // ── 로컬 저장 설정 ──────────────────────────────────────────────────────

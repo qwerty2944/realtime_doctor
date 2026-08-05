@@ -58,6 +58,77 @@ export interface CareActivityDef {
 }
 
 /**
+ * 한 의사가 한 정의를 검토한 기록 (B5).
+ *
+ * 정의는 모든 계정이 같이 읽는 **공용 템플릿**이라, 검토 상태를 정의 행에
+ * 두면 한 사람의 판단이 다른 의원의 탐지까지 켠다. 그래서 검토는 정의가
+ * 아니라 (사람, 정의) 쌍에 붙는다(`care_activity_adoptions`).
+ */
+export interface CareActivityAdoption {
+  activityCode: string;
+  /** 검토 당시 규칙 버전. 규칙이 그 뒤로 바뀌면 이 검토는 더 이상 맞지 않는다. */
+  reviewedRuleVersion: number;
+  reviewedAt: string;
+  reviewedBy: string;
+  reviewNote: string | null;
+  /** 철회 시각. 값이 있으면 이후 탐지는 멈추고 이미 저장된 기록은 남는다. */
+  revokedAt: string | null;
+}
+
+/**
+ * 이 의사에게 이 정의가 실제로 어떤 상태인가.
+ *
+ * [HARD] 공용 행의 `'reviewed'` 는 아무에게도 아무것도 열어주지 않는다.
+ * 전역으로 힘을 갖는 값은 `'retired'` 하나뿐이다 — 거두는 것은 전역이어도
+ * 되지만 켜는 것은 전역이면 안 된다.
+ *
+ * 판정을 여기 한 곳에만 둔다. main 과 renderer 가 각자 계산하면 언젠가
+ * 한쪽만 고쳐지고, 그 순간 게이트가 한쪽 경로에서 조용히 열린다.
+ */
+export function resolveReviewStatus(input: {
+  templateStatus: ClinicalReviewStatus;
+  defRuleVersion: number;
+  adoption: CareActivityAdoption | null;
+}): ClinicalReviewStatus {
+  if (input.templateStatus === 'retired') return 'retired';
+  const a = input.adoption;
+  if (!a) return 'unreviewed';
+  if (a.revokedAt !== null) return 'unreviewed';
+  // 검토한 규칙과 지금 도는 규칙이 다르면 검토가 아니다.
+  if (a.reviewedRuleVersion !== input.defRuleVersion) return 'unreviewed';
+  return 'reviewed';
+}
+
+/**
+ * 검토 화면이 받는 정의 한 건.
+ *
+ * 검토자는 임상 책임을 지는 사람이라 **규칙 전문**을 봐야 한다 — 이름과
+ * 스위치만 보여주면 무엇을 승인했는지 모르는 채로 승인하게 된다. `def` 에
+ * 단서어·부정어·화자 조건·문턱 세 개가 그대로 들어 있다.
+ */
+export interface CareActivityDefinitionView {
+  /** 규칙 전문. `reviewStatus` 는 이 사람 기준으로 계산된 값이다. */
+  def: CareActivityDef;
+  /** 공용 행의 값. 화면에는 참고로만 보이고 판정에는 쓰이지 않는다. */
+  templateStatus: ClinicalReviewStatus;
+  adoption: CareActivityAdoption | null;
+  /** 검토는 했는데 그 뒤 규칙이 바뀐 상태. 다시 읽어야 한다는 뜻이다. */
+  adoptionStale: boolean;
+}
+
+/** 지난 진료 재스캔 결과 (B5). 화면은 이 숫자만 보고 결과를 말한다. */
+export interface CareActivityBackfillResult {
+  scannedSessions: number;
+  sessionsWithRecords: number;
+  /** 새로 저장된 행. */
+  inserted: number;
+  /** 규칙이 바뀌어 대체된 행. 옛 행은 지워지지 않는다. */
+  superseded: number;
+  /** 이미 같은 내용으로 저장돼 있던 행. 재스캔이 멱등이라는 증거다. */
+  unchanged: number;
+}
+
+/**
  * 탐지 입력 발화 한 줄.
  *
  * `timestampMs` 는 `transcript_chunks.timestamp_ms` 값이다. 없으면 null 이고,

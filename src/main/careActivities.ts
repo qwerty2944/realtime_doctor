@@ -3,9 +3,14 @@ import {
   foldMonthlyReport,
   intakeTranscriptUtterances,
   releaseForDisplay,
+  resolveReviewStatus,
   toDisplayPayload,
+  type CareActivityAdoption,
+  type CareActivityBackfillResult,
   type CareActivityDef,
+  type CareActivityDefinitionView,
   type CareActivityDisplayPayload,
+  type ClinicalReviewStatus,
   type DetectionUtterance,
   type MonthlyCareActivityReport,
   type ReleaseResult,
@@ -61,13 +66,17 @@ const DEF_COLUMNS =
  * 값이 이상하면 **더 보수적인 쪽으로** 채운다. 기본값을 느슨하게 잡으면
  * 잘못 입력된 행 하나가 조용히 후보를 쏟아낸다.
  */
-function toDef(row: DefRow): CareActivityDef | null {
+function toDef(
+  row: DefRow,
+  adoption: CareActivityAdoption | null
+): CareActivityDef | null {
   const cueTerms = (row.cue_terms ?? []).filter(
     (t): t is string => typeof t === 'string' && t.trim().length > 0
   );
   // 단서가 없는 정의는 "무엇이든 걸리는" 정의다. DB CHECK 도 막지만 여기서도 버린다.
   if (cueTerms.length === 0) return null;
   const speaker = row.required_speaker;
+  const ruleVersion = Math.max(1, row.rule_version ?? 1);
   return {
     code: row.code,
     labelKo: row.label_ko,
@@ -83,18 +92,74 @@ function toDef(row: DefRow): CareActivityDef | null {
     minDistinctCues: Math.max(1, row.min_distinct_cues ?? 2),
     minUtterances: Math.max(1, row.min_utterances ?? 2),
     minDurationSeconds: Math.max(0, row.min_duration_seconds ?? 0),
-    reviewStatus:
-      row.clinical_review_status === 'reviewed'
-        ? 'reviewed'
-        : row.clinical_review_status === 'retired'
-          ? 'retired'
-          : 'unreviewed',
-    ruleVersion: Math.max(1, row.rule_version ?? 1)
+    // [HARD] 검토 여부는 **이 사람의 채택 기록**으로 정한다. 공용 행의
+    // 'reviewed' 는 여기서 아무 힘이 없다 (0008). 판정 함수는 shared 한 벌뿐.
+    reviewStatus: resolveReviewStatus({
+      templateStatus: templateStatusOf(row),
+      defRuleVersion: ruleVersion,
+      adoption
+    }),
+    ruleVersion
   };
 }
 
-/** 활성 정의 전부. 미검토 정의도 포함한다 — 걸러내는 곳은 화면 직전이다. */
-export async function loadCareActivityDefs(): Promise<CareActivityDef[]> {
+function templateStatusOf(row: DefRow): ClinicalReviewStatus {
+  return row.clinical_review_status === 'reviewed'
+    ? 'reviewed'
+    : row.clinical_review_status === 'retired'
+      ? 'retired'
+      : 'unreviewed';
+}
+
+interface AdoptionRow {
+  activity_code: string;
+  reviewed_rule_version: number;
+  reviewed_at: string;
+  reviewed_by: string;
+  review_note: string | null;
+  revoked_at: string | null;
+}
+
+/**
+ * 지금 로그인한 사람의 채택 기록.
+ *
+ * RLS 가 자기 행만 돌려주지만, 여기서도 user_id 로 한 번 더 좁힌다 — 조회
+ * 조건이 정책 하나에만 기대면 정책이 느슨해지는 날 조용히 남의 행을 읽는다.
+ */
+export async function loadMyAdoptions(): Promise<Map<string, CareActivityAdoption>> {
+  const user = getCurrentUser();
+  const supabase = getSupabase();
+  const map = new Map<string, CareActivityAdoption>();
+  if (!user || !supabase) return map;
+  try {
+    const { data, error } = await supabase
+      .from('care_activity_adoptions')
+      .select(
+        'activity_code, reviewed_rule_version, reviewed_at, reviewed_by, review_note, revoked_at'
+      )
+      .eq('user_id', user.id);
+    if (error) {
+      warn('loadMyAdoptions', error.message);
+      return map;
+    }
+    for (const row of (data ?? []) as AdoptionRow[]) {
+      map.set(row.activity_code, {
+        activityCode: row.activity_code,
+        reviewedRuleVersion: row.reviewed_rule_version,
+        reviewedAt: row.reviewed_at,
+        reviewedBy: row.reviewed_by,
+        reviewNote: row.review_note,
+        revokedAt: row.revoked_at
+      });
+    }
+    return map;
+  } catch (err) {
+    warn('loadMyAdoptions', err);
+    return map;
+  }
+}
+
+async function loadDefRows(): Promise<DefRow[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
   try {
@@ -107,12 +172,86 @@ export async function loadCareActivityDefs(): Promise<CareActivityDef[]> {
       warn('loadCareActivityDefs', error.message);
       return [];
     }
-    return ((data ?? []) as unknown as DefRow[])
-      .map(toDef)
-      .filter((d): d is CareActivityDef => d !== null);
+    return (data ?? []) as unknown as DefRow[];
   } catch (err) {
     warn('loadCareActivityDefs', err);
     return [];
+  }
+}
+
+/**
+ * 활성 정의 전부. 미검토 정의도 포함한다 — 걸러내는 곳은 화면 직전이다.
+ *
+ * 각 정의의 `reviewStatus` 는 **지금 로그인한 사람 기준**이다. 같은 정의가
+ * 사람마다 다른 상태로 나오는 것이 이 함수의 요점이다.
+ */
+export async function loadCareActivityDefs(): Promise<CareActivityDef[]> {
+  const [rows, adoptions] = await Promise.all([loadDefRows(), loadMyAdoptions()]);
+  return rows
+    .map((row) => toDef(row, adoptions.get(row.code) ?? null))
+    .filter((d): d is CareActivityDef => d !== null);
+}
+
+/**
+ * 검토 화면이 받는 목록 (B5).
+ *
+ * 규칙 전문을 그대로 담는다. 검토자는 임상 책임을 지는 사람이고, 이름과
+ * 스위치만으로는 무엇을 승인하는지 알 수 없다.
+ */
+export async function listCareActivityDefinitions(): Promise<CareActivityDefinitionView[]> {
+  const [rows, adoptions] = await Promise.all([loadDefRows(), loadMyAdoptions()]);
+  const views: CareActivityDefinitionView[] = [];
+  for (const row of rows) {
+    const adoption = adoptions.get(row.code) ?? null;
+    const def = toDef(row, adoption);
+    if (!def) continue;
+    views.push({
+      def,
+      templateStatus: templateStatusOf(row),
+      adoption,
+      adoptionStale:
+        adoption !== null &&
+        adoption.revokedAt === null &&
+        adoption.reviewedRuleVersion !== def.ruleVersion
+    });
+  }
+  return views;
+}
+
+/**
+ * 검토 표시 · 철회 (B5).
+ *
+ * 쓰기는 `set_care_activity_adoption` RPC 하나뿐이고, RPC 안에서 소유자를
+ * `auth.uid()` 로 다시 뽑는다 — 클라이언트는 남의 이름으로 승인할 수 없고
+ * 테이블에 직접 쓸 권한도 없다.
+ *
+ * `ruleVersion` 은 검토자가 화면에서 실제로 읽은 규칙 버전이다. 그 사이
+ * 규칙이 바뀌었으면 RPC 가 거절한다 — 읽지 않은 규칙을 승인하는 경로를
+ * 만들지 않기 위해서다.
+ */
+export async function setCareActivityReview(input: {
+  activityCode: string;
+  ruleVersion: number;
+  reviewed: boolean;
+  note?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = getSupabase();
+  if (!supabase) return { ok: false, error: 'no-client' };
+  try {
+    const { error } = await supabase.rpc('set_care_activity_adoption', {
+      p_activity_code: input.activityCode,
+      p_rule_version: input.ruleVersion,
+      p_reviewed: input.reviewed,
+      p_note: input.note ?? null
+    });
+    if (error) {
+      warn('setCareActivityReview', error.message);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    warn('setCareActivityReview', err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -319,6 +458,102 @@ export async function persistReleasedCandidates(
   } catch (err) {
     warn('persistReleasedCandidates', err);
     return null;
+  }
+}
+
+/**
+ * 진료 한 건을 스캔해서 저장만 한다 (B5, 결함 1).
+ *
+ * **화면에 아무것도 올리지 않는다.** 저장은 끼어드는 일이 아니지만 표시는
+ * 끼어드는 일이다 — B3 이 정한 "끼어들지 않는다"는 표시에 대한 규칙이지
+ * 기록에 대한 규칙이 아니다.
+ *
+ * 이 경로가 필요한 이유: B4 까지는 요약 창을 연 진료만 저장됐다. 요약 창을
+ * 한 번도 열지 않은 진료는 월 집계에서 통째로 빠졌고, 그러면 리포트가 실제보다
+ * 조용히 적게 센다 — 파일럿에서 우리 숫자를 만들겠다는 B4 의 목적이 무너진다.
+ *
+ * 엔진은 규칙 기반이라 LLM 호출도 API 비용도 없다. 그래도 세션 종료를 막지
+ * 않게 호출부에서 await 하지 않으며, 여기서 예외를 밖으로 던지지 않는다.
+ */
+export async function recordCareActivitiesForSession(
+  sessionId: string,
+  options: { encounterId?: string | null } = {}
+): Promise<{ released: number; stored: boolean }> {
+  try {
+    const scan = await scanSessionForCareActivities(sessionId, options);
+    if (scan.released.length === 0) return { released: 0, stored: false };
+    const result = await persistReleasedCandidates(sessionId, scan.released);
+    return { released: scan.released.length, stored: result !== null };
+  } catch (err) {
+    // 파생 산출물이다. 실패해도 진료 기록에는 영향이 없고, 다음 스캔(요약 창
+    // 열기, 또는 아래 재스캔)이 같은 결과를 다시 만든다.
+    warn('recordCareActivitiesForSession', err);
+    return { released: 0, stored: false };
+  }
+}
+
+/**
+ * 지난 진료 재스캔 (B5, 결함 1의 나머지 절반).
+ *
+ * 정의가 검토를 통과하는 순간, 그 이전의 모든 진료에는 후보가 하나도 없다.
+ * 검토를 마친 사람에게 "이제부터만 셉니다"라고 말하면 첫 달 리포트가 반쪽이 된다.
+ *
+ * 새 규칙을 만들지 않는다 — 세션마다 평소와 같은 스캔을 돌리고 같은 RPC 로
+ * 저장한다. 그래서 0007 의 대체(supersede) 규칙이 그대로 적용된다: 이미 있는
+ * 행과 결과가 같으면 아무것도 하지 않고(중복 없음), 다르면 옛 행을 지우지 않고
+ * 새 행으로 대체한다. 여러 번 돌려도 숫자가 늘지 않는다.
+ */
+export async function backfillCareActivities(
+  options: { months?: number; limit?: number } = {}
+): Promise<CareActivityBackfillResult> {
+  const empty: CareActivityBackfillResult = {
+    scannedSessions: 0,
+    sessionsWithRecords: 0,
+    inserted: 0,
+    superseded: 0,
+    unchanged: 0
+  };
+  const user = getCurrentUser();
+  const supabase = getSupabase();
+  if (!user || !supabase) return empty;
+
+  const months = Math.min(24, Math.max(1, options.months ?? 3));
+  const limit = Math.min(500, Math.max(1, options.limit ?? 200));
+  const since = new Date();
+  since.setMonth(since.getMonth() - months);
+
+  try {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('id, encounter_id')
+      .eq('user_id', user.id)
+      .gte('started_at', since.toISOString())
+      .order('started_at', { ascending: false })
+      .limit(limit);
+    if (error) {
+      warn('backfillCareActivities', error.message);
+      return empty;
+    }
+    const result = { ...empty };
+    // 순차로 돈다. 파일럿 규모에서 충분히 빠르고, 한꺼번에 던지면 로컬
+    // 스택이든 운영이든 다른 요청을 굶긴다.
+    for (const row of (data ?? []) as Array<{ id: string; encounter_id: string | null }>) {
+      const scan = await scanSessionForCareActivities(row.id, {
+        encounterId: row.encounter_id
+      });
+      result.scannedSessions += 1;
+      if (scan.released.length === 0) continue;
+      const stored = await persistReleasedCandidates(row.id, scan.released);
+      if (!stored) continue;
+      result.sessionsWithRecords += 1;
+      result.inserted += stored.inserted;
+      result.superseded += stored.superseded;
+      result.unchanged += stored.unchanged;
+    }
+    return result;
+  } catch (err) {
+    warn('backfillCareActivities', err);
+    return empty;
   }
 }
 

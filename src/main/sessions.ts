@@ -9,6 +9,7 @@ import type {
   TranscriptChunk
 } from '../shared/types.js';
 import { getCurrentUser } from './auth.js';
+import { recordCareActivitiesForSession } from './careActivities.js';
 import {
   listLocalSessions,
   loadLocalSession,
@@ -403,6 +404,7 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
 
 export async function endCurrentSession(): Promise<void> {
   const id = currentSessionId;
+  const encounterId = sessionEncounterId;
   currentSessionId = null;
   cloudReady = null;
   if (!id) return;
@@ -418,6 +420,39 @@ export async function endCurrentSession(): Promise<void> {
   } catch (err) {
     warn('endCurrentSession', err);
   }
+  scanCareActivitiesInBackground(id, encounterId);
+}
+
+/**
+ * 진료가 끝나면 행위 기록을 스캔해서 **저장만** 한다 (B5).
+ *
+ * 왜 여기인가: 별도의 생명주기를 만들지 않는다. 진료가 끝나는 지점은 이미
+ * 여기 하나뿐이고, 두 벌이 되면 한쪽만 도는 날 리포트가 조용히 적게 센다 —
+ * 그것이 애초에 이 훅을 붙인 이유다.
+ *
+ * 지키는 것 셋:
+ *   1. **막지 않는다.** await 하지 않는다. 세션 종료는 이미 끝났고 이 작업은
+ *      뒤에서 돈다.
+ *   2. **던지지 않는다.** 실패는 경고 한 줄로 끝난다. 이 산출물은 파생물이고
+ *      환자 기록이 아니다. 다음에 요약 창을 열거나 재스캔을 돌리면 같은
+ *      결과가 다시 만들어진다 — 저장 실패가 영구 손실이 아닌 이유다.
+ *   3. **아무것도 띄우지 않는다.** 창도 알림도 없다. 저장은 끼어드는 일이
+ *      아니지만 표시는 끼어드는 일이다.
+ *
+ * 멱등성은 0007 의 RPC 가 맡는다. 나중에 요약 창을 열어 같은 진료를 다시
+ * 스캔해도 결과가 같으면 행이 늘지 않는다.
+ */
+function scanCareActivitiesInBackground(
+  sessionId: string,
+  encounterId: string | null
+): void {
+  void (async () => {
+    try {
+      await recordCareActivitiesForSession(sessionId, { encounterId });
+    } catch (err) {
+      warn('scanCareActivities', err);
+    }
+  })();
 }
 
 export function clearSessionCache(): void {

@@ -62,6 +62,7 @@ import {
 } from '@/components/ui/dialog';
 import { OverlayShell } from '../shared/OverlayShell';
 import { CareActivityReportDialog } from './CareActivityReportDialog';
+import { CareActivityReviewDialog } from './CareActivityReviewDialog';
 import { cn } from '@/lib/utils';
 import type {
   AuthState,
@@ -576,6 +577,9 @@ export default function DockApp() {
 
         {/* 월간 행위 기록 (B4). 누를 때만 열린다 — 진료를 끊지 않는다. */}
         <CareActivityReportDialog onPopoverOpenChange={onPopoverOpenChange} />
+
+        {/* 임상 검토 (B5). 여기서 내린 결정은 이 계정에만 적용된다. */}
+        <CareActivityReviewDialog onPopoverOpenChange={onPopoverOpenChange} />
 
         {/* 구독 상태 다이얼로그 */}
         <Dialog

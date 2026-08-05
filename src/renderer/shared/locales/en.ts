@@ -264,7 +264,38 @@ const en: Record<keyof typeof ko, string> = {
   'care.reportCopyCsv': 'Copy CSV',
   'care.reportCopied': 'Copied',
   'care.reportNote':
-    'When a rule changes, an earlier month is not rewritten: the counts split into separate rows per rule version.'
+    'When a rule changes, an earlier month is not rewritten: the counts split into separate rows per rule version.',
+
+  // Clinical review (B5). Same wording discipline as care.*: this screen only
+  // asks whether this account will use a rule. It never tells anyone to act.
+  'review.title': 'Clinical review of detection rules',
+  'review.desc':
+    'Read the full rule and mark only the items this account will use as reviewed.',
+  'review.scopeNote':
+    'A review marked here applies to this account only and does not affect detection for any other user. When a rule changes the review lapses and the new rule has to be read again.',
+  'review.empty': 'No definitions to show.',
+  'review.mark': 'Mark as reviewed',
+  'review.unmark': 'Withdraw review',
+  'review.stateReviewed': 'Reviewed',
+  'review.stateUnreviewed': 'Not reviewed',
+  'review.stateStale': 'The rule changed after this review. The new rule has to be read again.',
+  'review.stateRevoked': 'Review withdrawn',
+  'review.none': 'none',
+  'review.ruleCues': 'Cue terms',
+  'review.ruleNegations': 'Negation terms',
+  'review.ruleSpeaker': 'Speaker',
+  'review.ruleMinCues': 'Min distinct cues',
+  'review.ruleMinUtterances': 'Min cue utterances',
+  'review.ruleMinDuration': 'Min elapsed time',
+  'review.ruleVersionLabel': 'Rule version',
+  'review.speakerDoctor': 'doctor only',
+  'review.speakerPatient': 'patient only',
+  'review.speakerAny': 'any',
+  'review.backfill': 'Rescan past consultations',
+  'review.backfillDesc':
+    'Right after a review there are no records for earlier consultations. This rescans the last three months. Running it again does not increase the counts.',
+  'review.backfillResult':
+    '{scanned} consultations · {inserted} new · {unchanged} unchanged'
 };
 
 export default en;
