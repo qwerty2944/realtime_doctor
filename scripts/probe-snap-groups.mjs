@@ -254,8 +254,10 @@ console.log('\n=== D2) 조각난 느린 드래그도 하나의 드래그다 ==='
   // 목표 지점에서 18px 떨어진 곳까지, 6px 씩 세 조각으로 접근한다.
   // 각 조각은 move 이벤트 2개 + 디바운스보다 긴 정지.
   mover.place({ x: wantX - 18 - 18, y: t.y, ...SPECS.patients });
+  // 조각당 스텝 1개 = will-move + move 2개. 예전 기준(move 4개)에 못 미치는,
+  // 실제로 조준할 때 나오는 이벤트 수다.
   for (let i = 0; i < 3; i += 1) {
-    await mover.userDrag(6, 0, { steps: 2, settle: false });
+    await mover.userDrag(6, 0, { steps: 1, settle: false });
     await sleep(450); // DROP_SETTLE_MS(320) 보다 긴 정지 = 예전 코드는 여기서 드래그를 끊었다
   }
   // 조각 중간에 흡착이 일어나면 그 뒤 조각은 "클러스터 통째 이동"이 되므로
@@ -283,7 +285,7 @@ console.log('\n--- 조각난 드래그로도 클러스터가 통째로 따라온
   check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
   const before = { a: b(A), b: b(B) };
   for (let i = 0; i < 3; i += 1) {
-    await B.userDrag(10, 0, { steps: 2, settle: false });
+    await B.userDrag(10, 0, { steps: 1, settle: false });
     await sleep(450);
   }
   check(
