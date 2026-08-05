@@ -155,9 +155,10 @@ import {
   attachSnapDragHandlers,
   detachFromCluster,
   dissolveAllSnaps,
-  dropSnapsFor,
   getSnappedKeys,
   initWindowSnap,
+  normalizeSnapUnits,
+  reassignSnapUnit,
   restoreSnaps
 } from './windowSnap.js';
 import { fitWindowToContent, initWindowFit } from './windowFit.js';
@@ -1569,8 +1570,10 @@ app.whenReady().then(() => {
     windows: windows as Map<WindowKey, BrowserWindow>,
     broadcast,
     onGroupsChanged: () => broadcastWindowState(),
-    // 탭 그룹에 편입된 창은 가장자리 스냅 클러스터에서 빠진다.
-    onGroupChangedMembers: (keys) => dropSnapsFor(keys)
+    // 탭 그룹은 rect 하나를 공유하는 스냅 단위(unit)다 — 구성이 바뀌면 관계를
+    // 대표 키 기준으로 다시 정규화한다 (끊는 게 아니라 옮긴다).
+    onGroupChangedMembers: (keys) => normalizeSnapUnits(keys),
+    onSnapUnitReassign: (from, to) => reassignSnapUnit(from, to)
   });
   initWindowSnap({
     windows: windows as Map<WindowKey, BrowserWindow>,

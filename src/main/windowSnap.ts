@@ -1,7 +1,14 @@
 import { BrowserWindow, screen } from 'electron';
 import { appendFileSync } from 'node:fs';
+import { isApplyingBounds, withAppliedBounds } from './boundsGuard.js';
 import { saveBounds, store, type WindowKey } from './store.js';
-import { groupOf, isMergePending, mergeTargetAtCursor } from './windowGroups.js';
+import {
+  groupAnchor,
+  groupTabsOf,
+  isMergePending,
+  mergeTargetAtCursor,
+  visibleTabOf
+} from './windowGroups.js';
 
 /**
  * 창 가장자리 스냅(자석 붙이기).
@@ -35,6 +42,25 @@ import { groupOf, isMergePending, mergeTargetAtCursor } from './windowGroups.js'
  * 허용하도록 바꾸고, 경계는 커서 위치로 다시 그었다.
  * 회귀 프로브: scripts/probe-snap-overlap.mjs
  *
+ * ── 탭 그룹도 스냅에 참여한다 (단위 = unit) ────────────────────────────
+ * 탭 그룹은 멤버 전원이 **하나의 rect** 를 공유한다. 그러므로 스냅의 참여
+ * 단위는 "창" 이 아니라 "unit" 이다: 홀로 있는 창은 그 자신이 unit 이고, 탭
+ * 그룹은 멤버 전체가 합쳐서 unit 하나다. unit 의 대표 키는 groupAnchor(tabs[0])
+ * 이며 관계(SnapRelation)는 언제나 대표 키로 저장된다. 클러스터가 움직이면
+ * unit 의 **모든 멤버**(숨은 탭 포함)가 같은 delta 를 받으므로 그룹의 bounds
+ * 공유 전제가 깨지지 않는다.
+ *
+ * [왜 바뀌었나] 예전에는 그룹 멤버를 스냅에서 통째로 제외했다. 그런데 머지가
+ * 잘 동작하게 되자 사용자의 창은 대부분 그룹에 들어갔고, 그 순간부터 스냅이
+ * 영영 발동하지 않았다 — 실사용 로그에 "스냅 안 함 — 끌린 창이 탭 그룹 멤버"
+ * 만 반복됐다. 기능이 정상 사용 중에 죽어버린 셈이다.
+ * 회귀 프로브: scripts/probe-snap-groups.mjs
+ *
+ * 대표 키가 그룹을 떠날 때(탭 분리/다른 그룹으로 이동)는 windowGroups 가
+ * onSnapUnitReassign 으로 알려주고, 관계는 남는 대표에게 넘어간다. 그룹이
+ * 재구성되면 normalizeSnapUnits 가 관계를 다시 대표 키로 정규화하고 기하가
+ * 죽은 관계를 버린다.
+ *
  * ── 진단 로그 ───────────────────────────────────────────────────────────
  * 화면을 볼 수 없는 환경에서 "왜 안 붙었는지" 를 숫자로 받기 위한 옵트인 로그.
  * 기본은 꺼져 있고, 켜는 방법은 한 줄이다:
@@ -43,11 +69,23 @@ import { groupOf, isMergePending, mergeTargetAtCursor } from './windowGroups.js'
  *
  * (기록 위치를 바꾸려면 RD_SNAP_DEBUG_LOG=/path/to/file)
  *
- * ── 드래그 중에는 아무 창도 프로그램적으로 움직이지 않는다 ──────────────
- * OS 의 네이티브 드래그 루프(Windows 의 WM_ENTERSIZEMOVE 모달 루프) 안에서
- * setBounds 를 부르면 이벤트 되먹임과 끊김이 생긴다. 따라서 따라오는 창들은
- * **드랍 시점에 한 번만** 옮긴다. 대신 드래그 중 화면은 끌던 창만 움직이고
- * 나머지는 드랍 순간 따라붙는다 (의도된 트레이드오프).
+ * ── 라이브 흡착 (드래그 중 자석) ─────────────────────────────────────────
+ * 드랍 후에야 붙으면 "자석" 처럼 느껴지지 않는다는 지적을 받아, 흡착 밴드에
+ * 들어오는 순간 한 번 끌어당긴다. OS 의 네이티브 드래그 루프 안에서 setBounds
+ * 를 부르는 것은 되먹임 위험이 있는 동작이므로 **래치(latch)** 로 엄격히
+ * 제한한다:
+ *
+ *   밴드 진입 → setBounds 1회 → 래치. 래치가 걸려 있는 동안에는 무슨 이동
+ *   이벤트가 몇 번 오든 다시 적용하지 않는다. 래치 지점에서 LIVE_UNLATCH_PX
+ *   이상 벗어나야 래치가 풀리고 다시 판정한다.
+ *
+ * 즉 "밴드 안에 머무는 동안의 프로그램적 setBounds 횟수" 는 이벤트 수와 무관하게
+ * 상수로 묶인다 = 진동이 원리적으로 불가능하다. 이 성질은 숫자로 검증한다
+ * (scripts/probe-snap-groups.mjs D3: 이동 이벤트 40회 → setBounds ≤ 2회).
+ *
+ * macOS 에서는 OS 가 창을 다시 커서 위치로 되돌리므로 사용자가 보는 것은
+ * "한 번 끌어당겨지는 느낌" 이고, 최종 정렬은 드랍 시점에 확정된다. 진동이
+ * 아니라 단발 신호다. 끄려면 RD_SNAP_LIVE=0.
  */
 
 export type SnapEdge = 'left' | 'right' | 'top' | 'bottom';
@@ -89,8 +127,32 @@ const MIN_SHARE_PX = 40;
 /** 수직축 정렬(예: 오른쪽에 붙일 때 위쪽 맞추기) 허용 오차. ENGAGE 와 동일 감각. */
 const ALIGN_PX = 48;
 
-/** 사용자 드래그로 인정할 최소 move 이벤트 수 (windowGroups 와 동일 규율). */
-const DRAG_MOVE_THRESHOLD = 4;
+/**
+ * 사용자 드래그로 인정할 최소 **누적 변위**(px). windowGroups 와 동일 규율.
+ *
+ * [왜 move 이벤트 개수가 아닌가] 예전 기준은 "move 이벤트 4개 이상" 이었다.
+ * 그 기준의 목적은 프로그램적 setBounds 를 사용자 드래그로 오해하지 않는 것인데,
+ * 프로그램적 이동은 boundsGuard 가 이미 **전부** 걸러낸다 — 개수 기준은 목적을
+ * 잃은 채 부작용만 남아 있었다. 실사용 로그(/tmp/dev.log)를 보면 천천히 겨누는
+ * 드래그는 손이 멈출 때마다 조각으로 잘리고, 조각마다 이벤트가 1~3개뿐이라
+ * "move 가 적다" 며 통째로 버려졌다. 붙이려고 조준하는 동작이 정확히 그 모양이다.
+ *
+ * 거리 기준은 그 문제가 없다. 조각들의 변위는 같은 시작점에서 계속 누적되므로
+ * 몇 조각으로 잘리든 결국 임계값을 넘는다.
+ *
+ * [왜 2px 인가] 이 값이 걸러야 하는 것은 이제 "변위가 없는 이동 이벤트" 뿐이다
+ * (show/focus/디스플레이 변경 등이 만드는 헛 이벤트). 사용자가 창을 조금이라도
+ * 옮겼다면 그건 드래그다 — 살짝 밀어 붙이는 동작을 거절하지 않는 것이 자석 같은
+ * 감각의 전제이기도 하다.
+ */
+const DRAG_DISTANCE_PX = 2;
+/**
+ * 드래그 세션을 버리는 무활동 시간. 조각난 드래그를 잇기 위해 세션은 드랍
+ * 판정 뒤에도 살아 있는데, 영원히 살아 있으면 한참 전 시작점이 되살아난다.
+ */
+const DRAG_SESSION_EXPIRE_MS = 4000;
+/** 라이브 흡착 래치가 풀리는 거리. 이만큼 벗어나야 다시 흡착을 판정한다. */
+const LIVE_UNLATCH_PX = 64;
 /**
  * 드랍 판정: 마지막 이동 이벤트로부터 이만큼 조용하면 드래그가 끝난 것으로 본다.
  *
@@ -98,7 +160,7 @@ const DRAG_MOVE_THRESHOLD = 4;
  * 한 번만 오지 않는다. 실측(scripts/probe-snap-electron.mjs)에서는 'move' 하나마다
  * 'moved' 가 뒤따라 왔다 — NSWindowDidMoveNotification 이 이동마다 발생하기
  * 때문이다. 그 신호로 곧바로 finishDrag 를 하면 매 스텝마다 드래그가 리셋되어
- * move 카운트가 영영 DRAG_MOVE_THRESHOLD 에 닿지 못한다. 즉 macOS 에서는 스냅이
+ * 드래그 판정이 영영 서지 못한다. 즉 macOS 에서는 스냅이
  * 조건과 무관하게 **한 번도** 발동할 수 없었다. 그래서 'move'/'moved' 를 모두
  * "아직 움직이는 중" 신호로만 쓰고, 조용해질 때 한 번 판정한다. 플랫폼 분기도
  * 사라진다('moved' 가 없는 win32/linux 도 같은 경로).
@@ -106,8 +168,16 @@ const DRAG_MOVE_THRESHOLD = 4;
  * windowGroups 의 250ms 보다 길게 잡아 머지 판정이 항상 먼저 끝나게 한다.
  * 드래그 도중 이만큼 멈춰 있으면 드랍으로 오인할 수 있지만, 그 경우에도 결과는
  * "이미 흡착 범위 안이던 이웃에 붙는 것" 이라 사용자가 향하던 방향과 어긋나지 않는다.
+ * 조각난 드래그는 세션이 살아남아 이어지므로, 이 값이 짧아도 드래그가 잘리지 않는다.
  */
 const DROP_SETTLE_MS = 320;
+/**
+ * 라이브 흡착이 이미 걸린 상태의 드랍 판정 시간. 붙을 곳이 확정된 뒤에는
+ * 기다릴 이유가 없으므로 짧게 잡아 "손을 떼자마자 붙는" 감각을 만든다.
+ * windowGroups 의 250ms 보다 짧지만 배타성은 시간이 아니라 mergeTargetAtCursor
+ * (커서 위치 재계산)로 보장되므로 순서가 뒤바뀌어도 답이 달라지지 않는다.
+ */
+const DROP_SETTLE_ENGAGED_MS = 140;
 
 // ── 상태 ──────────────────────────────────────────────────────────────────
 let relations: SnapRelation[] = [];
@@ -115,15 +185,18 @@ let windowsRef: Map<WindowKey, BrowserWindow> | null = null;
 /** 관계가 바뀔 때마다 호출 — 렌더러에 클러스터 소속을 알려 분리 버튼을 띄운다. */
 let onSnapsChanged: (() => void) | null = null;
 
-/** 프로그램적 setBounds 중임을 알리는 가드 (windowGroups.applyingBounds 와 동일 규율). */
-let applyingBounds = 0;
 /** 프로그램적으로 적용한 setBounds 누적 횟수 — 되먹임 폭주 검증용 계측값. */
 let appliedBoundsCount = 0;
 
+/** 라이브 흡착 끄기: RD_SNAP_LIVE=0 */
+const LIVE_SNAP = process.env.RD_SNAP_LIVE !== '0';
+
 let draggingKey: WindowKey | null = null;
 let dragStart: Electron.Rectangle | null = null;
-let dragMoveCount = 0;
+let dragLastMoveAt = 0;
 let dropTimer: NodeJS.Timeout | null = null;
+/** 라이브 흡착 래치 — 걸려 있는 동안 같은 자리에서 다시 setBounds 하지 않는다. */
+let liveLatch: { unit: WindowKey; x: number; y: number } | null = null;
 
 function win(key: WindowKey): BrowserWindow | null {
   const w = windowsRef?.get(key);
@@ -170,8 +243,9 @@ export function getSnapRelations(): SnapRelation[] {
 export function getSnappedKeys(): WindowKey[] {
   const set = new Set<WindowKey>();
   for (const r of relations) {
-    set.add(r.a);
-    set.add(r.b);
+    // unit 이 그룹이면 멤버 전원에게 분리 버튼이 보여야 한다 — 어느 탭을 보고
+    // 있든 "이 창은 붙어 있다" 는 사실은 같기 때문이다.
+    for (const m of [...unitMembers(r.a), ...unitMembers(r.b)]) set.add(m);
   }
   return [...set];
 }
@@ -184,24 +258,63 @@ export function getSnapDiagnostics(): { appliedBoundsCount: number } {
 function setBoundsGuarded(key: WindowKey, bounds: Electron.Rectangle): void {
   const w = win(key);
   if (!w) return;
-  applyingBounds += 1;
   appliedBoundsCount += 1;
-  try {
-    w.setBounds(bounds);
-  } finally {
-    applyingBounds -= 1;
-  }
+  withAppliedBounds(() => w.setBounds(bounds));
   // 프로그램적 setBounds 는 'moved'/'resized' 를 발생시키지 않으므로
   // windows.ts 의 persist 핸들러에 기대지 않고 직접 저장한다 (M5 와 같은 이유).
   saveBounds(key, bounds);
 }
 
+// ── unit: 스냅의 참여 단위 ─────────────────────────────────────────────────
+//
+// 홀로 있는 창은 그 자신이 unit. 탭 그룹은 rect 하나를 공유하므로 멤버 전체가
+// unit 하나이고, 대표 키는 groupAnchor(tabs[0]) 이다.
+
+/** 이 창이 속한 unit 의 대표 키. */
+function unitOf(key: WindowKey): WindowKey {
+  return groupAnchor(key) ?? key;
+}
+
+/** unit 을 이루는 창 전부 (숨은 탭 포함). 클러스터 이동은 이 전부를 옮긴다. */
+function unitMembers(unit: WindowKey): WindowKey[] {
+  return groupTabsOf(unit) ?? [unit];
+}
+
+/** unit 을 대표해 지금 화면에 보이는 창 — rect 와 가시성의 출처. */
+function unitWindowKey(unit: WindowKey): WindowKey {
+  return visibleTabOf(unit);
+}
+
+function unitRect(unit: WindowKey): Electron.Rectangle | null {
+  return win(unitWindowKey(unit))?.getBounds() ?? null;
+}
+
+/**
+ * unit 이 지금 화면에 있는가.
+ *
+ * 판정은 항상 **지금** BrowserWindow 에 물어본다(캐시 없음). 그룹의 숨은 탭은
+ * 대표 창이 아니라 아예 열거되지 않으므로 "숨겨져 있다" 로 떨어지는 게 아니라
+ * 애초에 후보가 아니다 — 진짜로 hide/minimize 된 창만 이 검사에 걸린다.
+ */
+function unitVisible(unit: WindowKey): boolean {
+  const w = win(unitWindowKey(unit));
+  return !!w && w.isVisible() && !w.isMinimized();
+}
+
+/** 지금 존재하는 unit 목록 (중복 제거). */
+function allUnits(): WindowKey[] {
+  const seen = new Set<WindowKey>();
+  for (const key of windowsRef?.keys() ?? []) seen.add(unitOf(key));
+  return [...seen];
+}
+
 // ── 클러스터 그래프 ────────────────────────────────────────────────────────
 
-/** key 와 스냅으로 연결된 모든 창 (자기 자신 포함). 사슬을 따라 전파한다. */
+/** key 와 스냅으로 연결된 모든 unit (자기 unit 포함). 사슬을 따라 전파한다. */
 export function clusterOf(key: WindowKey): WindowKey[] {
-  const seen = new Set<WindowKey>([key]);
-  const queue: WindowKey[] = [key];
+  const root = unitOf(key);
+  const seen = new Set<WindowKey>([root]);
+  const queue: WindowKey[] = [root];
   while (queue.length > 0) {
     const cur = queue.shift() as WindowKey;
     for (const r of relations) {
@@ -215,16 +328,77 @@ export function clusterOf(key: WindowKey): WindowKey[] {
   return [...seen];
 }
 
-function hasRelation(key: WindowKey): boolean {
-  return relations.some((r) => r.a === key || r.b === key);
+/** 클러스터에 실제로 존재하는 창 전부 — 그룹 unit 은 숨은 탭까지 펼친다. */
+function clusterWindows(key: WindowKey): WindowKey[] {
+  return clusterOf(key).flatMap((u) => unitMembers(u));
 }
 
-/** 지정한 창들의 스냅 관계를 모두 끊는다. 탭 그룹 편입/레이아웃 적용 시 사용. */
+function hasRelation(key: WindowKey): boolean {
+  const unit = unitOf(key);
+  return relations.some((r) => r.a === unit || r.b === unit);
+}
+
+/** 지정한 창들의 스냅 관계를 모두 끊는다. 레이아웃 적용 등에서 사용. */
 export function dropSnapsFor(keys: WindowKey[]): void {
-  const set = new Set(keys);
+  const set = new Set(keys.map(unitOf));
   const before = relations.length;
   relations = relations.filter((r) => !set.has(r.a) && !set.has(r.b));
   if (relations.length !== before) persist();
+}
+
+/**
+ * 그룹 대표가 바뀌었다 — 관계의 끝점을 새 대표에게 넘긴다.
+ *
+ * 그룹은 제자리에 있고 대표만 바뀌는 것이므로 기하 검증은 하지 않는다.
+ * (windowGroups.removeFromGroup 에서 호출)
+ */
+export function reassignSnapUnit(from: WindowKey, to: WindowKey): void {
+  if (from === to) return;
+  let touched = false;
+  relations = relations.map((r) => {
+    if (r.a === from) {
+      touched = true;
+      return { ...r, a: to };
+    }
+    if (r.b === from) {
+      touched = true;
+      return { ...r, b: to };
+    }
+    return r;
+  });
+  if (touched) persist();
+}
+
+/**
+ * 그룹 구성이 바뀐 뒤 관계를 unit 기준으로 다시 정리한다.
+ *
+ * 1) 모든 끝점을 현재 대표 키로 정규화한다.
+ * 2) 같은 unit 안으로 들어와 버린 관계(=한 그룹으로 머지됨)는 버린다 —
+ *    rect 를 공유하는 두 창 사이의 "맞닿음" 은 의미가 없다.
+ * 3) 이번에 바뀐 창이 걸린 관계는 기하를 다시 확인한다. 머지된 창이 들고
+ *    있던 옛 이웃 관계는 여기서 조용히 사라진다(그룹 자리로 순간이동했으므로).
+ *    바뀌지 않은 관계는 건드리지 않는다 — 멀쩡한 클러스터를 흔들지 않기 위해서.
+ */
+export function normalizeSnapUnits(changed: WindowKey[] = []): void {
+  const changedSet = new Set<WindowKey>([...changed, ...changed.map(unitOf)]);
+  const next: SnapRelation[] = [];
+  for (const r of relations) {
+    const a = unitOf(r.a);
+    const b = unitOf(r.b);
+    if (a === b) continue;
+    if (!win(unitWindowKey(a)) || !win(unitWindowKey(b))) continue;
+    const rekeyed = a !== r.a || b !== r.b;
+    if ((rekeyed || changedSet.has(r.a) || changedSet.has(r.b)) && !stillAdjacent(a, b, r.edge)) {
+      continue;
+    }
+    if (next.some((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a))) continue;
+    next.push({ a, b, edge: r.edge });
+  }
+  const same =
+    next.length === relations.length &&
+    next.every((x, i) => x.a === relations[i].a && x.b === relations[i].b);
+  relations = next;
+  if (!same) persist();
 }
 
 /**
@@ -305,13 +479,16 @@ function moveCluster(
   dx: number,
   dy: number
 ): void {
-  const members = clusterOf(leader);
+  // 이동의 단위는 unit 이다. 그룹 unit 은 rect 하나를 옮기고, 그 rect 를
+  // 멤버 전원(숨은 탭 포함)에게 그대로 적용한다 — 그래야 그룹의 bounds 공유
+  // 전제가 유지되어 탭을 전환해도 창이 튀지 않는다.
+  const leaderUnit = unitOf(leader);
   const origin = new Map<WindowKey, Electron.Rectangle>();
-  origin.set(leader, leaderOrigin);
-  for (const m of members) {
-    if (m === leader) continue;
-    const b = win(m)?.getBounds();
-    if (b) origin.set(m, b);
+  origin.set(leaderUnit, leaderOrigin);
+  for (const u of clusterOf(leader)) {
+    if (u === leaderUnit) continue;
+    const r = unitRect(u);
+    if (r) origin.set(u, r);
   }
 
   const wa = screen.getDisplayMatching({
@@ -321,13 +498,21 @@ function moveCluster(
   }).workArea;
   const clamped = clampDelta([...origin.values()], dx, dy, wa);
 
-  for (const [key, b] of origin) {
+  for (const [unit, b] of origin) {
     const next = { x: b.x + clamped.dx, y: b.y + clamped.dy, width: b.width, height: b.height };
-    const cur = win(key)?.getBounds();
-    if (cur && cur.x === next.x && cur.y === next.y && cur.width === next.width && cur.height === next.height) {
-      continue; // 이미 목표 위치 — 불필요한 setBounds 를 만들지 않는다.
+    for (const m of unitMembers(unit)) {
+      const cur = win(m)?.getBounds();
+      if (
+        cur &&
+        cur.x === next.x &&
+        cur.y === next.y &&
+        cur.width === next.width &&
+        cur.height === next.height
+      ) {
+        continue; // 이미 목표 위치 — 불필요한 setBounds 를 만들지 않는다.
+      }
+      setBoundsGuarded(m, next);
     }
-    setBoundsGuarded(key, next);
   }
 }
 
@@ -354,19 +539,16 @@ function findEngage(
   const own = new Set(clusterOf(key));
   let best: (EngageResult & { gap: number }) | null = null;
 
-  for (const [other, w] of windowsRef ?? []) {
+  for (const other of allUnits()) {
     if (own.has(other)) continue;
-    if (!w || w.isDestroyed()) continue;
-    if (!w.isVisible() || w.isMinimized()) {
+    if (!unitVisible(other)) {
       trace?.push(`  후보 ${other}: 탈락 — 보이지 않음(hidden/minimized)`);
       continue;
     }
-    // 탭 그룹에 속한 창은 스냅에 참여하지 않는다 (아래 finishDrag 와 같은 규칙).
-    if (groupOf(other)) {
-      trace?.push(`  후보 ${other}: 탈락 — 탭 그룹 멤버`);
-      continue;
-    }
-    const t = w.getBounds();
+    const t = unitRect(other);
+    if (!t) continue;
+    const groupTabs = groupTabsOf(other);
+    if (groupTabs) trace?.push(`  후보 ${other}: 탭 그룹 [${groupTabs.join(',')}] 을 rect 하나로 취급`);
 
     const vShare = overlapLength(b.y, b.y + b.height, t.y, t.y + t.height);
     const hShare = overlapLength(b.x, b.x + b.width, t.x, t.x + t.width);
@@ -438,16 +620,46 @@ function resetDrag(): void {
   }
   draggingKey = null;
   dragStart = null;
-  dragMoveCount = 0;
+  dragLastMoveAt = 0;
+  liveLatch = null;
+}
+
+/** 드래그 시작점에서 지금까지의 이동 거리(체비쇼프 — 축 하나만 커도 인정). */
+function dragDistance(key: WindowKey): number {
+  const cur = win(key)?.getBounds();
+  if (!cur || !dragStart) return 0;
+  return Math.max(Math.abs(cur.x - dragStart.x), Math.abs(cur.y - dragStart.y));
+}
+
+/**
+ * 판정이 끝난 뒤 세션을 어떻게 할지.
+ *
+ * - 'keep': 아무 일도 하지 않았다 → 세션을 남긴다. 손이 잠깐 멈춘 것과 손을 뗀
+ *   것은 창 이벤트만으로 구분할 수 없으므로, 남겨 두어야 다음 조각이 같은
+ *   시작점에서 거리를 계속 누적한다 (= 끊어진 드래그가 하나로 이어진다).
+ * - 'rebase': 창을 옮겼다 → 시작점을 현재 위치로 옮긴다. 남은 세션이 이미 적용한
+ *   delta 를 다시 적용하지 않게 하는 것이 핵심이다.
+ */
+function endDragSession(mode: 'keep' | 'rebase', key: WindowKey): void {
+  if (dropTimer) {
+    clearTimeout(dropTimer);
+    dropTimer = null;
+  }
+  if (mode === 'rebase') {
+    dragStart = win(key)?.getBounds() ?? null;
+    liveLatch = null;
+  }
 }
 
 function finishDrag(): void {
   const key = draggingKey;
   const start = dragStart;
-  const moves = dragMoveCount;
-  const wasRealDrag = dragMoveCount >= DRAG_MOVE_THRESHOLD;
-  resetDrag();
-  if (!key || !start) return;
+  const moved = key ? dragDistance(key) : 0;
+  const wasRealDrag = moved >= DRAG_DISTANCE_PX;
+  if (!key || !start) {
+    resetDrag();
+    return;
+  }
 
   const trace: string[] = [];
   const log = SNAP_DEBUG ? trace : undefined;
@@ -456,19 +668,26 @@ function finishDrag(): void {
     trace.push(`  결정: ${line}`);
     debugWrite(trace);
   };
+  const unit = unitOf(key);
   log?.push(
-    `[snap] ${new Date().toISOString()} 드랍 key=${key} ` +
-      `start=${fmtRect(start)} move이벤트=${moves}`
+    `[snap] ${new Date().toISOString()} 드랍 key=${key} unit=${unit}` +
+      `${groupTabsOf(key) ? ` (탭 그룹 [${groupTabsOf(key)?.join(',')}])` : ''} ` +
+      `start=${fmtRect(start)} 누적변위=${moved}px`
   );
 
   if (!wasRealDrag) {
-    decide(`무시 — 사용자 드래그로 보기엔 move 가 적다 (${moves} < ${DRAG_MOVE_THRESHOLD})`);
+    // 세션은 남긴다 — 다음 조각이 같은 시작점에서 거리를 이어 쌓는다.
+    decide(
+      `보류 — 누적 변위가 아직 작다 (${moved} < ${DRAG_DISTANCE_PX}) / 세션 유지, 다음 조각과 이어짐`
+    );
+    endDragSession('keep', key);
     return;
   }
 
   const w = win(key);
   if (!w) {
     decide('무시 — 창이 사라짐');
+    resetDrag();
     return;
   }
   // ── 우선순위: 머지가 스냅을 이긴다 ──────────────────────────────────────
@@ -479,12 +698,7 @@ function finishDrag(): void {
   const mergeTarget = mergeTargetAtCursor(key);
   if (mergeTarget || isMergePending(key)) {
     decide(`스냅 안 함 — 커서가 ${mergeTarget ?? '(pending)'} 안 → 탭 머지가 가져간다`);
-    return;
-  }
-  // 탭 그룹 멤버는 스냅에 참여하지 않는다 — 그룹은 하나의 rect 를 공유하므로
-  // 개별 멤버의 스냅 관계는 눈에 보이지 않는 기하가 되어 버린다.
-  if (groupOf(key)) {
-    decide('스냅 안 함 — 끌린 창이 탭 그룹 멤버');
+    endDragSession('keep', key);
     return;
   }
 
@@ -493,64 +707,129 @@ function finishDrag(): void {
   const dy = dropped.y - start.y;
 
   if (hasRelation(key)) {
-    // 붙어 있는 창의 드래그는 언제나 클러스터 통째 이동이다 — 거리 제한 없음.
+    // 붙어 있는 unit 의 드래그는 언제나 클러스터 통째 이동이다 — 거리 제한 없음.
     // 빼내려면 명시적 분리 동작(detachFromCluster)을 써야 한다.
     moveCluster(key, start, dx, dy);
-    decide(`클러스터 통째 이동 delta=${dx},${dy} 멤버=[${clusterOf(key).join(',')}]`);
+    decide(`클러스터 통째 이동 delta=${dx},${dy} unit=[${clusterOf(key).join(',')}]`);
+    endDragSession('rebase', key);
     return;
   }
 
   const current = win(key)?.getBounds();
   if (!current) {
     decide('무시 — 창이 사라짐');
+    resetDrag();
     return;
   }
   log?.push(`  드랍 bounds=${fmtRect(current)}`);
-  const engage = findEngage(key, current, log);
+  const engage = findEngage(unit, current, log);
   if (!engage) {
     decide('흡착 없음 — 조건을 통과한 후보가 없다');
+    // 붙을 곳이 없었을 뿐이므로 세션은 rebase 해서 이어간다 (계속 끌 수 있다).
+    endDragSession('rebase', key);
     return;
   }
 
-  // 흡착도 강체 이동으로 적용한다 — key 가 이미 다른 창을 달고 있으면
+  // 흡착도 강체 이동으로 적용한다 — unit 이 이미 다른 창을 달고 있으면
   // 그 창들도 같이 따라와야 배치가 깨지지 않는다.
   moveCluster(key, current, engage.x - current.x, engage.y - current.y);
-  relations.push({ a: key, b: engage.target, edge: engage.edge });
+  relations.push({ a: unit, b: engage.target, edge: engage.edge });
   persist();
-  decide(`흡착 ${key} → ${engage.target} (edge=${engage.edge}) 위치=${engage.x},${engage.y}`);
+  decide(`흡착 ${unit} → ${engage.target} (edge=${engage.edge}) 위치=${engage.x},${engage.y}`);
+  endDragSession('rebase', key);
 }
 
-function onDragTick(key: WindowKey): void {
-  if (applyingBounds > 0) return;
+/**
+ * 드래그 중 라이브 흡착 — 밴드에 들어오는 순간 한 번 끌어당긴다.
+ *
+ * 되먹임 방지는 전적으로 래치가 한다: 한 번 당긴 뒤에는 래치 지점에서
+ * LIVE_UNLATCH_PX 이상 벗어나기 전까지 다시 적용하지 않는다. 그래서 밴드 안에
+ * 머무는 동안 발생하는 프로그램적 setBounds 는 이동 이벤트 수와 무관하게 상수다.
+ */
+function tryLiveSnap(key: WindowKey): void {
+  if (!LIVE_SNAP) return;
+  const unit = unitOf(key);
+  const cur = win(key)?.getBounds();
+  if (!cur) return;
+
+  if (liveLatch && liveLatch.unit === unit) {
+    const away = Math.max(Math.abs(cur.x - liveLatch.x), Math.abs(cur.y - liveLatch.y));
+    if (away < LIVE_UNLATCH_PX) return; // 래치 유지 — 아무것도 하지 않는다
+    liveLatch = null;
+  }
+  // 이미 클러스터에 속해 있으면 라이브 흡착은 하지 않는다 — 그 드래그는
+  // "클러스터 통째 이동" 이고, 드래그 중에 따라오는 창까지 옮기면 OS 드래그
+  // 루프와 싸우게 된다. 따라오기는 종전대로 드랍 시점에 한 번만.
+  if (hasRelation(key)) return;
+  // 머지가 이긴다 — 커서가 상대 rect 안이면 라이브 흡착도 하지 않는다.
+  if (mergeTargetAtCursor(key)) return;
+
+  const engage = findEngage(unit, cur);
+  if (!engage) return;
+  if (engage.x === cur.x && engage.y === cur.y) {
+    liveLatch = { unit, x: cur.x, y: cur.y };
+    return;
+  }
+  moveCluster(key, cur, engage.x - cur.x, engage.y - cur.y);
+  liveLatch = { unit, x: engage.x, y: engage.y };
+  debugWrite([
+    `[snap] ${new Date().toISOString()} 라이브 흡착 unit=${unit} → ${engage.target} ` +
+      `(edge=${engage.edge}) ${fmtRect(cur)} → ${engage.x},${engage.y} [래치]`
+  ]);
+}
+
+/**
+ * @param live 라이브 흡착을 시도해도 되는 시점인가.
+ *   'will-move' 는 OS 가 아직 창을 옮기기 전이라 여기서 setBounds 를 하면
+ *   곧바로 덮어써진다(그리고 win32 에서는 이동 직전 훅 안에서 창을 옮기는 셈이
+ *   된다). 그래서 라이브 흡착은 이동이 **끝난** 'move' 에서만 한다.
+ */
+function onDragTick(key: WindowKey, live: boolean): void {
+  if (isApplyingBounds()) return;
+  const stale = Date.now() - dragLastMoveAt > DRAG_SESSION_EXPIRE_MS;
   if (draggingKey !== key) {
     // 다른 창의 드래그가 정리되지 않은 채 남아 있으면 먼저 마무리한다.
     if (draggingKey) finishDrag();
+    resetDrag();
     draggingKey = key;
     dragStart = win(key)?.getBounds() ?? null;
-    dragMoveCount = 0;
+  } else if (stale || !dragStart) {
+    // 세션이 너무 오래 조용했다 — 낡은 시작점을 되살리지 않고 새로 잡는다.
+    dragStart = win(key)?.getBounds() ?? null;
+    liveLatch = null;
   }
-  dragMoveCount += 1;
+  dragLastMoveAt = Date.now();
+  if (live && dragDistance(key) >= DRAG_DISTANCE_PX) tryLiveSnap(key);
   scheduleDrop();
 }
 
-/** 드랍 판정을 뒤로 민다. 이동 이벤트가 올 때마다 다시 밀린다. */
+/**
+ * 드랍 판정을 뒤로 민다. 이동 이벤트가 올 때마다 다시 밀린다.
+ * 이미 라이브 흡착이 걸려 있으면(붙을 곳이 확정) 짧게 잡아 즉시 붙는 느낌을 준다.
+ */
 function scheduleDrop(): void {
   if (dropTimer) clearTimeout(dropTimer);
-  dropTimer = setTimeout(finishDrag, DROP_SETTLE_MS);
+  dropTimer = setTimeout(finishDrag, liveLatch ? DROP_SETTLE_ENGAGED_MS : DROP_SETTLE_MS);
 }
 
 export function attachSnapDragHandlers(w: BrowserWindow, key: WindowKey): void {
   // will-move 는 실제 이동 직전에 오므로 드래그 시작 위치를 정확히 잡을 수 있다.
-  w.on('will-move', () => onDragTick(key));
-  w.on('move', () => onDragTick(key));
+  w.on('will-move', () => onDragTick(key, false));
+  w.on('move', () => onDragTick(key, true));
   // macOS 의 'moved' 는 이동마다 오므로 여기서 즉시 끝내지 않는다 —
   // 다른 이동 이벤트와 똑같이 "아직 움직이는 중" 으로 취급하고 판정을 미룬다.
   w.on('moved', () => {
-    if (applyingBounds > 0) return;
+    if (isApplyingBounds()) return;
     if (draggingKey !== key) return;
     scheduleDrop();
   });
-  w.on('closed', () => dropSnapsFor([key]));
+  w.on('closed', () => {
+    // 닫힌 창을 **정확히 그 키로** 가리키는 관계만 지운다. unit 으로 넓히면
+    // 살아 있는 그룹의 관계까지 함께 날아간다 (그룹은 창 하나가 닫혀도 남는다).
+    const before = relations.length;
+    relations = relations.filter((r) => r.a !== key && r.b !== key);
+    if (relations.length !== before) persist();
+  });
 }
 
 /**
@@ -560,8 +839,8 @@ export function attachSnapDragHandlers(w: BrowserWindow, key: WindowKey): void {
  * 다시 맞추는 대신(사용자가 고른 프리셋을 덮어쓰게 된다) 관계를 버린다.
  */
 function stillAdjacent(a: WindowKey, b: WindowKey, edge: SnapEdge): boolean {
-  const wa = win(a)?.getBounds();
-  const wb = win(b)?.getBounds();
+  const wa = unitRect(a);
+  const wb = unitRect(b);
   if (!wa || !wb) return false;
   const vShare = overlapLength(wa.y, wa.y + wa.height, wb.y, wb.y + wb.height);
   const hShare = overlapLength(wa.x, wa.x + wa.width, wb.x, wb.x + wb.width);
@@ -591,15 +870,19 @@ export function restoreSnaps(): void {
   if (Array.isArray(saved)) {
     for (const r of saved) {
       if (!r || typeof r !== 'object') continue;
-      const { a, b, edge } = r as Partial<SnapRelation>;
-      if (!a || !b || a === b) continue;
-      if (!win(a) || !win(b)) continue;
+      const raw = r as Partial<SnapRelation>;
+      const edge = raw.edge;
+      if (!raw.a || !raw.b || !win(raw.a) || !win(raw.b)) continue;
       if (edge !== 'left' && edge !== 'right' && edge !== 'top' && edge !== 'bottom') continue;
+      // 재시작 사이에 탭 그룹이 복원됐을 수 있다 — 저장된 키를 현재 unit 대표로
+      // 정규화한 뒤 기하를 확인한다 (restoreGroups 가 먼저 돈다).
+      const a = unitOf(raw.a);
+      const b = unitOf(raw.b);
+      if (a === b) continue;
       const dup = relations.some(
         (x) => (x.a === a && x.b === b) || (x.a === b && x.b === a)
       );
       if (dup) continue;
-      if (groupOf(a) || groupOf(b)) continue;
       if (!stillAdjacent(a, b, edge)) continue;
       relations.push({ a, b, edge });
     }
