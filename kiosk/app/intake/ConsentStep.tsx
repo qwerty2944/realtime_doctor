@@ -6,7 +6,9 @@ import { useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 import type { ConsentItem, ConsentKey } from '@/lib/intake/consent';
+import type { IntakeDisclosure } from '@/lib/intake/disclosure';
 
+import AiDisclosure from './AiDisclosure';
 import { Button } from './ui';
 
 export type ConsentState = Record<ConsentKey, boolean>;
@@ -30,10 +32,16 @@ export interface ConsentStepProps {
    * 적기 위해서다. `lib/intake/consent.ts` 참고.
    */
   items: readonly ConsentItem[];
+  /**
+   * AI 고지 (배포구조 문서 5장). 동의 **항목 안이 아니라 위에** 그린다 —
+   * 항목 안에 넣으면 "약관 전문 보기" 뒤로 접혀 들어가고, 접힌 경고는 경고가
+   * 아니다. 근거는 `lib/intake/disclosure.ts`.
+   */
+  disclosure: IntakeDisclosure;
   onAgree: (consents: ConsentState) => void;
 }
 
-export default function ConsentStep({ items, onAgree }: ConsentStepProps) {
+export default function ConsentStep({ items, disclosure, onAgree }: ConsentStepProps) {
   const [consents, setConsents] = useState<ConsentState>(EMPTY_CONSENTS);
   const [expanded, setExpanded] = useState<Partial<Record<ConsentKey, boolean>>>({});
 
@@ -60,6 +68,8 @@ export default function ConsentStep({ items, onAgree }: ConsentStepProps) {
           아래 필수 항목에 모두 동의하셔야 문진을 시작할 수 있습니다.
         </p>
       </header>
+
+      <AiDisclosure disclosure={disclosure} />
 
       <div className="flex flex-col gap-3">
         {/* 전체 동의 행이 개별 항목 위에 온다. */}

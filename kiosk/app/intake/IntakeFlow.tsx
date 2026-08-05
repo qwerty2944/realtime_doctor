@@ -17,14 +17,17 @@ import { useState, type ReactNode } from 'react';
 
 import type { IntakeStartResponse } from '@/app/api/intake/start/route';
 import type { IntakeTurnResponse } from '@/app/api/intake/turn/route';
+import { apiPath } from '@/lib/basePath';
 import type { ConsentItem } from '@/lib/intake/consent';
+import type { IntakeDisclosure } from '@/lib/intake/disclosure';
 
 import CompleteStep from './CompleteStep';
 import ConsentStep, { type ConsentState } from './ConsentStep';
 import InterviewStep, { type InterviewExchange } from './InterviewStep';
 import PatientInfoStep, { type PatientInfo } from './PatientInfoStep';
+import VisitCodeStep from './VisitCodeStep';
 
-type Step = 'consent' | 'info' | 'interview' | 'complete';
+type Step = 'code' | 'consent' | 'info' | 'interview' | 'complete';
 
 interface DialogueTurn {
   role: 'agent' | 'patient';
@@ -55,6 +58,21 @@ export interface IntakeFlowProps {
   /** 서버에서 해석된 동의 문구. `lib/intake/consent.ts` 참고. */
   consentItems: readonly ConsentItem[];
   /**
+   * 서버에서 만든 AI 고지 (배포구조 문서 5장). 컴포넌트에 문자열로 박지 않는
+   * 이유는 `lib/intake/disclosure.ts` 참고 — 고지가 실제로 화면에 내려갔는지가
+   * 검증 대상이어야 한다.
+   */
+  disclosure: IntakeDisclosure;
+  /**
+   * URL 의 `?c=` 로 들어온, 서버가 이미 확인해 준 방문 코드.
+   *
+   * QR 을 찍고 들어온 환자는 코드 입력 화면을 건너뛴다. 값이 있다는 것은
+   * "그때 유효했다" 는 뜻일 뿐이고, 실제 권한 판정은 `/api/intake/start` 가
+   * 코드를 **소모할 때** 다시 한다 — 여기서 넘어온 값은 화면 흐름을 줄이는
+   * 편의이지 자격증명이 아니다.
+   */
+  prevalidatedCode: string | null;
+  /**
    * 이 태블릿의 키오스크 슬러그. 담당 의사 uuid 자체는 절대 클라이언트로
    * 내려오지 않는다 — 서버가 매번 다시 해석한다.
    */
@@ -64,10 +82,13 @@ export interface IntakeFlowProps {
 
 export default function IntakeFlow({
   consentItems,
+  disclosure,
+  prevalidatedCode,
   kioskSlug,
   voiceEnabled
 }: IntakeFlowProps) {
-  const [step, setStep] = useState<Step>('consent');
+  const [step, setStep] = useState<Step>(prevalidatedCode ? 'consent' : 'code');
+  const [visitCode, setVisitCode] = useState<string | null>(prevalidatedCode);
   const [consents, setConsents] = useState<ConsentState | null>(null);
   const [encounterId, setEncounterId] = useState<string | null>(null);
   // 컴포넌트 상태에만 둔다: localStorage 나 URL 에 절대 쓰지 않으므로 탭보다
@@ -81,6 +102,34 @@ export default function IntakeFlow({
   const [serverError, setServerError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
 
+  /**
+   * 코드 확인. 아무것도 만들지 않고 소모하지도 않는다 —
+   * `/api/intake/code/check` 는 같은 DB 함수를 확인 모드로 부를 뿐이다.
+   * 오타를 여기서 잡는 이유: 이름·생년월일을 다 적은 뒤에 거절당하지 않게.
+   */
+  const handleCode = async (code: string) => {
+    setSubmitting(true);
+    setServerError(null);
+    try {
+      const response = await fetch(apiPath('/api/intake/code/check'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kiosk: kioskSlug, code })
+      });
+      if (!response.ok) {
+        setServerError(await readErrorMessage(response));
+        return;
+      }
+      setVisitCode(code);
+      setStep('consent');
+    } catch (error) {
+      console.error('[intake] Failed to check the visit code.', error);
+      setServerError(NETWORK_ERROR);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleAgree = (agreed: ConsentState) => {
     setConsents(agreed);
     setStep('info');
@@ -91,16 +140,24 @@ export default function IntakeFlow({
       setServerError('동의 정보가 없습니다. 처음부터 다시 시작해 주세요.');
       return;
     }
+    if (!visitCode) {
+      // 여기에 오면 상태 기계가 깨진 것이다. 코드 없이 start 를 부르면 서버가
+      // 어차피 거절하지만, 환자에게는 "코드를 입력해 주세요" 가 정확한 안내다.
+      setServerError('접수 코드가 없습니다. 처음부터 다시 시작해 주세요.');
+      setStep('code');
+      return;
+    }
 
     setSubmitting(true);
     setServerError(null);
 
     try {
-      const response = await fetch('/api/intake/start', {
+      const response = await fetch(apiPath('/api/intake/start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kiosk: kioskSlug,
+          code: visitCode,
           name: info.name,
           birthDate: info.birthDate,
           registrationNo: info.registrationNo === '' ? null : info.registrationNo,
@@ -139,7 +196,7 @@ export default function IntakeFlow({
     const askedQuestion = question;
 
     try {
-      const response = await fetch('/api/intake/turn', {
+      const response = await fetch(apiPath('/api/intake/turn'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ encounterId, token, turns, text })
@@ -176,8 +233,23 @@ export default function IntakeFlow({
 
   const renderStep = (): ReactNode => {
     switch (step) {
+      case 'code':
+        return (
+          <VisitCodeStep
+            disclosure={disclosure}
+            submitting={submitting}
+            serverError={serverError}
+            onSubmit={handleCode}
+          />
+        );
       case 'consent':
-        return <ConsentStep items={consentItems} onAgree={handleAgree} />;
+        return (
+          <ConsentStep
+            items={consentItems}
+            disclosure={disclosure}
+            onAgree={handleAgree}
+          />
+        );
       case 'info':
         return (
           <PatientInfoStep
