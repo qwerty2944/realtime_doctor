@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { Mic, Square, Volume2, VolumeX } from 'lucide-react';
 
 import type { IntakeTranscribeResponse } from '@/app/api/intake/transcribe/route';
+import { apiPath } from '@/lib/basePath';
 
 import { Button, DraftNotice, ErrorNotice } from './ui';
 import { useSpeechSynthesis } from './useSpeechSynthesis';
@@ -216,7 +217,7 @@ export default function InterviewStep({
         form.append('token', token);
         form.append('audio', blob, `intake.${mimeType.includes('mp4') ? 'm4a' : 'webm'}`);
 
-        const response = await fetch('/api/intake/transcribe', {
+        const response = await fetch(apiPath('/api/intake/transcribe'), {
           method: 'POST',
           body: form
         });
