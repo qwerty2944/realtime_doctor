@@ -164,10 +164,16 @@ const main = async () => {
   );
   check('출처가 문진으로 표시된다', intakeOnly.source === 'intake');
 
-  console.log('\n=== 3) service_role 로 임상 검토 완료 표시 ===');
-  sql(
-    `update public.care_activity_defs set clinical_review_status='reviewed', reviewed_at=now(), review_note='프로브: 검토 완료 가정' where code='lifestyle_education'`
-  );
+  console.log('\n=== 3) 이 계정이 임상 검토 완료로 표시한다 (B5) ===');
+  // B5 부터 검토는 계정별이다(0008). 공용 행을 service_role 로 올려도 아무에게도
+  // 켜지지 않으므로, 여기서도 앱이 실제로 쓰는 경로를 그대로 부른다.
+  const reviewRes = await care.setCareActivityReview({
+    activityCode: 'lifestyle_education',
+    ruleVersion: 1,
+    reviewed: true,
+    note: '프로브: 규칙 전문을 읽고 승인'
+  });
+  check('검토 표시 성공', reviewRes.ok === true);
   const view = await care.buildCareActivityDisplay({
     sessionId: thisMonthSession,
     encounterId
@@ -298,14 +304,28 @@ const main = async () => {
   );
 
   console.log('\n=== 6) 규칙을 바꾼다 — 지난달 숫자가 다시 쓰이는가 ===');
-  // 규칙 변경 = rule_version 상승. 로더의 실제 동작과 같이 검토 상태도 내려가지만,
-  // 여기서는 화면 경로를 계속 보기 위해 검토 완료를 유지한다.
+  // 규칙 변경 = rule_version 상승. B5 부터 규칙이 바뀌면 이 계정의 검토가
+  // 자동으로 풀린다(검토한 규칙과 도는 규칙이 다르면 검토가 아니다). 화면
+  // 경로를 계속 보기 위해 **새 규칙을 다시 검토**한다 — 검토 없이 계속
+  // 보이는 경로는 애초에 존재하지 않는다.
   sql(
     `update public.care_activity_defs
      set rule_version = rule_version + 1,
          cue_terms = cue_terms || array['숨이 조금']
      where code='lifestyle_education'`
   );
+  const staleScan = await care.buildCareActivityDisplay({
+    sessionId: thisMonthSession,
+    encounterId
+  });
+  check('규칙이 바뀌자 검토가 풀려 화면이 비었다', staleScan.items.length === 0, staleScan.emptyReason);
+  const reReview = await care.setCareActivityReview({
+    activityCode: 'lifestyle_education',
+    ruleVersion: 2,
+    reviewed: true,
+    note: '프로브: 바뀐 규칙을 다시 읽고 승인'
+  });
+  check('새 규칙을 다시 검토', reReview.ok === true);
   const afterRuleChange = await care.buildCareActivityDisplay({
     sessionId: thisMonthSession,
     encounterId
@@ -398,6 +418,7 @@ const main = async () => {
   sql(
     `update public.care_activity_defs set clinical_review_status='unreviewed', reviewed_at=null, review_note=null, rule_version=1, cue_terms=array_remove(cue_terms,'숨이 조금') where code='lifestyle_education'`
   );
+  sql(`delete from public.care_activity_adoptions where user_id='${userId}'`);
   sql(`delete from public.sessions where user_id='${userId}'`);
   sql(`delete from public.patients where id='${patientId}'`);
   sql(`delete from auth.users where id='${userId}'`);

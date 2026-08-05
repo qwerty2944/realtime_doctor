@@ -255,10 +255,26 @@ const main = async () => {
     `HTTP ${insertRes.status}`
   );
 
-  console.log('\n=== 5) 임상 검토를 마친 뒤에야 화면으로 나간다 (service_role) ===');
+  console.log('\n=== 5) 임상 검토를 마친 뒤에야 화면으로 나간다 (계정별 채택, B5) ===');
+  // 공용 행을 service_role 로 올려도 **아무에게도 켜지지 않는다** (0008).
+  // 정의는 모든 계정이 같이 읽는 템플릿이라, 한 사람의 판단이 전역이 되면
+  // 다른 의원의 탐지까지 켜진다.
   sql(
-    `update public.care_activity_defs set clinical_review_status='reviewed', reviewed_at=now(), review_note='프로브: 검토 완료 가정' where code='lifestyle_education'`
+    `update public.care_activity_defs set clinical_review_status='reviewed', reviewed_at=now(), review_note='프로브: 공용 행만 올린 상태' where code='lifestyle_education'`
   );
+  const scanGlobalOnly = await care.scanSessionForCareActivities(sessionId, { encounterId });
+  check(
+    '공용 행만 올려서는 화면에 나가지 않는다',
+    scanGlobalOnly.released.length === 0,
+    `released ${scanGlobalOnly.released.length}건`
+  );
+  const reviewRes = await care.setCareActivityReview({
+    activityCode: 'lifestyle_education',
+    ruleVersion: 1,
+    reviewed: true,
+    note: '프로브: 규칙 전문을 읽고 승인'
+  });
+  check('이 계정이 스스로 검토 표시', reviewRes.ok === true);
   const scan2 = await care.scanSessionForCareActivities(sessionId, { encounterId });
   check('검토 완료 후 화면으로 1건 나간다', scan2.released.length === 1, scan2.released[0]?.label);
   const released = scan2.released[0];
