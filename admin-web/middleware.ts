@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
-// /admin/* 만 게이트. /login, /api/auth/signout 등은 자유로.
+// /admin/*, /billing 게이트. /login, /api/auth/signout 등은 자유로.
+// [주의] /billing/handoff 는 **의도적으로 제외**한다. 그 라우트가 하는 일이
+// 세션을 만드는 것이라, 게이트에 걸리면 자기 자신이 로그인으로 튕겨 나간다.
 export const config = {
-  matcher: ['/admin/:path*']
+  matcher: ['/admin/:path*', '/billing']
 };
 
 export async function middleware(req: NextRequest) {
