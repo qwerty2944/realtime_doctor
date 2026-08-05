@@ -351,7 +351,16 @@ const main = async () => {
     check(`${label} — patients 행이 만들어지지 않았다`, counts.patients === '0', `${counts.patients}행`);
     check(`${label} — encounters 행이 만들어지지 않았다`, counts.encounters === '0', `${counts.encounters}행`);
     check(`${label} — 모델을 부르지 않았다`, calls === 0, `${calls}회`);
-    check(`${label} — 환자에게 한국어 안내가 간다`, typeof result.body.error === 'string' && result.body.error.length > 0);
+    // 영어 한 글자도 새면 안 된다. zod 기본 메시지가 그대로 나가는 경로가
+    // 실제로 있었다("Invalid input: expected string, received undefined").
+    check(
+      `${label} — 환자에게 한국어 안내가 간다`,
+      typeof result.body.error === 'string' &&
+        result.body.error.length > 0 &&
+        /[가-힣]/.test(result.body.error) &&
+        !/[A-Za-z]{4,}/.test(result.body.error),
+      result.body.error
+    );
   }
 
   const foreignCounts = rowCounts(userB);

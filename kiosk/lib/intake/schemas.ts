@@ -48,8 +48,11 @@ const birthDateSchema = z
  * 형식을 엄격하게 잡으면 판정이 두 곳으로 갈라지고, 갈라진 둘 중 하나만
  * 고쳐지는 날이 온다.
  */
+// `error` 옵션이 없으면 코드 키가 **아예 빠진** 요청은 zod 기본 영어 메시지로
+// 떨어지고("Invalid input: expected string, received undefined") 그 문장이 접수대
+// 앞의 환자에게 그대로 보인다. 토큰 스키마가 같은 이유로 이미 이렇게 되어 있다.
 const visitCodeSchema = z
-  .string()
+  .string({ error: '접수처에서 받은 코드를 입력해 주세요.' })
   .trim()
   .min(1, '접수처에서 받은 코드를 입력해 주세요.')
   .max(32, '코드를 다시 확인해 주세요.');
