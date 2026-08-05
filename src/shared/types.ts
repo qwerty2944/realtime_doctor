@@ -96,6 +96,15 @@ export const IPC = {
   SubscriptionBlocked: 'subscription:blocked',
   /** 결제 페이지를 외부 브라우저로 연다 (admin-web, S3). */
   SubscriptionOpenBilling: 'subscription:open-billing',
+  /**
+   * 이번 진료에서 기록된 행위 조회 (B3, invoke).
+   *
+   * 응답에는 `releaseForDisplay()` 를 통과한 항목만 담긴다 — 임상 검토 전
+   * 정의는 여기까지 오지 못한다. 비어 있을 때는 왜 비었는지가 함께 온다.
+   */
+  CareActivitiesScan: 'care-activities:scan',
+  /** 월 단위 행위 기록 집계 (B4, invoke). 금액은 담기지 않는다. */
+  CareActivitiesReport: 'care-activities:report',
   /** 나중에 뜬 창이 현재 글씨 배율을 스스로 채우기 위한 getter. */
   FontScaleGet: 'font-scale:get',
   /** 글씨 배율 변경을 모든 창에 알리는 broadcast. */

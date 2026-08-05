@@ -433,6 +433,186 @@ export function releaseForDisplay(
   return { released, withheld };
 }
 
+// ── 화면 payload (B3) ──────────────────────────────────────────────────
+
+/**
+ * 화면이 비어 있는 이유.
+ *
+ * "빈 화면"과 "고장난 화면"은 사용자에게 같은 모습이다. 지금 씨드된 정의는
+ * 전부 임상 검토 전이라 **아무것도 뜨지 않는 것이 올바른 동작**인데, 이유를
+ * 말하지 않으면 그것이 버그로 읽힌다. 그래서 비어 있음도 값으로 만든다.
+ */
+export type CareActivityEmptyReason =
+  /** 아직 녹취가 시작되지 않았다. */
+  | 'no-session'
+  /** 발화는 있는데 후보가 하나도 만들어지지 않았다. */
+  | 'no-evidence'
+  /** 후보는 있었지만 정의가 아직 임상 검토 전이라 화면에 올리지 않았다. */
+  | 'none-reviewed'
+  /** 문진 대화만 있다 — 타임스탬프가 없어 시각 구간을 만들 수 없다. */
+  | 'intake-no-timestamps';
+
+/** 어느 대화를 본 결과인지. 문진 대화만 본 경우 빈 이유가 달라진다. */
+export type CareActivitySource = 'live' | 'intake';
+
+/**
+ * 화면으로 나가는 payload.
+ *
+ * `items` 의 타입이 `ReleasedCareActivityCandidate` 라서 `releaseForDisplay()`
+ * 를 통과하지 않은 후보는 여기 담길 수 없다 — 화면으로 가는 문은 여전히
+ * 하나뿐이다. `withheld` 와 `skipped` 는 담지 않는다: 화면에 올리는 순간
+ * 애매한 것이 "가능성"이 되고 그것이 곧 권유가 된다.
+ */
+export interface CareActivityDisplayPayload {
+  items: ReleasedCareActivityCandidate[];
+  emptyReason: CareActivityEmptyReason | null;
+  source: CareActivitySource;
+  /** 이 진료의 세션 id. 없으면 아직 녹취 전. */
+  sessionId: string | null;
+}
+
+/**
+ * 릴리스 결과를 화면 payload 로 만든다.
+ *
+ * 비어 있는 이유를 **여기 한 곳에서만** 정한다. 렌더러가 자기 나름대로
+ * 추측하면 같은 상황에 창마다 다른 설명이 붙는다.
+ */
+export function toDisplayPayload(input: {
+  sessionId: string | null;
+  source: CareActivitySource;
+  utterances: readonly DetectionUtterance[];
+  release: ReleaseResult;
+}): CareActivityDisplayPayload {
+  const { sessionId, source, utterances, release } = input;
+  const base = { items: release.released, source, sessionId };
+  if (release.released.length > 0) return { ...base, emptyReason: null };
+  if (release.withheld.length > 0) return { ...base, emptyReason: 'none-reviewed' };
+  if (source === 'intake' || utterances.every((u) => u.timestampMs === null)) {
+    // 발화가 아예 없을 때도 문진 경로에서는 이 설명이 맞다 — 문진 대화에는
+    // 시각이 없어서 애초에 후보가 만들어질 수 없다.
+    return { ...base, emptyReason: 'intake-no-timestamps' };
+  }
+  if (sessionId === null) return { ...base, emptyReason: 'no-session' };
+  return { ...base, emptyReason: 'no-evidence' };
+}
+
+// ── 월 리포트 (B4) ─────────────────────────────────────────────────────
+
+/**
+ * 저장된 후보 한 행(월 집계 입력).
+ *
+ * `ruleVersion`/`engineVersion` 이 값에 들어 있는 것이 핵심이다. 규칙이
+ * 바뀌어도 지난달 줄을 고쳐 쓰지 않고 **다른 줄**로 나타난다.
+ */
+export interface StoredCandidateRow {
+  activityCode: string;
+  label: string;
+  category: string | null;
+  engineVersion: string;
+  ruleVersion: number;
+  sessionId: string;
+  occurredOn: string;
+  generatedAt: string;
+}
+
+/** 월 리포트 한 줄. 금액은 없다 — 건수만 센다. */
+export interface MonthlyReportRow {
+  activityCode: string;
+  label: string;
+  category: string | null;
+  engineVersion: string;
+  ruleVersion: number;
+  /** 기록된 행위 건수. */
+  count: number;
+  /** 그 건수가 걸쳐 있는 진료 건수. */
+  sessionCount: number;
+}
+
+export interface MonthlyCareActivityReport {
+  /** 'YYYY-MM'. */
+  month: string;
+  rows: MonthlyReportRow[];
+  totalCount: number;
+  sessionCount: number;
+  generatedAt: string;
+}
+
+/**
+ * 저장된 행을 월 리포트로 접는다.
+ *
+ * [HARD] 묶음 키에 `ruleVersion`/`engineVersion` 이 들어간다. 규칙이 바뀌면
+ * 지난달 숫자가 조용히 달라지는 대신 줄이 하나 늘어난다 — 어떤 규칙이 만든
+ * 숫자인지 답할 수 없는 리포트는 파일럿 근거로 쓸 수 없다.
+ *
+ * [HARD] 금액·추정 수익·환산치를 계산하지 않는다. 이 리포트가 세는 것은
+ * "녹취가 증거하는 행위 기록 건수"뿐이다.
+ */
+export function foldMonthlyReport(
+  month: string,
+  rows: readonly StoredCandidateRow[],
+  options: { generatedAt?: string } = {}
+): MonthlyCareActivityReport {
+  const buckets = new Map<string, MonthlyReportRow & { sessions: Set<string> }>();
+  for (const row of rows) {
+    const key = `${row.activityCode} ${row.engineVersion} ${row.ruleVersion}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        activityCode: row.activityCode,
+        label: row.label,
+        category: row.category,
+        engineVersion: row.engineVersion,
+        ruleVersion: row.ruleVersion,
+        count: 0,
+        sessionCount: 0,
+        sessions: new Set<string>()
+      };
+      buckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    bucket.sessions.add(row.sessionId);
+  }
+  const folded = [...buckets.values()]
+    .map(({ sessions, ...rest }) => ({ ...rest, sessionCount: sessions.size }))
+    .sort((a, b) => b.count - a.count || a.activityCode.localeCompare(b.activityCode));
+  return {
+    month,
+    rows: folded,
+    totalCount: folded.reduce((sum, r) => sum + r.count, 0),
+    sessionCount: new Set(rows.map((r) => r.sessionId)).size,
+    generatedAt: options.generatedAt ?? new Date().toISOString()
+  };
+}
+
+/**
+ * 리포트를 CSV 로. 세는 것이 목적이라 옮겨 담을 수 있어야 한다.
+ *
+ * 설득용 문장을 넣지 않는다 — 열은 전부 사실(항목, 규칙 버전, 건수)이다.
+ */
+export function monthlyReportToCsv(report: MonthlyCareActivityReport): string {
+  const escape = (v: string): string =>
+    /[",\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  const lines = [
+    ['month', 'activity_code', 'label', 'category', 'engine_version', 'rule_version', 'record_count', 'consultation_count']
+      .join(',')
+  ];
+  for (const row of report.rows) {
+    lines.push(
+      [
+        report.month,
+        row.activityCode,
+        escape(row.label),
+        escape(row.category ?? ''),
+        row.engineVersion,
+        String(row.ruleVersion),
+        String(row.count),
+        String(row.sessionCount)
+      ].join(',')
+    );
+  }
+  return lines.join('\n');
+}
+
 // ── 입력 어댑터 ────────────────────────────────────────────────────────
 
 /**

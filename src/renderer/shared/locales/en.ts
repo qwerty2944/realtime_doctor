@@ -231,7 +231,40 @@ const en: Record<keyof typeof ko, string> = {
   'shortcut.windowWiden': 'Widen window',
   'shortcut.windowNarrow': 'Narrow window',
   'shortcut.windowTaller': 'Taller window',
-  'shortcut.windowShorter': 'Shorter window'
+  'shortcut.windowShorter': 'Shorter window',
+
+  // Care activity records (B3/B4).
+  // [HARD] Wording is the liability boundary. Every string here stops at
+  // "there is a record of this". None of them tells the doctor to act on it.
+  'care.title': 'Care activity recorded in this consultation',
+  'care.subtitle':
+    'Only what the transcript actually contains, verbatim. The clinical judgement is the doctor’s.',
+  'care.quoteHint': 'Opens this utterance in the transcript window.',
+  'care.durationMinutes': 'min',
+  'care.durationSeconds': 'sec',
+  'care.ruleVersion': 'rule v',
+  'care.emptyTitle': 'Nothing reviewed to show',
+  'care.emptyNoneReviewed':
+    'A matching stretch was found in the transcript, but its definition has not been through clinical review, so it is not shown.',
+  'care.emptyNoEvidence': 'No stretch in this transcript met the criteria.',
+  'care.emptyNoSession': 'No recording yet. Anything found will appear here.',
+  'care.emptyIntake':
+    'Intake dialogue carries no timestamps, so no time range can be formed. This only appears for in-room recordings.',
+
+  'care.reportTitle': 'Monthly activity record',
+  'care.reportDesc': 'Counts of recorded activity per month. No amounts are calculated.',
+  'care.reportEmpty': 'No records for this month.',
+  'care.reportPrev': 'Previous month',
+  'care.reportNext': 'Next month',
+  'care.reportColActivity': 'Activity',
+  'care.reportColRule': 'Rule',
+  'care.reportColCount': 'Records',
+  'care.reportColSessions': 'Consultations',
+  'care.reportTotal': 'Total',
+  'care.reportCopyCsv': 'Copy CSV',
+  'care.reportCopied': 'Copied',
+  'care.reportNote':
+    'When a rule changes, an earlier month is not rewritten: the counts split into separate rows per rule version.'
 };
 
 export default en;

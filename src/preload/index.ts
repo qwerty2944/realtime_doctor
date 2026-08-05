@@ -1,4 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  CareActivityDisplayPayload,
+  MonthlyCareActivityReport
+} from '../shared/careActivities.js';
 import {
   IPC,
   type AnalysisResult,
@@ -494,6 +498,21 @@ const api = {
       const listener = (_e: unknown, scale: number) => handler(scale);
       ipcRenderer.on(IPC.FontScaleChanged, listener);
       return () => ipcRenderer.removeListener(IPC.FontScaleChanged, listener);
+    }
+  },
+  careActivities: {
+    /**
+     * 이번 진료에서 기록된 행위 (B3).
+     *
+     * 화면에 올릴 수 있는 항목만 온다 — 임상 검토를 마친 정의에서 나왔고
+     * 원문 대조를 통과한 것들이다. 비어 있으면 그 이유가 함께 온다.
+     */
+    scan(): Promise<CareActivityDisplayPayload> {
+      return ipcRenderer.invoke(IPC.CareActivitiesScan);
+    },
+    /** 월 단위 집계 (B4). month 는 'YYYY-MM'. */
+    report(month: string): Promise<MonthlyCareActivityReport> {
+      return ipcRenderer.invoke(IPC.CareActivitiesReport, month);
     }
   },
   localSave: {

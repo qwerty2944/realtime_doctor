@@ -238,7 +238,43 @@ const ko = {
   'shortcut.windowWiden': '창 너비 늘리기',
   'shortcut.windowNarrow': '창 너비 줄이기',
   'shortcut.windowTaller': '창 높이 늘리기',
-  'shortcut.windowShorter': '창 높이 줄이기'
+  'shortcut.windowShorter': '창 높이 줄이기',
+
+  // 진료행위 기록 (B3/B4)
+  //
+  // [HARD] 문구가 곧 책임 경계다. 여기 있는 모든 문장은 "이런 기록이
+  // 있습니다"까지만 말한다. 무엇을 어떻게 하라는 말은 한 줄도 없다 —
+  // 권유하는 순간 탐지 도구가 권유가 되고, 그 책임은 의사가 진다.
+  'care.title': '이번 진료에서 기록된 행위',
+  'care.subtitle': '녹취에 남은 발화만 그대로 표시합니다. 판단은 의사가 합니다.',
+  'care.quoteHint': '누르면 전사 창에서 이 발화를 보여줍니다.',
+  'care.durationMinutes': '분간',
+  'care.durationSeconds': '초간',
+  'care.ruleVersion': '규칙 v',
+  // 비어 있음은 고장이 아니다. 씨드된 정의가 전부 임상 검토 전이라 아무것도
+  // 뜨지 않는 것이 현재의 올바른 동작이고, 화면은 그 사실을 그대로 말한다.
+  'care.emptyTitle': '검토된 항목 없음',
+  'care.emptyNoneReviewed':
+    '녹취에서 해당하는 구간을 찾았지만, 그 정의가 아직 임상 검토를 거치지 않아 표시하지 않았습니다.',
+  'care.emptyNoEvidence': '이번 진료의 녹취에서는 표시할 구간을 찾지 못했습니다.',
+  'care.emptyNoSession': '아직 녹취가 없습니다. 대화가 기록되면 여기에 나타납니다.',
+  'care.emptyIntake':
+    '문진 대화에는 시각 정보가 없어 구간을 만들 수 없습니다. 진료실 녹취에서만 나타납니다.',
+
+  'care.reportTitle': '월간 행위 기록',
+  'care.reportDesc': '월별로 기록된 행위 건수입니다. 금액은 계산하지 않습니다.',
+  'care.reportEmpty': '이 달에 기록된 항목이 없습니다.',
+  'care.reportPrev': '이전 달',
+  'care.reportNext': '다음 달',
+  'care.reportColActivity': '행위',
+  'care.reportColRule': '규칙',
+  'care.reportColCount': '기록 건수',
+  'care.reportColSessions': '진료 건수',
+  'care.reportTotal': '합계',
+  'care.reportCopyCsv': 'CSV 복사',
+  'care.reportCopied': '복사됨',
+  'care.reportNote':
+    '규칙이 바뀌면 지난달 숫자를 고쳐 쓰지 않고 규칙 버전별로 줄이 나뉩니다.'
 } as const;
 
 export default ko;

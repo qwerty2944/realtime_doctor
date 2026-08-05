@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { OverlayShell } from '../shared/OverlayShell';
+import { CareActivitySection } from './CareActivitySection';
 import { patientSummary, usePatientDetail } from '../shared/patientMode';
 import { useLang, useT } from '../shared/i18n';
 import type { TKey } from '../shared/i18n';
@@ -146,6 +147,9 @@ export default function SummaryApp() {
                 <p className="whitespace-pre-wrap text-sm">{result[key]}</p>
               </div>
             ))}
+          {/* 진료 종료 뒤 한 번 훑는 목록 (B3). 요약 본문 아래에 둔다 —
+              의사가 요약을 다 읽고 나서 보게 되는 순서다. */}
+          <CareActivitySection />
         </div>
       </ScrollArea>
     </OverlayShell>

@@ -61,6 +61,7 @@ import {
   DialogTrigger
 } from '@/components/ui/dialog';
 import { OverlayShell } from '../shared/OverlayShell';
+import { CareActivityReportDialog } from './CareActivityReportDialog';
 import { cn } from '@/lib/utils';
 import type {
   AuthState,
@@ -572,6 +573,9 @@ export default function DockApp() {
             );
           })}
         </div>
+
+        {/* 월간 행위 기록 (B4). 누를 때만 열린다 — 진료를 끊지 않는다. */}
+        <CareActivityReportDialog onPopoverOpenChange={onPopoverOpenChange} />
 
         {/* 구독 상태 다이얼로그 */}
         <Dialog

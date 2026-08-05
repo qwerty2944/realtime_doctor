@@ -55,6 +55,10 @@ import {
 import { openClovaStream, type ClovaStreamHandle } from './clovaStream.js';
 import { isPubmedUrl, lookupEvidence } from './evidence.js';
 import {
+  buildCareActivityDisplay,
+  loadMonthlyCareActivityReport
+} from './careActivities.js';
+import {
   clearPatientState,
   getActiveDetail,
   listWaitingEncounters,
@@ -855,6 +859,30 @@ ipcMain.handle(IPC.EvidenceOpen, async (_event, url: string) => {
   await shell.openExternal(url);
   return true;
 });
+
+// ── 진료행위 기록 (B3/B4) ───────────────────────────────────────────────
+/**
+ * 이번 진료에서 기록된 행위 (B3).
+ *
+ * 게이트를 걸지 않는다. 이것은 이미 저장된 자기 진료 기록을 읽는 동작이고,
+ * S2 에서 정한 대로 **기록 열람은 결제 상태와 무관하게 항상 가능해야 한다**
+ * (`sessions:load`, `patients:load-detail` 과 같은 부류다).
+ *
+ * 요청 시점에 계산한다 — 요약 창이 열려 있을 때만 필요하고, 진료 중에
+ * 스스로 튀어나와 흐름을 끊어서는 안 된다.
+ */
+ipcMain.handle(IPC.CareActivitiesScan, async () => {
+  const encounterId = getActiveDetail()?.encounter.id ?? null;
+  return buildCareActivityDisplay({
+    sessionId: getCurrentSessionId(),
+    encounterId
+  });
+});
+
+/** 월 단위 집계 (B4). 'YYYY-MM'. 금액은 계산하지 않는다. */
+ipcMain.handle(IPC.CareActivitiesReport, async (_event, month: string) =>
+  loadMonthlyCareActivityReport(typeof month === 'string' ? month : '')
+);
 
 // ── 로컬 저장 설정 ──────────────────────────────────────────────────────
 ipcMain.handle(IPC.LocalSaveGet, () => getLocalSave());

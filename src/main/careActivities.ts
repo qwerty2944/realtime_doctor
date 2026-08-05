@@ -1,10 +1,16 @@
 import {
   detectCareActivities,
+  foldMonthlyReport,
   intakeTranscriptUtterances,
   releaseForDisplay,
+  toDisplayPayload,
   type CareActivityDef,
+  type CareActivityDisplayPayload,
   type DetectionUtterance,
+  type MonthlyCareActivityReport,
   type ReleaseResult,
+  type ReleasedCareActivityCandidate,
+  type StoredCandidateRow,
   type DetectionResult
 } from '../shared/careActivities.js';
 import type { Speaker } from '../shared/types.js';
@@ -211,4 +217,176 @@ export async function scanSessionForCareActivities(
   const detection = detectCareActivities(utterances, defs);
   const { released, withheld } = releaseForDisplay(detection.candidates, utterances);
   return { detection, utterances, released, withheld };
+}
+
+/**
+ * 문진 대화만으로 스캔한다 (환자 모드).
+ *
+ * 녹취가 아직 없고 환자만 선택한 상태에서 쓴다. 문진 대화에는 타임스탬프가
+ * 없어 후보가 만들어지지 않는 것이 정상이며, 화면은 그 사실을 그대로 말한다
+ * (`intake-no-timestamps`).
+ */
+export async function scanIntakeForCareActivities(
+  encounterId: string
+): Promise<CareActivityScan> {
+  const [defs, utterances] = await Promise.all([
+    loadCareActivityDefs(),
+    loadIntakeUtterances(encounterId)
+  ]);
+  const detection = detectCareActivities(utterances, defs);
+  const { released, withheld } = releaseForDisplay(detection.candidates, utterances);
+  return { detection, utterances, released, withheld };
+}
+
+// ── 화면 payload (B3) ──────────────────────────────────────────────────
+
+/**
+ * 요약 창이 받을 payload 를 만든다.
+ *
+ * 세션이 있으면 녹취를, 없고 환자만 선택돼 있으면 문진 대화를 본다. 어느
+ * 쪽이든 화면으로 나가는 것은 `released` 뿐이고, 비어 있을 때는 왜 비었는지가
+ * 함께 나간다 — "검토된 항목 없음"과 "고장"이 같은 모습이 되면 안 된다.
+ */
+export async function buildCareActivityDisplay(input: {
+  sessionId: string | null;
+  encounterId: string | null;
+}): Promise<CareActivityDisplayPayload> {
+  const { sessionId, encounterId } = input;
+  if (sessionId) {
+    const scan = await scanSessionForCareActivities(sessionId, { encounterId });
+    const payload = toDisplayPayload({
+      sessionId,
+      source: 'live',
+      utterances: scan.utterances,
+      release: scan
+    });
+    // 화면에 올린 것과 리포트에 세는 것이 어긋나면 안 된다 — 저장은 화면용
+    // payload 를 만든 바로 그 결과로만 한다.
+    if (payload.items.length > 0) await persistReleasedCandidates(sessionId, payload.items);
+    return payload;
+  }
+  if (encounterId) {
+    const scan = await scanIntakeForCareActivities(encounterId);
+    return toDisplayPayload({
+      sessionId: null,
+      source: 'intake',
+      utterances: scan.utterances,
+      release: scan
+    });
+  }
+  return { items: [], emptyReason: 'no-session', source: 'live', sessionId: null };
+}
+
+// ── 저장 · 월 리포트 (B4) ──────────────────────────────────────────────
+
+/**
+ * 화면에 올린 후보를 저장한다.
+ *
+ * 쓰기는 전부 `record_care_activity_candidates` RPC 를 지난다 — 그 함수가
+ * "고쳐 쓰지 않고 새 행으로 대체(supersede)" 규칙을 강제하고, 클라이언트에는
+ * INSERT/UPDATE 권한 자체가 없다. 실패해도 진료를 막지 않고 경고만 남긴다
+ * (리포트는 파생 산출물이고 환자 기록이 아니다).
+ */
+export async function persistReleasedCandidates(
+  sessionId: string,
+  items: readonly ReleasedCareActivityCandidate[]
+): Promise<{ inserted: number; superseded: number; unchanged: number } | null> {
+  const supabase = getSupabase();
+  if (!supabase || items.length === 0) return null;
+  const payload = items.map((c) => ({
+    activityCode: c.activityCode,
+    label: c.label,
+    category: c.category,
+    engineVersion: c.provenance.engineVersion,
+    ruleVersion: c.provenance.ruleVersion,
+    generatedAt: c.provenance.generatedAt,
+    quotes: c.quotes,
+    utteranceIds: c.utteranceIds,
+    startMs: c.timeRange.startMs,
+    endMs: c.timeRange.endMs,
+    durationSeconds: c.timeRange.durationSeconds
+  }));
+  try {
+    const { data, error } = await supabase.rpc('record_care_activity_candidates', {
+      p_session_id: sessionId,
+      p_candidates: payload
+    });
+    if (error) {
+      warn('persistReleasedCandidates', error.message);
+      return null;
+    }
+    return (data ?? null) as { inserted: number; superseded: number; unchanged: number } | null;
+  } catch (err) {
+    warn('persistReleasedCandidates', err);
+    return null;
+  }
+}
+
+/** 'YYYY-MM' → 그 달의 [첫날, 다음 달 첫날) (KST 기준 날짜 문자열). */
+function monthBounds(month: string): { from: string; to: string } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const mon = Number(m[2]);
+  if (mon < 1 || mon > 12) return null;
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const nextYear = mon === 12 ? year + 1 : year;
+  const nextMon = mon === 12 ? 1 : mon + 1;
+  return { from: `${year}-${pad(mon)}-01`, to: `${nextYear}-${pad(nextMon)}-01` };
+}
+
+/**
+ * 월 리포트.
+ *
+ * 현재 유효한 행(superseded 되지 않은 행)만 센다. 대체된 행은 지우지 않고
+ * 남아 있으므로 "그때 무엇을 보여줬는가"는 DB 에서 여전히 답할 수 있다.
+ * 집계는 규칙 버전별로 나뉜다 — 규칙이 바뀌면 숫자가 조용히 달라지는 대신
+ * 줄이 하나 늘어난다.
+ */
+export async function loadMonthlyCareActivityReport(
+  month: string
+): Promise<MonthlyCareActivityReport> {
+  const empty = foldMonthlyReport(month, []);
+  const bounds = monthBounds(month);
+  const user = getCurrentUser();
+  const supabase = getSupabase();
+  if (!bounds || !user || !supabase) return empty;
+  try {
+    const { data, error } = await supabase
+      .from('care_activity_candidates')
+      .select(
+        'activity_code, label_ko, category, engine_version, rule_version, session_id, occurred_on, generated_at'
+      )
+      .eq('user_id', user.id)
+      .is('superseded_at', null)
+      .gte('occurred_on', bounds.from)
+      .lt('occurred_on', bounds.to);
+    if (error) {
+      warn('loadMonthlyCareActivityReport', error.message);
+      return empty;
+    }
+    const rows: StoredCandidateRow[] = ((data ?? []) as Array<{
+      activity_code: string;
+      label_ko: string;
+      category: string | null;
+      engine_version: string;
+      rule_version: number;
+      session_id: string;
+      occurred_on: string;
+      generated_at: string;
+    }>).map((r) => ({
+      activityCode: r.activity_code,
+      label: r.label_ko,
+      category: r.category,
+      engineVersion: r.engine_version,
+      ruleVersion: r.rule_version,
+      sessionId: r.session_id,
+      occurredOn: r.occurred_on,
+      generatedAt: r.generated_at
+    }));
+    return foldMonthlyReport(month, rows);
+  } catch (err) {
+    warn('loadMonthlyCareActivityReport', err);
+    return empty;
+  }
 }
