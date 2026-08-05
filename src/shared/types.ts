@@ -1,3 +1,5 @@
+import type { ProvenanceOrUnrecorded } from './provenance.js';
+
 export const IPC = {
   TranscribeAudio: 'transcribe:audio',
   TranscriptChunk: 'transcript:chunk',
@@ -77,6 +79,12 @@ export const IPC = {
   PatientsGetActive: 'patients:get-active',
   /** 선택된 환자(또는 해제)를 모든 창에 알리는 broadcast. */
   PatientsActiveChanged: 'patients:active-changed',
+  /**
+   * 감별진단 카드를 펼쳤다 (6장, 결정 감사 추적). fire-and-forget send 이고
+   * 응답이 없다 — 기록이 UI 를 기다리게 하지 않는다. 창을 몇 번 접었다 펴든
+   * 0012 의 dedupe 가 한 줄만 남긴다.
+   */
+  DiagnosisCardExpanded: 'diagnosis:card-expanded',
   /** 진단명 하나의 문헌근거 조회 요청 (invoke). */
   EvidenceRequest: 'evidence:request',
   /** 조회 결과 도착 broadcast — 같은 진단을 띄운 다른 창도 함께 갱신된다. */
@@ -363,6 +371,21 @@ export interface IntakeResult {
   recommendedTests: unknown[];
   version: number;
   createdAt: string;
+  /**
+   * [E3] 해석(감별진단·A/P·추천검사)을 만든 모델·프롬프트·시각.
+   * 0011 이전 행은 "출처 미기록" 값으로 온다 — 모르는 것을 모른다고 말한다.
+   */
+  provenance: ProvenanceOrUnrecorded;
+  /**
+   * 사실(대화 전문 + 구조화된 S)의 sha256. DB 트리거가 계산하므로 클라이언트가
+   * 주장할 수 없다. 재해석 행은 원본과 같은 값을 갖는다 — 다르면 기록이
+   * 재해석된 것이 아니라 고쳐 쓰인 것이다.
+   */
+  factsFingerprint: string | null;
+  /** 이 해석이 재해석이라면, 사실을 가져온 원본 행. 최초 해석이면 null. */
+  derivedFromId: string | null;
+  /** 이 해석을 대체한 해석이 있다면 그 시각. 현재 해석이면 null. */
+  supersededAt: string | null;
 }
 
 /** 대기목록 한 줄 — encounters + patients + 최신 intake_results 조인 결과. */
@@ -537,6 +560,14 @@ export interface AnalysisResult {
    * TODO(E2): 확인 요청 큐가 생기면 이 목록이 그쪽으로도 흘러가야 한다.
    */
   unverifiedDiagnoses?: UnverifiedDifferential[];
+  /**
+   * 이 해석을 만든 모델·프롬프트·시각 (E3, `src/shared/provenance.ts`).
+   * 0011 이전에 저장된 분석에는 없어서 optional 이다. 읽는 쪽은
+   * `parseProvenance()` 를 통과시켜 "출처 미기록" 이라는 **값**으로 받는다 —
+   * undefined 로 두면 화면이 아무 말도 하지 않고, 출처 없는 해석이 출처 있는
+   * 해석과 같은 모양으로 보인다.
+   */
+  provenance?: ProvenanceOrUnrecorded;
   medicalTerms: MedicalTerm[];
   suggestedQuestions: SuggestedQuestion[];
   redFlags: string[];

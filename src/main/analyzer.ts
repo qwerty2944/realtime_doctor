@@ -14,8 +14,11 @@ import {
   extractText,
   getGeminiClient
 } from './geminiClient.js';
+import type { InterpretationProvenance } from '../shared/provenance.js';
 import {
   ANALYSIS_RESPONSE_SCHEMA,
+  ANALYZER_PROMPT_VERSION,
+  ANALYZER_SCHEMA_VERSION,
   getAnalyzerSystemPrompt,
   speakerLabels
 } from './prompts.js';
@@ -206,10 +209,22 @@ class Analyzer {
           unverified.map((u) => `${u.diagnosis.name}(${u.reason})`).join(', ')
         );
       }
+      // [E3] 실시간 분석도 키오스크 문진과 같은 종류의 산출물이다 — 기계가
+      // 내린 판단이지 환자가 말한 사실이 아니다. 같은 모양의 출처를 붙인다.
+      // 모델명은 상수가 아니라 이번 호출에 실제로 쓴 값에서 뽑는다.
+      const provenance: InterpretationProvenance = {
+        engine: 'desktop-live-analysis',
+        provider: 'gemini',
+        model,
+        promptVersion: ANALYZER_PROMPT_VERSION,
+        schemaVersion: ANALYZER_SCHEMA_VERSION,
+        generatedAt: new Date().toISOString()
+      };
       const result: AnalysisResult = {
         ...parsed,
         differentialDiagnoses: supported,
         unverifiedDiagnoses: unverified,
+        provenance,
         updatedAt: Date.now()
       };
       this.firstChunkSinceRunAt = 0;

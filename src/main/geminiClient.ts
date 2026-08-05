@@ -23,7 +23,13 @@ export function getGeminiClient(): AxiosInstance {
   }
 
   cached = axios.create({
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta',
+    // 키오스크의 `GEMINI_API_BASE` 와 같은 이음매다 (L1). 검증 프로브가 실제
+    // 분석 경로를 태우려면 호출을 받아줄 곳으로 보낼 수 있어야 한다 — 특히
+    // "실시간 해석에도 출처가 붙는가"(E3)는 진짜 analyzer 를 돌려보지 않으면
+    // 확인할 방법이 없다. 운영에서는 미설정이라 기본값 그대로다.
+    baseURL:
+      process.env.GEMINI_API_BASE ??
+      'https://generativelanguage.googleapis.com/v1beta',
     timeout: 60_000,
     headers: {
       'x-goog-api-key': key,

@@ -8,6 +8,7 @@ import {
   type PatientDetail,
   type WaitingEncounter
 } from '../shared/types.js';
+import { parseProvenance } from '../shared/provenance.js';
 import { getCurrentUser } from './auth.js';
 import { getSupabase } from './supabaseClient.js';
 
@@ -51,6 +52,15 @@ interface IntakeResultRow {
   recommended_tests_json: unknown[] | null;
   version: number;
   created_at: string;
+  /**
+   * [E3] 0011 이 추가한 열들. 대기목록 쿼리에서는 요청하지 않는다 — 대기목록
+   * 한 줄에 출처를 그릴 자리가 없고, 상세를 열지 않은 환자의 해석까지 매번
+   * 끌어올 이유가 없다. 그래서 optional 이다.
+   */
+  interpretation_provenance?: unknown;
+  facts_fingerprint?: string | null;
+  derived_from_id?: string | null;
+  superseded_at?: string | null;
 }
 
 const UNKNOWN_PATIENT_NAME = '(이름 미확인)';
@@ -101,7 +111,13 @@ function toIntakeResult(
     differentials: row.differentials_json ?? [],
     recommendedTests: row.recommended_tests_json ?? [],
     version: row.version,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    // [E3] 열이 없거나(구버전 스택) 값이 반쯤 채워져 있으면 "출처 미기록"으로
+    // 떨어진다. 반쯤 채워진 출처는 추측이고, 추측을 출처로 그리면 안 된다.
+    provenance: parseProvenance(row.interpretation_provenance),
+    factsFingerprint: row.facts_fingerprint ?? null,
+    derivedFromId: row.derived_from_id ?? null,
+    supersededAt: row.superseded_at ?? null
   };
 }
 
@@ -180,14 +196,20 @@ export async function loadPatientDetail(
     const { data: resultData, error: resultError } = await supabase
       .from('intake_results')
       .select(
-        'id, encounter_id, soap_json, differentials_json, recommended_tests_json, version, created_at'
+        'id, encounter_id, soap_json, differentials_json, recommended_tests_json, version, created_at, ' +
+          // [E3] 상세에서만 읽는다. superseded_at 도 가져오는 이유는 화면이
+          // "이 해석은 이미 다시 뽑혔다" 를 말할 수 있어야 하기 때문이다.
+          'interpretation_provenance, facts_fingerprint, derived_from_id, superseded_at'
       )
       .eq('encounter_id', encounterId)
       .order('version', { ascending: false })
       .limit(1);
     if (resultError) warn('loadPatientDetail:result', resultError.message);
 
-    const resultRow = ((resultData ?? []) as IntakeResultRow[])[0] ?? null;
+    // unknown 경유: select 문자열이 여러 줄로 나뉘면서 supabase-js 가 열 목록을
+    // 정적으로 못 풀어 GenericStringError[] 로 추론한다. 런타임 형태는 그대로다.
+    const resultRow =
+      ((resultData ?? []) as unknown as IntakeResultRow[])[0] ?? null;
 
     const patient: Patient = {
       id: row.patients?.id ?? row.patient_id,

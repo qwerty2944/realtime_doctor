@@ -18,8 +18,14 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { ModelOutputError, callStructuredTool, type LlmMessage } from '@/lib/llm';
+import {
+  ModelOutputError,
+  callStructuredTool,
+  getLlmProvider,
+  type LlmMessage
+} from '@/lib/llm';
 import type { DialogueTurn } from '@/lib/intake/interview';
+import { buildIntakeProvenance } from '@/lib/intake/provenance';
 import {
   ASSESSMENT_DRAFT_CAVEAT,
   RESULT_SYSTEM_PROMPT,
@@ -160,6 +166,11 @@ export async function generateAndStoreIntakeResult(
 ): Promise<GeneratedIntakeResult> {
   const userMessage = buildResultUserMessage(params.turns);
 
+  // 출처(E3)는 실제로 호출한 프로바이더에서 뽑는다. 상수로 적어두면 모델을
+  // 바꾼 날 출처만 옛 모델명을 계속 말하게 되고, 그 순간 출처는 기록이 아니라
+  // 오답이 된다.
+  const provider = getLlmProvider();
+
   let lastError: ModelOutputError | null = null;
   let row: IntakeResultRow | null = null;
 
@@ -181,7 +192,8 @@ export async function generateAndStoreIntakeResult(
         toolDescription:
           'Record the SOAP draft, the 3-5 prioritized differential diagnoses, the recommended examinations, the follow-up questions for the physician and the medical term explanations.',
         schema: modelIntakeResultSchema,
-        maxTokens: RESULT_MAX_TOKENS
+        maxTokens: RESULT_MAX_TOKENS,
+        provider
       });
 
       row = assembleRow(model, params.turns);
@@ -208,7 +220,15 @@ export async function generateAndStoreIntakeResult(
       soap_json: row.soap_json,
       differentials_json: row.differentials_json,
       recommended_tests_json: row.recommended_tests_json,
-      version
+      version,
+      // [E3] 이 행의 해석 부분(감별진단·A/P·추천검사)이 어디서 왔는지.
+      // `facts_fingerprint` 는 여기서 보내지 않는다 — 0011 의 BEFORE INSERT
+      // 트리거가 DB 안에서 계산한다. 사실을 쓴 쪽이 그 사실의 지문까지
+      // 같이 주장하면 지문은 아무것도 증명하지 못한다.
+      interpretation_provenance: buildIntakeProvenance({
+        provider: provider.name,
+        model: provider.model()
+      })
     })
     .select('id')
     .single();

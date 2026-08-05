@@ -1,5 +1,19 @@
 import type { Language } from '../shared/types.js';
 
+/**
+ * 실시간 감별 분석 시스템 프롬프트의 버전 (E3).
+ *
+ * [HARD] 아래 ANALYZER_SYSTEM_PROMPT_KO / _EN 을 고치면 이 값을 올린다.
+ * 같은 모델도 프롬프트가 다르면 다른 판단을 낸다 — 모델명만 남긴 출처로는
+ * 그 판단을 재현할 수 없고, 재현할 수 없는 출처는 출처가 아니다.
+ *
+ * 1 = E1(confidence 제거 + supportingFindings 도입) 이후의 현재 프롬프트.
+ */
+export const ANALYZER_PROMPT_VERSION = 1;
+
+/** ANALYSIS_RESPONSE_SCHEMA 의 버전. 필드가 바뀌면 올린다. */
+export const ANALYZER_SCHEMA_VERSION = 1;
+
 export const ANALYZER_SYSTEM_PROMPT_KO = `당신은 한국에서 진료 중인 의료진을 보조하는 임상 보조 도구입니다.
 
 역할:

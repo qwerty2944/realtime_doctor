@@ -8,6 +8,7 @@ import type {
   SummaryResult,
   TranscriptChunk
 } from '../shared/types.js';
+import { parseProvenance } from '../shared/provenance.js';
 import { getCurrentUser } from './auth.js';
 import { recordCareActivitiesForSession } from './careActivities.js';
 import {
@@ -301,7 +302,9 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
         supabase
           .from('analyses')
           .select(
-            'differential_diagnoses, medical_terms, suggested_questions, red_flags, updated_at'
+            'differential_diagnoses, medical_terms, suggested_questions, red_flags, updated_at, ' +
+              // [E3] 이 분석을 만든 모델·프롬프트.
+              'interpretation_provenance'
           )
           .eq('session_id', sessionId)
           .maybeSingle(),
@@ -346,6 +349,7 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
           suggested_questions: unknown;
           red_flags: unknown;
           updated_at: string;
+          interpretation_provenance?: unknown;
         }
       | null;
     const analysis: AnalysisResult | null = a
@@ -354,6 +358,8 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
           medicalTerms: (a.medical_terms as never[]) ?? [],
           suggestedQuestions: (a.suggested_questions as never[]) ?? [],
           redFlags: (a.red_flags as string[]) ?? [],
+          // [E3] 0011 이전에 저장된 분석은 "출처 미기록" 으로 온다.
+          provenance: parseProvenance(a.interpretation_provenance),
           updatedAt: new Date(a.updated_at).getTime()
         }
       : null;
@@ -617,6 +623,11 @@ export async function upsertAnalysis(result: AnalysisResult): Promise<void> {
           medical_terms: result.medicalTerms,
           suggested_questions: result.suggestedQuestions,
           red_flags: result.redFlags,
+          // [E3] 이 세션에 지금 저장돼 있는 해석이 어느 모델·프롬프트에서
+          // 나왔는지. 진료가 진행되는 동안 같은 세션의 분석은 제자리에서
+          // 갱신되므로(upsert), 출처도 같이 갱신돼야 실제로 저장된 값과
+          // 출처가 어긋나지 않는다.
+          interpretation_provenance: result.provenance ?? {},
           updated_at: new Date(result.updatedAt).toISOString()
         },
         { onConflict: 'session_id' }
