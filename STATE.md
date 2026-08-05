@@ -209,8 +209,46 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
     애매한 3종(스치듯 언급/“다음에 하겠다”/환자 질문)은 후보 0건, 타임스탬프를
     걷어내면 같은 대화도 후보 0건, 지어낸 후보 4종(없는 발화 id/문장 바꿔치기/
     시각 부풀리기/인용 0건) 전부 차단, 미검토 정의는 화면 0건.
-  - **B3(화면 노출)·B4(월 리포트)는 착수하지 않았다.** 후보는 아직 어디에도 저장하지
-    않고 파생 산출물로만 존재한다(provenance: engineVersion/ruleVersion/generatedAt).
+- **B3 완료** (커밋 `fa2fd4c`) — 화면 노출.
+  - **자리: 요약 창 하단**(`src/renderer/summary/CareActivitySection.tsx`). 진료가
+    끝난 뒤 한 번 훑는 목록이고, 그 목적으로 여는 창이 이미 요약 창이다.
+    감별진단 창은 진료 **중에** 보는 창이라 붙이면 진료 흐름을 끊는다.
+    확인요청 큐(questions)는 E2 가 아직 정의되지 않아서 지금 얹으면 큐의
+    의미를 이 목록이 먼저 규정해버린다.
+  - **끼어들지 않는다.** 모달·알림·자동 창 띄우기 없음. 요약 창이 열려 있을 때만
+    조회한다(invoke 1회). 언제 볼지는 의사가 정한다.
+  - 각 항목: 행위명 + 시각 구간 + 원문 인용(발화 id 포함) + provenance.
+    인용을 누르면 **E1 이 만든 경로를 그대로 쓴다** — `focusUtterance` →
+    `IPC.TranscriptFocusUtterance` → main 이 전사 창을 앞으로 꺼내고 broadcast.
+    두 번째 메커니즘을 만들지 않았다.
+  - **빈 상태를 값으로 만들었다** (`CareActivityDisplayPayload.emptyReason`):
+    `none-reviewed` / `no-evidence` / `no-session` / `intake-no-timestamps`.
+    씨드 정의가 전부 미검토라 **지금은 아무것도 안 뜨는 것이 정상**이고,
+    화면은 "검토된 항목 없음" + 이유를 말한다(고장으로 보이지 않게).
+    환자 모드는 "문진 대화에는 시각 정보가 없다"를 정직하게 말한다.
+  - 게이트 없음 — 자기 기록 열람이라 S2 의 "기록 열람은 결제와 무관" 규칙을 따른다.
+- **B4 완료** (커밋 `8b7a92d`, `fa2fd4c`) — 저장·월 리포트.
+  - **저장 결정**(B1/B2 가 남긴 미결): `supabase/migrations/0007_care_activity_candidates.sql`.
+    행마다 `engine_version`/`rule_version`/`generated_at` 를 박고 **고쳐 쓰지 않고
+    대체(supersede)** 한다. 월 집계는 규칙 버전별로 나뉘므로 규칙이 바뀌면
+    지난달 숫자가 조용히 달라지는 대신 **줄이 하나 늘어난다**.
+    부분 unique 인덱스가 (세션, 행위)당 유효 행 1개를 강제하고, 그래서 자기참조
+    FK 는 `deferrable initially deferred` 다(대체 행 id 를 먼저 찍어야 인덱스를 통과한다).
+  - 저장은 **화면에 올린 payload 로만** 한다 — 리포트와 화면이 어긋날 수 없다.
+    `clinical_review_status` 는 CHECK 로 `'reviewed'` 고정: 리포트도 사용자 화면이다.
+  - 쓰기는 `record_care_activity_candidates()` RPC 하나뿐. authenticated 에게는
+    SELECT + EXECUTE 만 주고 INSERT/UPDATE/DELETE 권한을 아예 주지 않았다
+    (0005 의 devices 실패 모드). RLS + 명시적 GRANT.
+  - **리포트 자리: 앱 안(dock 다이얼로그)**. admin-web 은 아직 미배포이고, 이 숫자를
+    보는 사람은 이미 앱을 켜 둔 원장 본인이다. **건수와 CSV 뿐 — 금액·추정 수익 없음.**
+  - 검증: `scripts/probe-care-report.mjs` — **ALL PASS**. 미검토 게이트(payload 0건 +
+    저장 0건 + emptyReason=none-reviewed), 검토 후 1건 릴리스(인용 4건, 00:30–04:22),
+    재스캔 멱등, 클라이언트 UPDATE/INSERT/DELETE 403 3종, 두 달치 집계,
+    규칙 v1→v2 변경 시 이번 달만 supersede 되고 **지난달 리포트는 바이트 동일**,
+    care.* 문자열 48줄 + 새 컴포넌트 2개 금지 문구 0건.
+  - 회귀: `probe-care-activities.mjs` ALL PASS. 루트 typecheck+build, admin-web
+    typecheck+build, kiosk typecheck+build 전부 통과.
+  - 0007 은 **로컬 스택에만 적용**했다. 실제 프로젝트에는 아직이다.
 
 ## 미해결 실패
 
@@ -256,9 +294,17 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   4. **삭감 위험이 큰 행위.** 아예 정의에서 빼거나 `enabled=false` 로 둔다.
   5. **누가 이 화면을 보는가** (원장/원무과/청구 대행). B3 의 배치와 문구가 달라진다.
   6. **씨드 5종의 임상 검토.** 검토자가 확인해줘야 `reviewed` 로 올릴 수 있다.
-- **B3**(확인 요청 큐에 얹기) / **B4**(월 리포트)는 위 입력 이후. B3 착수 시 후보를
-  저장할지(파생 산출물 테이블) 아니면 매번 재계산할지 결정해야 한다 — B4 의 월 집계는
-  저장을 요구하지만, 저장하면 규칙이 바뀌었을 때 옛 후보가 남는다.
+- **[막힘] 실제 의원에서 쓰이려면 남은 것** (B3/B4 이후):
+  1. **씨드 5종의 임상 검토.** 검토 전에는 설계상 화면이 계속 비어 있다.
+     지금 검토를 올릴 수 있는 경로는 service_role SQL 뿐이고 검토자용 UI 가 없다.
+  2. **실제 진료실 어휘.** 단서어가 곧 재현율이다. 지금 낱말은 추측이다.
+  3. 0007 을 실제 Supabase 프로젝트에 적용.
+  4. 요약 창의 목록은 **수동 새로고침이 없다** — 창을 열 때 한 번 조회한다.
+     녹취가 이어지는 동안 갱신하려면 재조회 트리거가 필요하다.
+  5. 월 리포트는 **스캔한 진료만** 센다. 요약 창을 한 번도 열지 않은 진료는
+     저장되지 않으므로 집계에 빠진다. 진료 종료 시 자동 스캔을 붙일지는
+     "끼어들지 않는다" 원칙과 함께 판단해야 한다.
+  6. 육안 검증 미완료(캡처 권한 없음) — 요약 창 섹션과 dock 다이얼로그 렌더링.
 - **S6**: 포트원 테스트 채널로 전 경로 라이브 검증. S5 가 S6 으로 넘긴 것들:
   - 예약 취소 API 의 실제 규격 확인. `DELETE /payment-schedules?requestBody={json}` 는
     `@portone/server-sdk` 의 구현을 그대로 따라 만들었지만 라이브로 태운 적이 없다.
