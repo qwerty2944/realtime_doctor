@@ -86,6 +86,39 @@ import {
  * macOS 에서는 OS 가 창을 다시 커서 위치로 되돌리므로 사용자가 보는 것은
  * "한 번 끌어당겨지는 느낌" 이고, 최종 정렬은 드랍 시점에 확정된다. 진동이
  * 아니라 단발 신호다. 끄려면 RD_SNAP_LIVE=0.
+ *
+ * ── 라이브 추종 (드래그 중 클러스터가 통째로 따라온다) ────────────────────
+ * 붙은 창을 끌면 나머지도 **끌리는 동안 내내** 따라와야 한다. 예전에는 드랍
+ * 판정(디바운스/릴리즈) 때만 따라와서, 사용자가 보는 시간 내내 클러스터가
+ * 흩어져 있다가 툭툭 끊겨 따라붙었다 (실사용 신고: "붙는건 잘돼" / 같이 안 움직임).
+ *
+ * 규율:
+ *
+ *   1) **원점 기준 절대 계산.** 드래그 세션이 시작될 때 클러스터 각 unit 의
+ *      rect 를 dragOrigins 에 박아 두고, 이동 이벤트마다
+ *      `목표 = 원점 + (리더 현재 - 리더 원점)` 으로 **다시 계산**한다.
+ *      이벤트별 delta 를 누적하지 않으므로 수백 번 끌어도 표류(drift)가 0 이다.
+ *      반올림도 누적되지 않는다.
+ *   2) **리더는 건드리지 않는다.** 드래그 중 리더의 위치는 OS 소유다. 여기서
+ *      리더에 setBounds 하면 네이티브 드래그 루프와 싸운다. 추종은 나머지만.
+ *   3) **드랍은 같은 식으로 한 번 더.** 드랍 시점 계산도 같은 원점·같은 식이라
+ *      팔로워의 목표값이 이미 맞아 있으면 setBounds 자체가 생략된다
+ *      (applyUnitTargets 의 동일 좌표 스킵) = delta 이중 적용이 원리적으로 불가능.
+ *      클램프가 걸렸던 경우에만 리더가 클러스터 자리로 되돌아온다.
+ *   4) **라이브 흡착과 배타적.** 라이브 흡착(tryLiveSnap)은 아직 아무 데도 붙지
+ *      않은 unit 에만, 라이브 추종(liveFollow)은 이미 붙은 unit 에만 돈다.
+ *      한 이동 이벤트가 둘 다 발동할 수 없으므로 서로 싸울 지점이 없다.
+ *
+ * [클램프 규칙] 팔로워가 작업영역 밖으로 나가려 하면 **클러스터 전체의 이동량**
+ * 을 깎는다(clampDelta). 즉 팔로워끼리는 언제나 정확히 같은 delta 를 받으므로
+ * 클러스터가 소리 없이 늘어나는 일은 없다. 리더만은 OS 가 커서를 따라 계속
+ * 끌고 가므로 드래그 중 잠시 앞서 나갈 수 있는데, 드랍 시점에 규율 3 이 리더를
+ * 클램프된 자리로 되돌려 강체 배치를 복원한다. 대안(팔로워를 화면 밖으로
+ * 내보내기)은 창을 영영 잃게 만들고, 다른 대안(리더를 드래그 중에 붙잡기)은
+ * OS 드래그 루프와 싸운다 — 그래서 "팔로워는 멈추고, 놓는 순간 리더가 합류"
+ * 를 고른다.
+ *
+ * 끄려면 RD_SNAP_LIVE=0 (라이브 흡착과 같은 스위치 — 둘 다 "드래그 중 개입").
  */
 
 export type SnapEdge = 'left' | 'right' | 'top' | 'bottom';
@@ -197,6 +230,13 @@ let dragLastMoveAt = 0;
 let dropTimer: NodeJS.Timeout | null = null;
 /** 라이브 흡착 래치 — 걸려 있는 동안 같은 자리에서 다시 setBounds 하지 않는다. */
 let liveLatch: { unit: WindowKey; x: number; y: number } | null = null;
+/**
+ * 드래그 세션 시작 시점의 unit 별 rect. 라이브 추종과 드랍 이동은 **언제나**
+ * 여기서 절대 좌표를 다시 계산한다 (delta 누적 금지 = 표류 0).
+ */
+let dragOrigins: Map<WindowKey, Electron.Rectangle> | null = null;
+/** 라이브 추종 진단 누적 — 드래그 한 번당 한 줄로 요약해서 로그를 지킨다. */
+let follow = { events: 0, applied: 0, clamped: 0 };
 
 function win(key: WindowKey): BrowserWindow | null {
   const w = windowsRef?.get(key);
@@ -498,8 +538,36 @@ function moveCluster(
   }).workArea;
   const clamped = clampDelta([...origin.values()], dx, dy, wa);
 
+  const targets = new Map<WindowKey, Electron.Rectangle>();
   for (const [unit, b] of origin) {
-    const next = { x: b.x + clamped.dx, y: b.y + clamped.dy, width: b.width, height: b.height };
+    targets.set(unit, {
+      x: b.x + clamped.dx,
+      y: b.y + clamped.dy,
+      width: b.width,
+      height: b.height
+    });
+  }
+  applyUnitTargets(targets);
+}
+
+/**
+ * unit → 목표 rect 를 실제 창에 적용한다.
+ *
+ * unit 이 그룹이면 멤버 전원(숨은 탭 포함)이 같은 rect 를 받는다 — 그래야 탭을
+ * 전환해도 창이 튀지 않는다. 이미 목표 좌표에 있는 창은 건너뛴다: 이것이
+ * "드랍이 라이브 추종을 이중 적용하지 않는다" 를 보장하는 지점이자, 밴드 안에
+ * 머무는 동안 setBounds 가 상수로 묶이는 이유다.
+ *
+ * @param skipUnit 이 unit 은 건드리지 않는다 (드래그 중인 리더 = OS 소유).
+ * @returns 실제로 발생시킨 setBounds 횟수.
+ */
+function applyUnitTargets(
+  targets: Map<WindowKey, Electron.Rectangle>,
+  skipUnit?: WindowKey
+): number {
+  let applied = 0;
+  for (const [unit, next] of targets) {
+    if (unit === skipUnit) continue;
     for (const m of unitMembers(unit)) {
       const cur = win(m)?.getBounds();
       if (
@@ -512,8 +580,42 @@ function moveCluster(
         continue; // 이미 목표 위치 — 불필요한 setBounds 를 만들지 않는다.
       }
       setBoundsGuarded(m, next);
+      applied += 1;
     }
   }
+  return applied;
+}
+
+/**
+ * 리더의 현재 위치와 세션 원점으로부터 클러스터 전체의 목표 위치를 계산한다.
+ *
+ * 매번 원점에서 다시 계산하므로 이벤트가 몇 번 오든 결과가 같다(멱등). 이동
+ * 이벤트마다 delta 를 더해 나가는 방식이었다면 반올림·클램프·놓친 이벤트가
+ * 그대로 누적돼 오래 끌수록 클러스터가 벌어졌을 것이다.
+ */
+function clusterTargets(
+  key: WindowKey,
+  leaderCur: Electron.Rectangle
+): {
+  targets: Map<WindowKey, Electron.Rectangle>;
+  dx: number;
+  dy: number;
+  clamped: boolean;
+} | null {
+  const origins = dragOrigins;
+  const leaderOrigin = origins?.get(unitOf(key));
+  if (!origins || !leaderOrigin) return null;
+
+  const rawDx = leaderCur.x - leaderOrigin.x;
+  const rawDy = leaderCur.y - leaderOrigin.y;
+  const wa = screen.getDisplayMatching(leaderCur).workArea;
+  const c = clampDelta([...origins.values()], rawDx, rawDy, wa);
+
+  const targets = new Map<WindowKey, Electron.Rectangle>();
+  for (const [unit, b] of origins) {
+    targets.set(unit, { x: b.x + c.dx, y: b.y + c.dy, width: b.width, height: b.height });
+  }
+  return { targets, dx: c.dx, dy: c.dy, clamped: c.dx !== rawDx || c.dy !== rawDy };
 }
 
 interface EngageResult {
@@ -618,10 +720,47 @@ function resetDrag(): void {
     clearTimeout(dropTimer);
     dropTimer = null;
   }
+  flushFollowSummary();
   draggingKey = null;
   dragStart = null;
   dragLastMoveAt = 0;
   liveLatch = null;
+  dragOrigins = null;
+}
+
+/**
+ * 드래그 세션의 기준점을 다시 잡는다: 리더의 현재 rect + 클러스터 각 unit 의
+ * 현재 rect. 이 스냅샷이 라이브 추종의 유일한 기준이므로, 창을 옮긴 직후
+ * (rebase) 에는 반드시 다시 찍어야 한다.
+ */
+function captureDragOrigins(key: WindowKey): void {
+  const leader = win(key)?.getBounds() ?? null;
+  dragStart = leader;
+  if (!leader) {
+    dragOrigins = null;
+    return;
+  }
+  const origins = new Map<WindowKey, Electron.Rectangle>();
+  for (const u of clusterOf(key)) {
+    const r = unitRect(u);
+    if (r) origins.set(u, r);
+  }
+  // 리더는 끌리고 있는 그 창의 rect 를 쓴다 (그룹 대표 rect 와 어긋날 여지 제거).
+  origins.set(unitOf(key), leader);
+  dragOrigins = origins;
+}
+
+/** 드래그 한 번의 라이브 추종을 한 줄로 요약한다 — 이동 이벤트마다 찍으면 로그가 죽는다. */
+function flushFollowSummary(): void {
+  if (follow.events === 0) {
+    follow = { events: 0, applied: 0, clamped: 0 };
+    return;
+  }
+  debugWrite([
+    `[snap] ${new Date().toISOString()} 라이브 추종 요약 key=${draggingKey ?? '?'} ` +
+      `이동이벤트=${follow.events} setBounds=${follow.applied} 클램프=${follow.clamped}`
+  ]);
+  follow = { events: 0, applied: 0, clamped: 0 };
 }
 
 /** 드래그 시작점에서 지금까지의 이동 거리(체비쇼프 — 축 하나만 커도 인정). */
@@ -646,9 +785,13 @@ function endDragSession(mode: 'keep' | 'rebase', key: WindowKey): void {
     dropTimer = null;
   }
   if (mode === 'rebase') {
-    dragStart = win(key)?.getBounds() ?? null;
+    // 원점을 지금 위치로 다시 찍는다 — 남은 세션이 이미 적용한 delta 를 다시
+    // 적용하지 않게 하는 것이 핵심이다. 클러스터 구성이 방금 바뀌었을 수도
+    // 있으므로(흡착으로 새 이웃이 생김) 팔로워 원점도 같이 다시 찍는다.
+    captureDragOrigins(key);
     liveLatch = null;
   }
+  flushFollowSummary();
 }
 
 function finishDrag(): void {
@@ -709,8 +852,23 @@ function finishDrag(): void {
   if (hasRelation(key)) {
     // 붙어 있는 unit 의 드래그는 언제나 클러스터 통째 이동이다 — 거리 제한 없음.
     // 빼내려면 명시적 분리 동작(detachFromCluster)을 써야 한다.
-    moveCluster(key, start, dx, dy);
-    decide(`클러스터 통째 이동 delta=${dx},${dy} unit=[${clusterOf(key).join(',')}]`);
+    //
+    // 계산식은 라이브 추종과 **완전히 같다**(같은 원점, 같은 클램프). 그래서
+    // 이미 추종으로 제자리에 온 창은 applyUnitTargets 에서 스킵되고, 이중
+    // 적용이 일어날 수 없다. 여기서 리더를 빼지 않는 이유는 클램프가 걸렸을 때
+    // 앞서 나간 리더를 클러스터 자리로 되돌리기 위해서다.
+    const plan = clusterTargets(key, dropped);
+    if (plan) {
+      const applied = applyUnitTargets(plan.targets);
+      decide(
+        `클러스터 통째 이동 delta=${plan.dx},${plan.dy}` +
+          `${plan.clamped ? ` (요청 ${dx},${dy} → 작업영역 클램프, 리더 합류)` : ''} ` +
+          `unit=[${clusterOf(key).join(',')}] 드랍시점 setBounds=${applied}`
+      );
+    } else {
+      moveCluster(key, start, dx, dy);
+      decide(`클러스터 통째 이동 delta=${dx},${dy} unit=[${clusterOf(key).join(',')}] (원점 없음)`);
+    }
     endDragSession('rebase', key);
     return;
   }
@@ -779,7 +937,39 @@ function tryLiveSnap(key: WindowKey): void {
 }
 
 /**
- * @param live 라이브 흡착을 시도해도 되는 시점인가.
+ * 드래그 중 라이브 추종 — 붙어 있는 나머지 창들을 리더에 계속 맞춘다.
+ *
+ * 리더(끌리고 있는 창)는 절대 건드리지 않는다: 드래그 중 그 창의 위치는 OS 가
+ * 소유하며, 여기서 setBounds 하면 네이티브 드래그 루프와 싸운다.
+ *
+ * 한 이동 이벤트당 setBounds 는 최대 "팔로워 창 수" 로 묶이고, 목표에 이미 와
+ * 있으면 0 이다 — 추종이 추종을 부르는 되먹임이 없다(팔로워의 이동 이벤트는
+ * boundsGuard 가 걸러낸다).
+ */
+function liveFollow(key: WindowKey): void {
+  if (!LIVE_SNAP) return;
+  if (!hasRelation(key)) return;
+  const cur = win(key)?.getBounds();
+  if (!cur) return;
+  const plan = clusterTargets(key, cur);
+  if (!plan) return;
+
+  follow.events += 1;
+  if (plan.clamped) follow.clamped += 1;
+  const applied = applyUnitTargets(plan.targets, unitOf(key));
+  if (applied === 0) return;
+  if (follow.applied === 0) {
+    // 세션당 딱 한 줄. 나머지는 flushFollowSummary 가 요약한다.
+    debugWrite([
+      `[snap] ${new Date().toISOString()} 라이브 추종 시작 key=${key} ` +
+        `unit=[${clusterOf(key).join(',')}] delta=${plan.dx},${plan.dy}`
+    ]);
+  }
+  follow.applied += applied;
+}
+
+/**
+ * @param live 라이브 흡착/추종을 시도해도 되는 시점인가.
  *   'will-move' 는 OS 가 아직 창을 옮기기 전이라 여기서 setBounds 를 하면
  *   곧바로 덮어써진다(그리고 win32 에서는 이동 직전 훅 안에서 창을 옮기는 셈이
  *   된다). 그래서 라이브 흡착은 이동이 **끝난** 'move' 에서만 한다.
@@ -792,14 +982,18 @@ function onDragTick(key: WindowKey, live: boolean): void {
     if (draggingKey) finishDrag();
     resetDrag();
     draggingKey = key;
-    dragStart = win(key)?.getBounds() ?? null;
-  } else if (stale || !dragStart) {
+    captureDragOrigins(key);
+  } else if (stale || !dragStart || !dragOrigins) {
     // 세션이 너무 오래 조용했다 — 낡은 시작점을 되살리지 않고 새로 잡는다.
-    dragStart = win(key)?.getBounds() ?? null;
+    captureDragOrigins(key);
     liveLatch = null;
   }
   dragLastMoveAt = Date.now();
-  if (live && dragDistance(key) >= DRAG_DISTANCE_PX) tryLiveSnap(key);
+  if (live && dragDistance(key) >= DRAG_DISTANCE_PX) {
+    // 배타적이다: 아직 안 붙은 unit → 라이브 흡착, 이미 붙은 unit → 라이브 추종.
+    tryLiveSnap(key);
+    liveFollow(key);
+  }
   scheduleDrop();
 }
 
