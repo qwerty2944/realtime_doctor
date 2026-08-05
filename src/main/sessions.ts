@@ -54,6 +54,13 @@ export interface UsageEventInput {
 let currentSessionId: string | null = null;
 /** 클라우드 sessions row 생성/확인 promise. null 이면 아직 시도 전. */
 let cloudReady: Promise<boolean> | null = null;
+/**
+ * 현재 녹취를 붙일 진료(encounter) id.
+ *
+ * 환자를 선택한 채로 녹음을 시작하면 그 녹취는 그 진료의 기록이다 — 선택을
+ * 자동 해제하지 않고 `sessions.encounter_id` 로 연결한다.
+ */
+let sessionEncounterId: string | null = null;
 
 function warn(scope: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
@@ -95,7 +102,8 @@ async function ensureCloudSession(): Promise<string | null> {
           {
             id,
             user_id: user.id,
-            transcribe_provider: getTranscribeProvider()
+            transcribe_provider: getTranscribeProvider(),
+            encounter_id: sessionEncounterId
           },
           { onConflict: 'id', ignoreDuplicates: true }
         );
@@ -122,6 +130,34 @@ export function getCurrentSessionId(): string | null {
 export function setCurrentSessionId(id: string | null): void {
   currentSessionId = id;
   cloudReady = null;
+}
+
+/**
+ * 녹취-진료 연결. 환자 선택/해제 때 호출한다.
+ *
+ * 이미 만들어진 세션 row 가 있으면 그 row 도 즉시 갱신한다 (upsert 는
+ * ignoreDuplicates 라 기존 row 를 건드리지 않으므로 여기서 따로 update).
+ * 실패해도 녹취 자체는 계속돼야 하므로 경고만 남긴다.
+ */
+export function linkSessionToEncounter(encounterId: string | null): void {
+  sessionEncounterId = encounterId;
+  const id = currentSessionId;
+  if (!id || !canPersist()) return;
+  const supabase = getSupabase();
+  const user = getCurrentUser();
+  if (!supabase || !user) return;
+  void (async () => {
+    try {
+      const { error } = await supabase
+        .from('sessions')
+        .update({ encounter_id: encounterId })
+        .eq('id', id)
+        .eq('user_id', user.id);
+      if (error) warn('linkSessionToEncounter', error.message);
+    } catch (err) {
+      warn('linkSessionToEncounter', err);
+    }
+  })();
 }
 
 export interface LoadedSession {

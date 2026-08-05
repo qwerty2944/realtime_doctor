@@ -58,9 +58,64 @@ export const IPC = {
   DevicesList: 'devices:list',
   DevicesRevoke: 'devices:revoke',
   DeviceRevoked: 'devices:revoked-notice',
+  /** 플랜 기기 수를 초과해 등록이 거부됐다. 어느 기기를 내릴지 물어야 한다 (S5). */
+  DeviceLimitExceeded: 'devices:limit-exceeded',
+  /** 고른 기기를 내리고 이 기기를 다시 등록한다 (S5). */
+  DevicesReleaseAndRegister: 'devices:release-and-register',
   LocalSaveGet: 'localSave:get',
-  LocalSaveSet: 'localSave:set'
+  LocalSaveSet: 'localSave:set',
+  PatientsListWaiting: 'patients:list-waiting',
+  PatientsLoadDetail: 'patients:load-detail',
+  PatientsSelect: 'patients:select',
+  PatientsWaitingChanged: 'patients:waiting-changed',
+  /** 나중에 뜬 창이 현재 선택 상태를 스스로 채우기 위한 getter. */
+  PatientsGetActive: 'patients:get-active',
+  /** 선택된 환자(또는 해제)를 모든 창에 알리는 broadcast. */
+  PatientsActiveChanged: 'patients:active-changed',
+  /** 진단명 하나의 문헌근거 조회 요청 (invoke). */
+  EvidenceRequest: 'evidence:request',
+  /** 조회 결과 도착 broadcast — 같은 진단을 띄운 다른 창도 함께 갱신된다. */
+  EvidenceUpdated: 'evidence:updated',
+  /**
+   * 참고문헌을 외부 브라우저로 연다. 범용 URL opener 가 아니라 main 에서
+   * pubmed.ncbi.nlm.nih.gov 인지 검증한 뒤에만 shell.openExternal 한다.
+   */
+  EvidenceOpen: 'evidence:open',
+  /** 현재 구독 상태 getter. 캐시된 서명 토큰을 매번 재검증한 결과다. */
+  SubscriptionGet: 'subscription:get',
+  /** 서버에 다시 물어본다 (사용자가 결제 후 돌아왔을 때 등). */
+  SubscriptionRefresh: 'subscription:refresh',
+  /** 상태 변화 broadcast. */
+  SubscriptionChanged: 'subscription:changed',
+  /** 잠긴 상태에서 기능 호출이 차단됐음을 알리는 broadcast. */
+  SubscriptionBlocked: 'subscription:blocked',
+  /** 결제 페이지를 외부 브라우저로 연다 (admin-web, S3). */
+  SubscriptionOpenBilling: 'subscription:open-billing',
+  /** 나중에 뜬 창이 현재 글씨 배율을 스스로 채우기 위한 getter. */
+  FontScaleGet: 'font-scale:get',
+  /** 글씨 배율 변경을 모든 창에 알리는 broadcast. */
+  FontScaleChanged: 'font-scale:changed'
 } as const;
+
+/**
+ * 전역 글씨 배율.
+ *
+ * 오버레이는 작은 창이라 배율이 무한정 커지면 레이아웃이 깨진다. 0.8~1.6 로
+ * 묶고 0.1 단위 고정 스텝으로만 움직인다. webContents.setZoomFactor 는 프레임
+ * 없는 투명 창의 opacity 합성과 충돌해서 쓰지 않고, CSS 변수(--font-scale)로
+ * 루트 font-size 만 바꾼다.
+ */
+export const FONT_SCALE_MIN = 0.8;
+export const FONT_SCALE_MAX = 1.6;
+export const FONT_SCALE_STEP = 0.1;
+export const FONT_SCALE_DEFAULT = 1;
+
+/** 범위 클램프 + 부동소수 오차 제거(0.1 스텝이라 소수 2자리면 충분). */
+export function clampFontScale(value: number): number {
+  if (!Number.isFinite(value)) return FONT_SCALE_DEFAULT;
+  const clamped = Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, value));
+  return Math.round(clamped * 100) / 100;
+}
 
 /** 오버레이 창 식별자 (main 의 WindowKey 와 동일 집합). */
 export type OverlayKey =
@@ -181,6 +236,77 @@ export interface LoadedSessionPayload {
     text: string;
     timestamp_ms: number;
   }>;
+}
+
+/** 진료 상태. DB `encounters.status` CHECK 제약과 동일 집합. */
+export type EncounterStatus =
+  | 'intake_in_progress'
+  | 'intake_done'
+  | 'in_consult'
+  | 'completed';
+
+/** 대기목록에 올라가는 상태 — 문진 완료 후 진료가 아직 안 끝난 것. */
+export const WAITING_STATUSES: EncounterStatus[] = ['intake_done', 'in_consult'];
+
+export interface Patient {
+  id: string;
+  name: string;
+  birthDate: string | null;
+  registrationNo: string | null;
+  phone: string | null;
+  createdAt: string;
+}
+
+export interface Encounter {
+  id: string;
+  patientId: string;
+  status: EncounterStatus;
+  redFlag: boolean;
+  redFlagReason: string | null;
+  chiefComplaint: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/** 키오스크 문진이 만들어 둔 AI 초안. JSON 필드는 스키마가 키오스크 소유라 unknown. */
+export interface IntakeResult {
+  id: string;
+  encounterId: string;
+  soap: Record<string, unknown>;
+  differentials: unknown[];
+  recommendedTests: unknown[];
+  version: number;
+  createdAt: string;
+}
+
+/** 대기목록 한 줄 — encounters + patients + 최신 intake_results 조인 결과. */
+export interface WaitingEncounter {
+  encounterId: string;
+  patientId: string;
+  status: EncounterStatus;
+  redFlag: boolean;
+  redFlagReason: string | null;
+  patientName: string;
+  registrationNo: string | null;
+  chiefComplaint: string | null;
+  createdAt: string;
+  /** 문진 결과가 생성된 시각. 결과 row 가 없으면 null. */
+  completedAt: string | null;
+}
+
+/**
+ * 대기목록 broadcast 페이로드. Realtime 채널이 끊기면 items 는 마지막으로
+ * 성공한 목록 그대로 두고 error 만 채워 보낸다 (UI 는 배너 + 수동 새로고침).
+ */
+export interface WaitingListUpdate {
+  items: WaitingEncounter[];
+  error: string | null;
+}
+
+export interface PatientDetail {
+  patient: Patient;
+  encounter: Encounter;
+  intakeResult: IntakeResult | null;
 }
 
 export interface AuthUser {

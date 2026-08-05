@@ -6,21 +6,29 @@ import {
   type AuthState,
   type CloudSyncSettings,
   type DeviceInfo,
+  type DeviceLimitNotice,
   type DictationStatus,
   type DictationTemplate,
   type EphemeralSession,
+  type EvidenceStatus,
+  type EvidenceUpdate,
   type Language,
   type LoadedSessionPayload,
   type LocalSaveSettings,
   type OverlayKey,
+  type PatientDetail,
   type SessionSummary,
   type ShortcutId,
   type Speaker,
+  type SubscriptionBlockedNotice,
+  type SubscriptionState,
   type SummaryStatus,
   type TranscribeProviderId,
   type TranscribeProviderInfo,
   type TranscriptChunk,
   type TranscriptLabelEvent,
+  type WaitingEncounter,
+  type WaitingListUpdate,
   type WindowGroupInfo
 } from '../shared/types.js';
 
@@ -387,6 +395,94 @@ const api = {
         handler(payload);
       ipcRenderer.on(IPC.DeviceRevoked, listener);
       return () => ipcRenderer.removeListener(IPC.DeviceRevoked, listener);
+    },
+    /** 한도 초과로 고른 기기를 내리고 이 기기를 다시 등록한다 (S5). */
+    releaseAndRegister(
+      rowId: string
+    ): Promise<{ ok: boolean; error?: string; devices?: DeviceInfo[] }> {
+      return ipcRenderer.invoke(IPC.DevicesReleaseAndRegister, rowId);
+    },
+    onLimitExceeded(handler: (payload: DeviceLimitNotice) => void): () => void {
+      const listener = (_e: unknown, payload: DeviceLimitNotice) => handler(payload);
+      ipcRenderer.on(IPC.DeviceLimitExceeded, listener);
+      return () => ipcRenderer.removeListener(IPC.DeviceLimitExceeded, listener);
+    }
+  },
+  patients: {
+    listWaiting(): Promise<WaitingEncounter[]> {
+      return ipcRenderer.invoke(IPC.PatientsListWaiting);
+    },
+    loadDetail(encounterId: string): Promise<PatientDetail | null> {
+      return ipcRenderer.invoke(IPC.PatientsLoadDetail, encounterId);
+    },
+    select(encounterId: string | null): Promise<PatientDetail | null> {
+      return ipcRenderer.invoke(IPC.PatientsSelect, encounterId);
+    },
+    onWaitingChange(handler: (payload: WaitingListUpdate) => void): () => void {
+      const listener = (_e: unknown, payload: WaitingListUpdate) => handler(payload);
+      ipcRenderer.on(IPC.PatientsWaitingChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.PatientsWaitingChanged, listener);
+    },
+    /** 나중에 뜬 창이 현재 선택 상태를 스스로 채울 때 사용. */
+    getActive(): Promise<PatientDetail | null> {
+      return ipcRenderer.invoke(IPC.PatientsGetActive);
+    },
+    onActiveChange(handler: (detail: PatientDetail | null) => void): () => void {
+      const listener = (_e: unknown, detail: PatientDetail | null) => handler(detail);
+      ipcRenderer.on(IPC.PatientsActiveChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.PatientsActiveChanged, listener);
+    }
+  },
+  evidence: {
+    /** 진단명 하나의 PubMed 근거. 캐시 히트면 즉시, 아니면 조회 후 반환. */
+    request(diagnosis: string, diagnosisEn?: string | null): Promise<EvidenceStatus> {
+      return ipcRenderer.invoke(IPC.EvidenceRequest, { diagnosis, diagnosisEn });
+    },
+    onUpdate(handler: (payload: EvidenceUpdate) => void): () => void {
+      const listener = (_e: unknown, payload: EvidenceUpdate) => handler(payload);
+      ipcRenderer.on(IPC.EvidenceUpdated, listener);
+      return () => ipcRenderer.removeListener(IPC.EvidenceUpdated, listener);
+    },
+    /** 외부 브라우저로 열기. PubMed 주소가 아니면 main 이 거절하고 false. */
+    open(url: string): Promise<boolean> {
+      return ipcRenderer.invoke(IPC.EvidenceOpen, url);
+    }
+  },
+  subscription: {
+    /** 현재 상태. main 이 캐시된 서명 토큰을 재검증한 결과를 돌려준다. */
+    get(): Promise<SubscriptionState> {
+      return ipcRenderer.invoke(IPC.SubscriptionGet);
+    },
+    /** 서버에 다시 물어본다 (결제 후 돌아왔을 때 등). */
+    refresh(): Promise<SubscriptionState> {
+      return ipcRenderer.invoke(IPC.SubscriptionRefresh);
+    },
+    /** 결제 페이지를 외부 브라우저로 연다. 주소 검증은 main 이 한다. */
+    openBilling(): Promise<boolean> {
+      return ipcRenderer.invoke(IPC.SubscriptionOpenBilling);
+    },
+    onChange(handler: (state: SubscriptionState) => void): () => void {
+      const listener = (_e: unknown, state: SubscriptionState) => handler(state);
+      ipcRenderer.on(IPC.SubscriptionChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.SubscriptionChanged, listener);
+    },
+    /** 잠긴 상태에서 기능 호출이 차단됐을 때. */
+    onBlocked(handler: (notice: SubscriptionBlockedNotice) => void): () => void {
+      const listener = (_e: unknown, notice: SubscriptionBlockedNotice) =>
+        handler(notice);
+      ipcRenderer.on(IPC.SubscriptionBlocked, listener);
+      return () => ipcRenderer.removeListener(IPC.SubscriptionBlocked, listener);
+    }
+  },
+  fontScale: {
+    /** 창이 뜬 직후 현재 배율을 채우기 위한 getter. */
+    get(): Promise<number> {
+      return ipcRenderer.invoke(IPC.FontScaleGet);
+    },
+    onChange(handler: (scale: number) => void): () => void {
+      const listener = (_e: unknown, scale: number) => handler(scale);
+      ipcRenderer.on(IPC.FontScaleChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.FontScaleChanged, listener);
     }
   },
   localSave: {

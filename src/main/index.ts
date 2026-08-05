@@ -45,6 +45,16 @@ import {
   setDefaultLayout
 } from './layouts.js';
 import { openClovaStream, type ClovaStreamHandle } from './clovaStream.js';
+import { isPubmedUrl, lookupEvidence } from './evidence.js';
+import {
+  clearPatientState,
+  getActiveDetail,
+  listWaitingEncounters,
+  loadPatientDetail,
+  selectEncounter,
+  subscribeWaitingChanges,
+  type WaitingSubscription
+} from './patients.js';
 import {
   appendDictation,
   appendSummary,
@@ -52,6 +62,7 @@ import {
   endCurrentSession,
   getCurrentSessionId,
   deleteChunkRow,
+  linkSessionToEncounter,
   listMySessions,
   loadSession,
   logUsage,
@@ -97,12 +108,14 @@ import {
   getGroupsState,
   initWindowGroups,
   isHiddenGroupMember,
-  restoreGroups
+  restoreGroups,
+  syncGroupBounds
 } from './windowGroups.js';
 import { MAIN_WINDOW_KEYS, OVERLAYS, createOverlayWindow } from './windows.js';
 import type {
   DictationTemplate,
-  TranscribeProviderId
+  TranscribeProviderId,
+  WaitingEncounter
 } from '../shared/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -906,6 +919,14 @@ function hideOverlaysAndClearPHI(): void {
     if (win.isVisible()) win.hide();
   }
   analyzer.reset();
+  // 환자 정보도 PHI — 구독을 끊고 캐시된 목록까지 비운다.
+  clearPatientState();
+  lastWaiting = [];
+  waitingSub = null;
+  linkSessionToEncounter(null);
+  broadcast(IPC.PatientsWaitingChanged, { items: [], error: null });
+  // 선택된 환자 상세도 PHI — 각 창의 캐시를 비우도록 null 을 방송한다.
+  broadcast(IPC.PatientsActiveChanged, null);
   void flushStreamSessionAudio().finally(() => {
     void endCurrentSession().finally(() => {
       clearSessionCache();
