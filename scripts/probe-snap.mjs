@@ -245,31 +245,123 @@ console.log('\n=== 4) 3창 사슬 A-B-C 가 한 덩어리로 움직인다 ===');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== 5) 분리: DETACH_PX(96) 를 넘겨 끌면 떨어진다 ===');
+console.log('\n=== 5) 분리는 명시적 동작으로만 — 드래그 거리에는 천장이 없다 ===');
 {
   const W = freshWorld();
   const A = W.get('diagnosis');
   const B = W.get('patients');
-  A.place({ x: 800, y: 300 });
-  B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
+  // 작업영역(0..1920 × 25..1080) 안에서 600px 오른쪽 + 400px 아래로 움직여도
+  // 클램프가 개입하지 않도록 왼쪽 위에 여유를 두고 배치한다.
+  A.place({ x: 600, y: 100 });
+  B.place({ x: 600 - 380 - 18, y: 100, ...SPECS.patients });
   B.userDrag(2, 0);
   check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
 
-  // 96px 이하 → 클러스터 이동 (아직 붙어 있음)
-  B.userDrag(0, 80);
-  check('80px 이동은 클러스터 이동 (관계 유지)', rel('patients', 'diagnosis'));
+  // 한 번의 드래그로 600px — 예전 DETACH_PX(96) 라면 여기서 떨어졌다.
+  const before = { a: b(A), b: b(B) };
+  B.userDrag(600, 0);
+  const after = { a: b(A), b: b(B) };
+  check(
+    '600px 한 번에 이동해도 관계 유지',
+    rel('patients', 'diagnosis'),
+    JSON.stringify(snap.getSnapRelations())
+  );
+  check(
+    '두 창 모두 정확히 600px 이동',
+    after.a.x - before.a.x === 600 && after.b.x - before.b.x === 600,
+    `dA=${after.a.x - before.a.x} dB=${after.b.x - before.b.x}`
+  );
+  check('이동 후에도 맞닿음(간격 0)', after.b.x + after.b.width === after.a.x);
+
+  // 아래로도 큰 거리 — 방향 무관하게 천장이 없다는 확인.
+  const beforeY = { a: b(A).y, b: b(B).y };
+  B.userDrag(0, 400);
+  check(
+    '세로 400px 이동해도 관계 유지 + 동일 delta',
+    rel('patients', 'diagnosis') &&
+      b(A).y - beforeY.a === 400 &&
+      b(B).y - beforeY.b === 400,
+    `dA=${b(A).y - beforeY.a} dB=${b(B).y - beforeY.b}`
+  );
+
+  // ── 명시적 분리 ──
+  const aBefore = b(A);
+  const bBefore = b(B);
+  check('detachFromCluster 가 true 반환', snap.detachFromCluster('patients') === true);
+  check('관계 해제됨', !rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
+  check(
+    '분리는 어느 창도 움직이지 않는다 (순간이동 없음)',
+    b(A).x === aBefore.x && b(A).y === aBefore.y &&
+      b(B).x === bBefore.x && b(B).y === bBefore.y
+  );
+  check('붙어 있지 않은 창의 분리는 no-op', snap.detachFromCluster('patients') === false);
+
+  // 분리 후: 맞닿은 변에서 멀어지면 더 이상 따라오지 않는다.
+  const aBefore2 = b(A);
+  B.userDrag(-300, 0);
+  check(
+    '분리 후: 이 창의 이동이 상대를 끌지 않음',
+    b(A).x === aBefore2.x && b(A).y === aBefore2.y
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 5b) 사슬 A-B-C 에서 가운데 B 를 분리하면 사슬이 끊긴다 ===');
+{
+  const W = freshWorld();
+  const A = W.get('terms'); // 380x240
+  const B = W.get('diagnosis'); // 380x460
+  const C = W.get('patients'); // 380x420
+  B.place({ x: 700, y: 300 });
+  A.place({ x: 700 - 380 - 18, y: 300, ...SPECS.terms });
+  A.userDrag(2, 0);
+  C.place({ x: 700 + 380 + 18, y: 300, ...SPECS.patients });
+  C.userDrag(-2, 0);
+  check('사전 조건: A-B-C 클러스터', snap.clusterOf('terms').length === 3);
+
+  check('가운데 B 분리', snap.detachFromCluster('diagnosis') === true);
+  // A 와 C 사이에는 B 의 폭(380px)만큼 빈 공간이 있다 — 맞닿지 않은 둘을
+  // 이어두면 보이지 않는 기하가 된다. 그래서 사슬은 끊는다.
+  check('A 는 홀로 남음', snap.clusterOf('terms').join(',') === 'terms');
+  check('C 도 홀로 남음', snap.clusterOf('patients').join(',') === 'patients');
+  check('B 도 홀로 남음', snap.clusterOf('diagnosis').join(',') === 'diagnosis');
+  check('관계 0건', snap.getSnapRelations().length === 0, JSON.stringify(snap.getSnapRelations()));
 
   const aBefore = b(A);
-  // 맞닿은 변에서 멀어지는 방향(왼쪽)으로 크게 — 떨어져야 한다.
-  // (아래로만 끌면 가로로는 여전히 맞닿아 있어 다시 붙는 것이 정상 동작이다.)
-  B.userDrag(-240, 0);
-  check('240px 이동 → 관계 해제', !rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
-  check('분리 드래그에서 상대 창은 안 움직임', b(A).x === aBefore.x && b(A).y === aBefore.y);
+  const bBefore = b(B);
+  C.userDrag(0, 300);
+  check(
+    '분리된 B 는 더 이상 따라오지 않음',
+    b(B).x === bBefore.x && b(B).y === bBefore.y
+  );
+  check('A 도 따라오지 않음', b(A).x === aBefore.x && b(A).y === aBefore.y);
 
-  // 분리 후 한 창을 움직여도 다른 창은 그대로
-  const aBefore2 = b(A);
-  B.userDrag(-30, -10);
-  check('분리 후: 한 창 이동이 다른 창을 끌지 않음', b(A).x === aBefore2.x && b(A).y === aBefore2.y);
+  // ── 끝 창(C) 분리는 A-B 를 그대로 남긴다 ──
+  const W2 = freshWorld();
+  const A2 = W2.get('terms');
+  const B2 = W2.get('diagnosis');
+  const C2 = W2.get('patients');
+  B2.place({ x: 700, y: 300 });
+  A2.place({ x: 700 - 380 - 18, y: 300, ...SPECS.terms });
+  A2.userDrag(2, 0);
+  C2.place({ x: 700 + 380 + 18, y: 300, ...SPECS.patients });
+  C2.userDrag(-2, 0);
+  check('사전 조건: A-B-C', snap.clusterOf('terms').length === 3);
+  snap.detachFromCluster('patients');
+  check(
+    '끝 창 분리 후 A-B 는 유지',
+    snap.clusterOf('terms').sort().join(',') === 'diagnosis,terms',
+    snap.clusterOf('terms').join(',')
+  );
+  const cBefore = b(C2);
+  const bBefore2 = b(B2);
+  A2.userDrag(-120, 0);
+  check(
+    '남은 A-B 는 함께 이동',
+    b(B2).x - bBefore2.x === -120,
+    `${b(B2).x - bBefore2.x}`
+  );
+  check('분리된 C 는 제자리', b(C2).x === cBefore.x && b(C2).y === cBefore.y);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

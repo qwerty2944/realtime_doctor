@@ -62,6 +62,11 @@ export const IPC = {
   WindowGroupsActivate: 'window-groups:activate',
   WindowGroupsDetach: 'window-groups:detach',
   WindowGroupsHover: 'window-groups:hover',
+  /** 지금 가장자리 스냅 클러스터에 속한 창 목록 (windowSnap.ts). */
+  WindowSnapsGet: 'window-snaps:get',
+  WindowSnapsState: 'window-snaps:state',
+  /** 이 창만 스냅 클러스터에서 빼낸다. */
+  WindowSnapsDetach: 'window-snaps:detach',
   DevicesList: 'devices:list',
   DevicesRevoke: 'devices:revoke',
   DeviceRevoked: 'devices:revoked-notice',
@@ -232,7 +237,8 @@ export type ShortcutId =
   | 'windowWiden'
   | 'windowNarrow'
   | 'windowTaller'
-  | 'windowShorter';
+  | 'windowShorter'
+  | 'windowSnapDetach';
 
 export const SHORTCUT_IDS: ShortcutId[] = [
   'toggleAll',
@@ -253,7 +259,8 @@ export const SHORTCUT_IDS: ShortcutId[] = [
   'windowWiden',
   'windowNarrow',
   'windowTaller',
-  'windowShorter'
+  'windowShorter',
+  'windowSnapDetach'
 ];
 
 // macOS 위주 디자인: Cmd 단일 모디파이어. Win/Linux 에서는 Ctrl 로 매핑되어
@@ -282,7 +289,11 @@ export const SHORTCUT_DEFAULTS: Record<ShortcutId, string> = {
   windowWiden: 'Control+Alt+Right',
   windowNarrow: 'Control+Alt+Left',
   windowTaller: 'Control+Alt+Down',
-  windowShorter: 'Control+Alt+Up'
+  windowShorter: 'Control+Alt+Up',
+  // 스냅 분리도 창 관리 동작이라 같은 Ctrl+Alt 대역에 둔다. 화살표 4개는
+  // 리사이즈가 쓰고 있으므로 글자 키 D(detach) 를 쓴다. Cmd+D 는 이미
+  // runDictation 이 점유했지만 모디파이어가 달라 충돌하지 않는다.
+  windowSnapDetach: 'Control+Alt+D'
 };
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
@@ -304,7 +315,8 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   windowWiden: '창 너비 늘리기',
   windowNarrow: '창 너비 줄이기',
   windowTaller: '창 높이 늘리기',
-  windowShorter: '창 높이 줄이기'
+  windowShorter: '창 높이 줄이기',
+  windowSnapDetach: '붙은 창에서 이 창 떼어내기'
 };
 
 export interface SessionSummary {

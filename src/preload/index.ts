@@ -402,6 +402,20 @@ const api = {
       return () => ipcRenderer.removeListener(IPC.WindowGroupsHover, listener);
     }
   },
+  windowSnaps: {
+    /** 지금 가장자리 스냅으로 붙어 있는 창들. */
+    get(): Promise<OverlayKey[]> {
+      return ipcRenderer.invoke(IPC.WindowSnapsGet);
+    },
+    detach(key: OverlayKey): void {
+      ipcRenderer.send(IPC.WindowSnapsDetach, key);
+    },
+    onChange(handler: (keys: OverlayKey[]) => void): () => void {
+      const listener = (_e: unknown, payload: OverlayKey[]) => handler(payload);
+      ipcRenderer.on(IPC.WindowSnapsState, listener);
+      return () => ipcRenderer.removeListener(IPC.WindowSnapsState, listener);
+    }
+  },
   devices: {
     list(): Promise<DeviceInfo[]> {
       return ipcRenderer.invoke(IPC.DevicesList);

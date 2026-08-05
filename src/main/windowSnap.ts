@@ -9,6 +9,13 @@ import { groupOf, isMergePending } from './windowGroups.js';
  * 붙고, 그 관계가 기록된다. 관계로 이어진 창들은 하나의 "클러스터"가 되어
  * 같이 움직인다. A-B-C 처럼 사슬로 이어져도 전체가 한 덩어리다.
  *
+ * ── 드래그는 언제나 "클러스터 통째 이동" ──────────────────────────────────
+ * 분리는 드래그가 아니라 **명시적 동작**(단축키 windowSnapDetach / 타이틀바의
+ * 분리 버튼)으로만 일어난다. 예전에는 이동 거리로 둘을 구분했는데, 그러면
+ * 클러스터를 한 번에 옮길 수 있는 거리에 천장이 생겨(96px) 화면을 가로질러
+ * 옮기려면 여러 번 끌어야 했다. 신호가 겹치지 않게 분리하면 드래그 거리에
+ * 제한이 사라진다.
+ *
  * ── 스냅 vs 탭 머지 경계 ────────────────────────────────────────────────
  * windowGroups.ts 의 탭 머지는 "드랍 시점 커서가 다른 창 rect 안"일 때
  * 발동한다. 커서는 드래그 중인 창의 타이틀바 위에 있으므로 그 조건은
@@ -43,17 +50,6 @@ const ENGAGE_PX = 24;
 const MIN_SHARE_PX = 24;
 /** 수직축 정렬(예: 오른쪽에 붙일 때 위쪽 맞추기) 허용 오차. */
 const ALIGN_PX = 24;
-/**
- * 떨어지는 거리(히스테리시스). 드래그 시작 위치에서 이보다 멀리 놓으면
- * "빼내려는 의도"로 보고 클러스터에서 분리한다. ENGAGE_PX 의 4 배라
- * 경계에서 붙었다 떨어졌다 하는 떨림이 생기지 않는다.
- *
- * [트레이드오프] 수식어 키 없이 "클러스터 통째 이동"과 "한 장 빼내기"를
- * 구분할 수 있는 신호는 이동 거리뿐이다. 그래서 한 번의 드래그로 클러스터를
- * 옮길 수 있는 거리는 96px 로 제한된다. 멀리 옮기려면 여러 번 끌거나
- * 레이아웃 프리셋을 쓴다.
- */
-const DETACH_PX = 96;
 
 /** 사용자 드래그로 인정할 최소 move 이벤트 수 (windowGroups 와 동일 규율). */
 const DRAG_MOVE_THRESHOLD = 4;
@@ -66,6 +62,8 @@ const DROP_DEBOUNCE_MS = 320;
 // ── 상태 ──────────────────────────────────────────────────────────────────
 let relations: SnapRelation[] = [];
 let windowsRef: Map<WindowKey, BrowserWindow> | null = null;
+/** 관계가 바뀔 때마다 호출 — 렌더러에 클러스터 소속을 알려 분리 버튼을 띄운다. */
+let onSnapsChanged: (() => void) | null = null;
 
 /** 프로그램적 setBounds 중임을 알리는 가드 (windowGroups.applyingBounds 와 동일 규율). */
 let applyingBounds = 0;
@@ -87,10 +85,21 @@ function persist(): void {
     'windowSnaps',
     relations.map((r) => ({ a: r.a, b: r.b, edge: r.edge }))
   );
+  onSnapsChanged?.();
 }
 
 export function getSnapRelations(): SnapRelation[] {
   return relations.map((r) => ({ ...r }));
+}
+
+/** 지금 어떤 창이라도 붙어 있는 창들. 렌더러의 분리 버튼 표시 조건. */
+export function getSnappedKeys(): WindowKey[] {
+  const set = new Set<WindowKey>();
+  for (const r of relations) {
+    set.add(r.a);
+    set.add(r.b);
+  }
+  return [...set];
 }
 
 /** 되먹임 폭주 검증용 계측값. 프로덕션 동작에는 영향이 없다. */
@@ -142,6 +151,25 @@ export function dropSnapsFor(keys: WindowKey[]): void {
   const before = relations.length;
   relations = relations.filter((r) => !set.has(r.a) && !set.has(r.b));
   if (relations.length !== before) persist();
+}
+
+/**
+ * 명시적 분리: 이 창만 클러스터에서 빼낸다 (단축키 / 타이틀바 버튼).
+ *
+ * [사슬 판정] A-B-C 에서 B 를 빼면 A 와 C 는 서로 이어지지 **않는다**.
+ * 둘 사이에는 B 의 폭만큼 빈 공간이 있어 실제로 맞닿아 있지 않기 때문이다.
+ * 여기서 A-C 를 이어 두면 눈에 보이지 않는 기하로 두 창이 함께 움직이게 되고,
+ * 사용자는 왜 떨어진 창이 따라오는지 알 수 없다. 그래서 사슬은 끊는다.
+ *
+ * 빠진 창은 제자리에 그대로 남는다(순간이동 금지). 여전히 이웃과 맞닿아
+ * 있으므로 24px 밖으로 끌어내지 않고 놓으면 다시 붙는 것이 정상이다.
+ *
+ * @returns 실제로 끊긴 관계가 있었으면 true.
+ */
+export function detachFromCluster(key: WindowKey): boolean {
+  if (!hasRelation(key)) return false;
+  dropSnapsFor([key]);
+  return true;
 }
 
 /** 레이아웃 프리셋은 모든 창을 개별 위치로 재배치하므로 스냅 관계를 전부 해체한다. */
@@ -314,17 +342,12 @@ function finishDrag(): void {
   const dropped = w.getBounds();
   const dx = dropped.x - start.x;
   const dy = dropped.y - start.y;
-  const distance = Math.hypot(dx, dy);
 
   if (hasRelation(key)) {
-    if (distance > DETACH_PX) {
-      // 멀리 끌어냈다 — 클러스터에서 분리하고 아래에서 새 이웃을 찾는다.
-      dropSnapsFor([key]);
-    } else {
-      // 가까운 이동 = 클러스터 통째 이동. 나머지 멤버에 같은 delta 를 적용.
-      moveCluster(key, start, dx, dy);
-      return;
-    }
+    // 붙어 있는 창의 드래그는 언제나 클러스터 통째 이동이다 — 거리 제한 없음.
+    // 빼내려면 명시적 분리 동작(detachFromCluster)을 써야 한다.
+    moveCluster(key, start, dx, dy);
+    return;
   }
 
   const current = win(key)?.getBounds();
@@ -421,8 +444,12 @@ export function restoreSnaps(): void {
   persist();
 }
 
-export function initWindowSnap(opts: { windows: Map<WindowKey, BrowserWindow> }): void {
+export function initWindowSnap(opts: {
+  windows: Map<WindowKey, BrowserWindow>;
+  onSnapsChanged?: () => void;
+}): void {
   windowsRef = opts.windows;
+  onSnapsChanged = opts.onSnapsChanged ?? null;
   relations = [];
   appliedBoundsCount = 0;
   resetDrag();

@@ -102,6 +102,7 @@ const en: Record<keyof typeof ko, string> = {
     'Reading and exporting already-saved records is always available, regardless of the lock.',
 
   'tabs.detach': 'Detach window',
+  'snap.detach': 'Unsnap from neighbours',
   'sessions.sourceLocal': 'Local',
   'sessions.sourceCloud': 'Cloud',
   'sessions.sourceBoth': 'Local + cloud',
@@ -232,6 +233,7 @@ const en: Record<keyof typeof ko, string> = {
   'shortcut.windowNarrow': 'Narrow window',
   'shortcut.windowTaller': 'Taller window',
   'shortcut.windowShorter': 'Shorter window',
+  'shortcut.windowSnapDetach': 'Unsnap from neighbours',
 
   // Care activity records (B3/B4).
   // [HARD] Wording is the liability boundary. Every string here stops at

@@ -101,6 +101,7 @@ const ko = {
   'sub.blockedTitle': '구독이 필요한 기능입니다',
   'sub.readingAlwaysAllowed': '이미 저장된 진료 기록의 열람과 내보내기는 잠금과 무관하게 항상 가능합니다.',
   'tabs.detach': '창 분리',
+  'snap.detach': '붙은 창에서 떼어내기',
   'sessions.sourceLocal': '로컬',
   'sessions.sourceCloud': '클라우드',
   'sessions.sourceBoth': '로컬+클라우드',
@@ -239,6 +240,7 @@ const ko = {
   'shortcut.windowNarrow': '창 너비 줄이기',
   'shortcut.windowTaller': '창 높이 늘리기',
   'shortcut.windowShorter': '창 높이 줄이기',
+  'shortcut.windowSnapDetach': '붙은 창에서 떼어내기',
 
   // 진료행위 기록 (B3/B4)
   //

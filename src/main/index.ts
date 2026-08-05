@@ -151,8 +151,10 @@ import {
 } from './windowGroups.js';
 import {
   attachSnapDragHandlers,
+  detachFromCluster,
   dissolveAllSnaps,
   dropSnapsFor,
+  getSnappedKeys,
   initWindowSnap,
   restoreSnaps
 } from './windowSnap.js';
@@ -454,6 +456,18 @@ function resizeFocusedWindow(deltaW: number, deltaH: number): void {
   broadcastWindowState();
 }
 
+/**
+ * 포커스된 오버레이만 가장자리 스냅 클러스터에서 빼낸다.
+ * 포커스된 오버레이가 없거나 붙어 있지 않으면 아무 일도 하지 않는다.
+ */
+function detachFocusedFromCluster(): void {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win || win.isDestroyed()) return;
+  const key = windowKeyOf(win);
+  if (!key) return;
+  detachFromCluster(key);
+}
+
 function dispatchShortcut(id: ShortcutId): void {
   switch (id) {
     case 'toggleAll':
@@ -522,6 +536,9 @@ function dispatchShortcut(id: ShortcutId): void {
       return;
     case 'windowShorter':
       resizeFocusedWindow(0, -WINDOW_RESIZE_STEP);
+      return;
+    case 'windowSnapDetach':
+      detachFocusedFromCluster();
       return;
   }
 }
@@ -762,6 +779,12 @@ ipcMain.on(IPC.WindowGroupsDetach, (_event, key: WindowKey) => {
   detachTab(key);
   broadcastWindowState();
 });
+// ── 창 가장자리 스냅 ────────────────────────────────────────────────────
+ipcMain.handle(IPC.WindowSnapsGet, () => getSnappedKeys());
+ipcMain.on(IPC.WindowSnapsDetach, (_event, key: WindowKey) => {
+  detachFromCluster(key);
+});
+
 // 렌더러가 자기 창 key 를 알 수 있게.
 ipcMain.handle('window:get-key', (event) =>
   windowKeyOf(BrowserWindow.fromWebContents(event.sender))
@@ -1496,7 +1519,11 @@ app.whenReady().then(() => {
     // 탭 그룹에 편입된 창은 가장자리 스냅 클러스터에서 빠진다.
     onGroupChangedMembers: (keys) => dropSnapsFor(keys)
   });
-  initWindowSnap({ windows: windows as Map<WindowKey, BrowserWindow> });
+  initWindowSnap({
+    windows: windows as Map<WindowKey, BrowserWindow>,
+    // 클러스터 소속이 바뀌면 각 창의 타이틀바 분리 버튼이 켜지고 꺼진다.
+    onSnapsChanged: () => broadcast(IPC.WindowSnapsState, getSnappedKeys())
+  });
 
   for (const spec of OVERLAYS) {
     const initiallyHidden = spec.key !== 'dock';

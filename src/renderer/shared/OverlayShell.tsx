@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Droplet, Minus, PictureInPicture2, UserRound } from 'lucide-react';
+import { Droplet, Minus, PictureInPicture2, Unlink, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import {
@@ -110,6 +110,29 @@ function useWindowGroup(): {
     ? groups.find((g) => g.tabs.includes(myKey)) ?? null
     : null;
   return { myKey, group, mergeHover: hoverTarget !== null && hoverTarget === myKey };
+}
+
+/**
+ * 이 창이 가장자리 스냅 클러스터에 속해 있는가.
+ *
+ * 분리를 단축키에만 두면 붙어 있는 상태를 벗어나는 방법을 아무도 발견하지
+ * 못한다 — 탭 그룹에는 이미 눈에 보이는 분리 버튼이 있으므로 스냅에도 같은
+ * 수준의 affordance 를 둔다. 붙어 있지 않을 때는 아예 렌더하지 않는다.
+ */
+function useSnapped(myKey: OverlayKey | null): boolean {
+  const [keys, setKeys] = React.useState<OverlayKey[]>([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    void window.api.windowSnaps.get().then((k) => {
+      if (!cancelled) setKeys(k);
+    });
+    const off = window.api.windowSnaps.onChange(setKeys);
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+  return myKey !== null && keys.includes(myKey);
 }
 
 /** 머지된 창의 탭바 — 클릭 전환, 호버 시 분리 버튼. */
@@ -226,7 +249,8 @@ export function OverlayShell({
   const [focused, setFocused] = React.useState<boolean>(
     typeof document !== 'undefined' && document.hasFocus()
   );
-  const { group, mergeHover } = useWindowGroup();
+  const { myKey, group, mergeHover } = useWindowGroup();
+  const snapped = useSnapped(myKey);
 
   React.useEffect(() => {
     const onFocus = () => setFocused(true);
@@ -266,6 +290,23 @@ export function OverlayShell({
           )}
           {badge}
           {actions}
+          {snapped && myKey && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center" data-no-drag>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={() => window.api.windowSnaps.detach(myKey)}
+                  >
+                    <Unlink />
+                  </Button>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('snap.detach')}</TooltipContent>
+            </Tooltip>
+          )}
           {!hideOpacity && <OpacityControl />}
           {!hideMinimize && (
             <div className="flex items-center" data-no-drag>
