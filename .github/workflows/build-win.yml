@@ -1,13 +1,10 @@
 name: Build Windows Installer
 
+# Private mirror only. Manual trigger; artifact download only, no GitHub Release.
+# API keys are baked into the binary at build time, which is why this workflow
+# must never exist in the public repository.
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
-
-permissions:
-  contents: write
 
 jobs:
   build-win:
@@ -21,58 +18,85 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      # Optional: bake API keys into the build when repository secrets are set.
-      # electron.vite.config.ts inlines these via `define` at build time.
-      # When the secrets are absent this step writes nothing, and the installed
-      # app falls back to reading a .env placed by the user at runtime
-      # (%APPDATA%\Realtime Doctor\.env or %USERPROFILE%\.realtime-doctor.env).
-      - name: Write .env from repository secrets (optional)
+      # Bake API keys into the build. electron.vite.config.ts loads .env and
+      # inlines EMBEDDED_ENV_KEYS via `define` at build time.
+      # This step fails loudly when a required key is missing, rather than
+      # producing a silently broken installer.
+      - name: Write .env from repository secrets
         shell: pwsh
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_TRANSCRIBE_MODEL: ${{ secrets.GEMINI_TRANSCRIBE_MODEL }}
+          GEMINI_DIARIZER_MODEL: ${{ secrets.GEMINI_DIARIZER_MODEL }}
+          GEMINI_ANALYZER_MODEL: ${{ secrets.GEMINI_ANALYZER_MODEL }}
+          GEMINI_SUMMARIZER_MODEL: ${{ secrets.GEMINI_SUMMARIZER_MODEL }}
+          GEMINI_DICTATOR_MODEL: ${{ secrets.GEMINI_DICTATOR_MODEL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL }}
+          CLOVA_API_KEY_ID: ${{ secrets.CLOVA_API_KEY_ID }}
+          CLOVA_API_KEY: ${{ secrets.CLOVA_API_KEY }}
+          CLOVA_SPEECH_SECRET: ${{ secrets.CLOVA_SPEECH_SECRET }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          ENTITLEMENT_PUBLIC_KEY: ${{ secrets.ENTITLEMENT_PUBLIC_KEY }}
+          ENTITLEMENT_URL: ${{ secrets.ENTITLEMENT_URL }}
+          BILLING_PORTAL_URL: ${{ secrets.BILLING_PORTAL_URL }}
+          # Optional: src/main/device.ts derives this from SUPABASE_URL when unset.
+          DEVICE_FUNCTION_URL: ${{ secrets.DEVICE_FUNCTION_URL }}
         run: |
+          # Must stay in sync with EMBEDDED_ENV_KEYS in electron.vite.config.ts
+          # and REQUIRED_KEYS in scripts/ci-assert-embedded.mjs.
+          $required = @(
+            'GEMINI_API_KEY','GEMINI_TRANSCRIBE_MODEL','GEMINI_DIARIZER_MODEL',
+            'GEMINI_ANALYZER_MODEL','GEMINI_SUMMARIZER_MODEL','GEMINI_DICTATOR_MODEL',
+            'OPENAI_API_KEY','OPENAI_TRANSCRIBE_MODEL',
+            'CLOVA_API_KEY_ID','CLOVA_API_KEY','CLOVA_SPEECH_SECRET',
+            'SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY',
+            'ENTITLEMENT_PUBLIC_KEY','ENTITLEMENT_URL','BILLING_PORTAL_URL'
+          )
+          $optional = @('DEVICE_FUNCTION_URL')
+
           $lines = @()
-          foreach ($name in 'GEMINI_API_KEY','OPENAI_API_KEY','SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY') {
+          $missing = @()
+          foreach ($name in $required) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value)) { $missing += $name }
+            else { $lines += "$name=$value" }
+          }
+          if ($missing.Count -gt 0) {
+            throw "Missing required repository secret(s): $($missing -join ', '). Set them before building."
+          }
+          foreach ($name in $optional) {
             $value = [Environment]::GetEnvironmentVariable($name)
             if (-not [string]::IsNullOrWhiteSpace($value)) { $lines += "$name=$value" }
+            else { Write-Host "Optional secret $name not set; derived at runtime." }
           }
-          if ($lines.Count -gt 0) {
-            Set-Content -Path .env -Value $lines -Encoding utf8
-            Write-Host "Wrote .env with $($lines.Count) key(s)."
-          } else {
-            Write-Host "No build-time secrets configured; skipping .env."
-          }
+          Set-Content -Path .env -Value $lines -Encoding utf8
+          Write-Host "Wrote .env with $($lines.Count) key(s); all $($required.Count) required keys present."
 
-      - name: Build Windows installer
-        run: npm run dist:win
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer/main bundles
+        run: npm run build
+
+      # The NSIS installer is LZMA-compressed, so grepping the .exe proves
+      # nothing. Assert here, on the built bundle, before packaging.
+      - name: Assert embedded configuration
+        run: node scripts/ci-assert-embedded.mjs
+
+      # `--publish never`: electron-builder otherwise auto-publishes on CI and
+      # fails with "GitHub Personal Access Token is not set". We want artifacts only.
+      - name: Package Windows installer
+        run: npx electron-builder --win --x64 --publish never
         env:
           # Do not attempt to discover / use a code-signing certificate.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: realtime-doctor-win-x64
-          path: |
-            release/*.exe
-            release/*.exe.blockmap
+          path: release/*.exe
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release/*.exe
-            release/*.exe.blockmap
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          retention-days: 7
