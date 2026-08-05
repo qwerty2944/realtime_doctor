@@ -16,7 +16,7 @@
 //
 // 화면 캡처와 합성 입력이 불가능한 환경이므로 관측은 전부 bounds 숫자다.
 
-import { FakeWindow, BACKING, setCursor } from './probe-snap-stubs.mjs';
+import { FakeWindow, BACKING, setCursor, SETTLE_MS, WORK_AREA } from './probe-snap-stubs.mjs';
 
 let failures = 0;
 function check(label, cond, detail) {
@@ -342,6 +342,205 @@ console.log('\n=== D3) 라이브 흡착이 진동하지 않는다 ===');
     `got=${fmt(b(mover))} wantX=${wantX}`
   );
   check('관계 기록', rel('patients', 'diagnosis'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// D4) 라이브 추종: 드래그 **도중에** 클러스터가 통째로 따라온다.
+//
+// 사용자 신고: "붙는건 잘돼" 그러나 끌면 나머지가 제자리에 있다가 놓을 때/손이
+// 멈출 때만 툭 따라온다. 즉 사용자가 보는 시간 내내 클러스터가 깨져 있었다.
+// 수정 전에는 아래 검사들이 전부 실패한다 (팔로워가 릴리즈 전까지 정지).
+console.log('\n=== D4) 드래그 도중 클러스터가 함께 움직인다 (라이브 추종) ===');
+
+/**
+ * 릴리즈 없는 드래그. 스텝마다 콜백을 줘서 **드래그 도중** 상태를 관측한다.
+ * FakeWindow.userDrag 은 중간을 볼 수 없어서 여기서 직접 이벤트를 만든다.
+ */
+function stepDrag(w, dx, dy, steps, onStep) {
+  const s = w.getBounds();
+  for (let i = 1; i <= steps; i += 1) {
+    w.emit('will-move');
+    w.place({ x: s.x + Math.round((dx * i) / steps), y: s.y + Math.round((dy * i) / steps) });
+    w.emit('move');
+    onStep?.(i);
+  }
+}
+const release = async (w) => {
+  w.emit('moved');
+  await sleep(SETTLE_MS);
+};
+
+/** A(diagnosis) 왼쪽에 B(patients) 를 붙인 2-unit 클러스터. */
+async function pairWorld() {
+  const W = freshWorld();
+  const A = W.get('diagnosis');
+  const B = W.get('patients');
+  A.place({ x: 800, y: 300 });
+  B.place({ x: 800 - SPECS.patients.width - 18, y: 300, ...SPECS.patients });
+  await B.userDrag(2, 0);
+  return { W, A, B };
+}
+
+{
+  const { A, B } = await pairWorld();
+  check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
+  const gap0 = b(A).x - (b(B).x + b(B).width);
+  const a0 = b(A);
+  const b0 = b(B);
+  // 릴리즈도, 정지도 없는 매끄러운 드래그. 스텝마다 팔로워를 확인한다.
+  let laggedSteps = 0;
+  let drifted = 0;
+  stepDrag(B, 240, -120, 24, () => {
+    const dB = { x: b(B).x - b0.x, y: b(B).y - b0.y };
+    const dA = { x: b(A).x - a0.x, y: b(A).y - a0.y };
+    if (dA.x !== dB.x || dA.y !== dB.y) laggedSteps += 1;
+    if (b(A).x - (b(B).x + b(B).width) !== gap0) drifted += 1;
+  });
+  check(
+    '드래그 매 스텝에서 팔로워가 리더를 따라온다 (릴리즈 전)',
+    laggedSteps === 0,
+    `뒤처진 스텝=${laggedSteps}/24`
+  );
+  check('드래그 내내 간격이 정확히 유지된다 (표류 0)', drifted === 0, `어긋난 스텝=${drifted}/24`);
+
+  // 이중 적용 금지: 마지막 이동 이벤트 시점의 위치 == 릴리즈 후 위치.
+  const duringLast = { a: b(A), b: b(B) };
+  await release(B);
+  check(
+    '릴리즈 후 위치 == 마지막 이동 이벤트 시점 위치 (delta 이중 적용 없음)',
+    fmt(b(A)) === fmt(duringLast.a) && fmt(b(B)) === fmt(duringLast.b),
+    `A ${fmt(duringLast.a)} → ${fmt(b(A))} / B ${fmt(duringLast.b)} → ${fmt(b(B))}`
+  );
+  check('관계 유지', rel('patients', 'diagnosis'));
+}
+
+console.log('\n--- 긴 드래그에서도 표류가 없다 (작은 이동 200회) ---');
+{
+  const { A, B } = await pairWorld();
+  const gap0 = b(A).x - (b(B).x + b(B).width);
+  const yGap0 = b(A).y - b(B).y;
+  let bad = 0;
+  // 스텝당 2px — DRAG_DISTANCE_PX(2) 이상이어야 첫 스텝부터 드래그로 인정된다
+  // (1px 이동 하나는 설계상 "드래그가 아직 아님"). 클램프에 닿지 않게 오른쪽으로.
+  for (let i = 0; i < 200; i += 1) {
+    stepDrag(B, 2, i % 2 === 0 ? 2 : -2, 1);
+    if (b(A).x - (b(B).x + b(B).width) !== gap0 || b(A).y - b(B).y !== yGap0) bad += 1;
+  }
+  await release(B);
+  check(
+    '작은 이동 200회 뒤에도 시작과 정확히 같은 밀착도',
+    bad === 0 && b(A).x - (b(B).x + b(B).width) === gap0 && b(A).y - b(B).y === yGap0,
+    `어긋난 스텝=${bad} gap=${b(A).x - (b(B).x + b(B).width)} (기대 ${gap0})`
+  );
+}
+
+console.log('\n--- 이동 이벤트당 프로그램적 setBounds 가 유계다 (진동 없음) ---');
+{
+  const { B } = await pairWorld();
+  const per = [];
+  stepDrag(B, 100, 0, 50, () => {
+    per.push(snap.getSnapDiagnostics().appliedBoundsCount);
+  });
+  await release(B);
+  const deltas = per.map((v, i) => v - (i === 0 ? per[0] - 0 : per[i - 1]));
+  const max = Math.max(...deltas.slice(1));
+  check(
+    `이동 이벤트 하나당 setBounds ≤ 팔로워 창 수(1) — 실측 최대 ${max}`,
+    max <= 1,
+    deltas.slice(1).join(',')
+  );
+  // 같은 자리에서 이동 이벤트만 40번 — 되먹임이 있으면 여기서 폭주한다.
+  const before = snap.getSnapDiagnostics().appliedBoundsCount;
+  stepDrag(B, 0, 0, 40);
+  await release(B);
+  const idle = snap.getSnapDiagnostics().appliedBoundsCount - before;
+  check(`제자리 이동 이벤트 40회 → setBounds ${idle}회 (0 이어야 한다)`, idle === 0, `${idle}`);
+}
+
+console.log('\n--- 3-unit 사슬(탭 그룹 포함)이 숨은 탭까지 따라온다 ---');
+{
+  const W = freshWorld();
+  W.get('diagnosis').place({ x: 900, y: 300 });
+  await makeGroup(W, 'terms', 'diagnosis');
+  const st = groups.getGroupsState()[0];
+  const active = st.active;
+  const hidden = st.tabs.find((t) => t !== active);
+  const g = b(W.get(active));
+
+  // patients 를 그룹 왼쪽에 붙이고, questions 를 patients 왼쪽에 붙인다.
+  const P = W.get('patients');
+  P.place({ x: g.x - SPECS.patients.width - 18, y: g.y, ...SPECS.patients });
+  await P.userDrag(2, 0);
+  const pb = b(P);
+  const Q = W.get('questions');
+  Q.place({ x: pb.x - SPECS.questions.width - 18, y: pb.y, ...SPECS.questions });
+  await Q.userDrag(2, 0);
+  check(
+    '사전 조건: questions-patients-그룹 3-unit 사슬',
+    snap.clusterOf('questions').length === 3,
+    snap.clusterOf('questions').join(',')
+  );
+
+  const o = {
+    q: b(Q),
+    p: b(P),
+    a: b(W.get(active)),
+    h: b(W.get(hidden))
+  };
+  let bad = 0;
+  let hiddenBad = 0;
+  // 사슬 전체 폭이 1140px 이고 왼쪽 끝이 x=140 이므로 -100 까지가 클램프 밖이다.
+  // (클램프 동작은 아래 별도 절에서 본다 — 여기서는 순수 추종만 본다.)
+  stepDrag(Q, -100, 90, 20, () => {
+    const d = { x: b(Q).x - o.q.x, y: b(Q).y - o.q.y };
+    const same = (cur, org) => cur.x - org.x === d.x && cur.y - org.y === d.y;
+    if (!same(b(P), o.p) || !same(b(W.get(active)), o.a)) bad += 1;
+    if (!same(b(W.get(hidden)), o.h)) hiddenBad += 1;
+  });
+  check('드래그 도중 사슬의 두 이웃 unit 이 모두 따라온다', bad === 0, `어긋난 스텝=${bad}/20`);
+  check('숨은 탭도 드래그 도중 내내 따라온다', hiddenBad === 0, `어긋난 스텝=${hiddenBad}/20`);
+  check(
+    '숨은 탭이 활성 탭과 같은 자리',
+    fmt(b(W.get(hidden))) === fmt(b(W.get(active))),
+    `${fmt(b(W.get(hidden)))} vs ${fmt(b(W.get(active)))}`
+  );
+  await release(Q);
+  check('숨은 탭은 여전히 숨어 있다', !W.get(hidden).isVisible());
+}
+
+console.log('\n--- 화면 끝에서: 팔로워는 멈추고, 놓으면 리더가 합류한다 ---');
+{
+  const { W, A, B } = await pairWorld();
+  // 클러스터를 왼쪽 끝 근처로 옮긴 뒤, 더 왼쪽으로 끈다.
+  const bb = b(B);
+  const ab = b(A);
+  const shift = -(bb.x - WORK_AREA.x) + 40; // B 의 왼쪽 변이 작업영역에서 40px 안쪽
+  B.place({ x: bb.x + shift, y: bb.y, width: bb.width, height: bb.height });
+  A.place({ x: ab.x + shift, y: ab.y, width: ab.width, height: ab.height });
+  const gap0 = b(A).x - (b(B).x + b(B).width);
+
+  // 리더가 클램프 지점을 넘어 앞서 나가는 것은 설계된 동작(드래그 중 리더는 OS
+  // 소유). 금지되는 것은 팔로워가 화면 밖으로 나가는 것과, 놓은 뒤에도 벌어져
+  // 있는 것이다.
+  let outside = 0;
+  stepDrag(B, -300, 0, 30, () => {
+    if (b(A).x < WORK_AREA.x) outside += 1;
+  });
+  check('드래그 중 팔로워가 작업영역 밖으로 나가지 않는다', outside === 0, `${outside}회`);
+  await release(B);
+  const after = { a: b(A), b: b(B) };
+  check(
+    '놓으면 리더가 클램프 지점으로 되돌아와 클러스터가 다시 강체가 된다',
+    after.a.x - (after.b.x + after.b.width) === gap0,
+    `gap=${after.a.x - (after.b.x + after.b.width)} (기대 ${gap0}) A=${fmt(after.a)} B=${fmt(after.b)}`
+  );
+  check(
+    '클러스터 전체가 작업영역 안',
+    after.b.x >= WORK_AREA.x && after.a.x >= WORK_AREA.x,
+    `B.x=${after.b.x} A.x=${after.a.x} wa.x=${WORK_AREA.x}`
+  );
+  check('관계 유지 (클램프가 클러스터를 끊지 않는다)', rel('patients', 'diagnosis'));
+  void W;
 }
 
 console.log(`\n${failures === 0 ? '=== ALL PASS ===' : `=== ${failures} FAILURE(S) ===`}`);

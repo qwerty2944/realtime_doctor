@@ -204,9 +204,15 @@ console.log('\n=== 3) 클러스터 이동: 어느 멤버를 끌어도 전원이 
       after.b.x + after.b.width === after.a.x
     );
     const applied = snap.getSnapDiagnostics().appliedBoundsCount - before2;
+    // [기준이 바뀐 이유] 예전에는 클러스터가 드랍 때 한 번만 움직였으므로
+    // "드래그 1회당 setBounds ≤ 멤버수" 였다. 이제는 드래그 **도중에도** 팔로워가
+    // 따라오므로(라이브 추종) 상한은 "이동 이벤트 수 × 팔로워 수" 다. 되먹임이
+    // 없다는 성질은 그대로 — 이벤트당 상수이고 이벤트에 선형이다.
+    const STEPS = 8; // FakeWindow.userDrag 기본값
+    const FOLLOWERS = 1;
     check(
-      `${label}: 프로그램적 setBounds 는 유한 (${applied}회, 멤버수 2 이하)`,
-      applied >= 1 && applied <= 2,
+      `${label}: setBounds 가 이동 이벤트에 선형 (${applied}회 ≤ ${STEPS}×${FOLLOWERS})`,
+      applied >= 1 && applied <= STEPS * FOLLOWERS,
       `${applied}`
     );
   }
@@ -387,9 +393,12 @@ console.log('\n=== 6) 되먹임 루프 없음: 사용자 이동 1회당 프로�
   const before = snap.getSnapDiagnostics().appliedBoundsCount;
   await W.get('summary').userDrag(20, 20);
   const applied = snap.getSnapDiagnostics().appliedBoundsCount - before;
+  // 상한 = 이동 이벤트 수(8) × 팔로워 unit 수(3). 라이브 추종이 이벤트마다
+  // 팔로워를 맞추므로 선형이고, 그 이상은 되먹임이라는 뜻이 된다.
+  const BOUND = 8 * 3;
   check(
-    `사용자 이동 1회 → 프로그램 setBounds ${applied}회 (멤버 4 이하, 폭주 아님)`,
-    applied >= 1 && applied <= 4,
+    `드래그 1회(이동 이벤트 8) → 프로그램 setBounds ${applied}회 (≤ ${BOUND}, 폭주 아님)`,
+    applied >= 1 && applied <= BOUND,
     `${applied}`
   );
   // 스텁의 setBounds 는 실제 Electron 처럼 'move' 를 다시 쏜다. 위 숫자가
@@ -397,7 +406,7 @@ console.log('\n=== 6) 되먹임 루프 없음: 사용자 이동 1회당 프로�
   const before2 = snap.getSnapDiagnostics().appliedBoundsCount;
   await W.get('terms').userDrag(-10, 0);
   const applied2 = snap.getSnapDiagnostics().appliedBoundsCount - before2;
-  check(`반대쪽 끝을 끌어도 ${applied2}회로 유한`, applied2 >= 1 && applied2 <= 4, `${applied2}`);
+  check(`반대쪽 끝을 끌어도 ${applied2}회로 유한 (≤ ${BOUND})`, applied2 >= 1 && applied2 <= BOUND, `${applied2}`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

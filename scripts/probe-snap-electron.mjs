@@ -185,6 +185,46 @@ async function run() {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
+  // 결함 3 회귀: 드래그 **도중에** 클러스터가 따라오는가 (라이브 추종).
+  //
+  // 가짜 창 프로브가 이 기능에서 이미 두 번 실제 버그를 놓쳤으므로, 최소한
+  // 기본 케이스는 진짜 BrowserWindow 의 이벤트 열 위에서 확인한다. 릴리즈
+  // ('moved')도 디바운스 대기도 없이 이동만 연속으로 주고, 그 도중에 그룹이
+  // 따라왔는지 본다 — 수정 전에는 여기서 그룹이 완전히 정지해 있다.
+  hideOthers();
+  console.log('[probe] === 드래그 도중 클러스터가 따라온다 (라이브 추종) ===');
+  {
+    const g0 = target.getBounds();
+    const m0 = mover.getBounds();
+    const gap0 = g0.x - (m0.x + m0.width);
+    let lagged = 0;
+    let drifted = 0;
+    let hiddenLagged = 0;
+    const STEPS = 12;
+    for (let i = 1; i <= STEPS; i += 1) {
+      mover.setBounds({ ...m0, x: m0.x + i * 4, y: m0.y - i * 2 });
+      await sleep(16);
+      const m = mover.getBounds();
+      const g = target.getBounds();
+      if (g.x - g0.x !== m.x - m0.x || g.y - g0.y !== m.y - m0.y) lagged += 1;
+      if (g.x - (m.x + m.width) !== gap0) drifted += 1;
+      if (hiddenTab && fmt(hiddenTab.getBounds()) !== fmt(g)) hiddenLagged += 1;
+    }
+    const during = { g: target.getBounds(), m: mover.getBounds() };
+    check(`드래그 도중 그룹이 매 스텝 따라온다 (릴리즈 전)`, lagged === 0, `뒤처진 스텝=${lagged}/${STEPS}`);
+    check('드래그 도중 간격이 유지된다 (표류 0)', drifted === 0, `어긋난 스텝=${drifted}/${STEPS}`);
+    check('숨은 탭도 드래그 도중 따라온다', hiddenLagged === 0, `어긋난 스텝=${hiddenLagged}/${STEPS}`);
+
+    await sleep(600); // 드랍 판정까지 기다린다
+    check(
+      '릴리즈 후 위치 == 마지막 이동 이벤트 시점 위치 (이중 적용 없음)',
+      fmt(target.getBounds()) === fmt(during.g) && fmt(mover.getBounds()) === fmt(during.m),
+      `group ${fmt(during.g)} → ${fmt(target.getBounds())} / mover ${fmt(during.m)} → ${fmt(mover.getBounds())}`
+    );
+    check('숨은 탭은 여전히 숨어 있다', !!hiddenTab && !hiddenTab.isVisible());
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
   // 결함 2 회귀: 정지 구간으로 잘린 드래그가 하나의 드래그로 이어지는가.
   console.log('[probe] === 조각난 드래그(정지 구간 포함)도 하나의 드래그다 ===');
   const third = byTitle('Suggested Questions');
