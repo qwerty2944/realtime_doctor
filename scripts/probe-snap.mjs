@@ -1,0 +1,524 @@
+#!/usr/bin/env node
+// 창 가장자리 스냅 검증 프로브.
+//
+// 실행:
+//   node --import ./scripts/probe-snap-register.mjs scripts/probe-snap.mjs
+//
+// [중요] 검증 대상은 진짜 main 프로세스 모듈이다. src/main/windowSnap.ts 와
+// windowGroups.ts 를 그대로 import 해서 실제 이벤트 핸들러를 구동한다
+// (Electron 껍데기와 electron-store 만 스텁). 화면 캡처와 합성 입력이 막힌
+// 환경이므로 관측은 전부 bounds 숫자로 한다.
+
+import {
+  FakeWindow,
+  WORK_AREA,
+  BACKING,
+  setCursor
+} from './probe-snap-stubs.mjs';
+
+let failures = 0;
+function check(label, cond, detail) {
+  if (!cond) failures += 1;
+  console.log(`  [${cond ? 'PASS' : 'FAIL'}] ${label}${detail ? ` — ${detail}` : ''}`);
+}
+const b = (w) => w.getBounds();
+const fmt = (r) => `${r.x},${r.y} ${r.width}x${r.height}`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const snap = await import('../src/main/windowSnap.ts');
+const groups = await import('../src/main/windowGroups.ts');
+
+const SPECS = {
+  transcript: { width: 380, height: 320 },
+  diagnosis: { width: 380, height: 460 },
+  terms: { width: 380, height: 240 },
+  questions: { width: 380, height: 260 },
+  summary: { width: 380, height: 320 },
+  dictation: { width: 420, height: 380 },
+  patients: { width: 380, height: 420 },
+  dock: { width: 380, height: 130 }
+};
+
+/**
+ * 시나리오에 안 쓰는 창을 멀리 떨어뜨려 둔다.
+ * 한 곳에 겹쳐 두면 그 창들이 의도치 않은 흡착 후보가 되어 시나리오를 오염시킨다.
+ */
+function park(w, i) {
+  w.place({ x: -8000, y: -8000 + i * 1000 });
+}
+
+/** 매 시나리오마다 창 8개를 새로 만들고 모듈 상태를 초기화한다. */
+function freshWorld(keys = Object.keys(SPECS)) {
+  // 모듈 전역 상태를 시나리오 사이에 완전히 끊는다.
+  // (initWindowGroups 는 참조만 갈아끼우므로 그룹 배열은 직접 해체해야 한다.)
+  groups.dissolveAllGroups();
+  delete BACKING.windowGroups;
+  delete BACKING.windowSnaps;
+  BACKING.bounds = {};
+  const windows = new Map();
+  keys.forEach((k, i) => {
+    const w = new FakeWindow({ x: 0, y: 0, ...SPECS[k] });
+    park(w, i);
+    windows.set(k, w);
+  });
+  groups.initWindowGroups({
+    windows,
+    broadcast: () => undefined,
+    onGroupChangedMembers: (ks) => snap.dropSnapsFor(ks)
+  });
+  snap.initWindowSnap({ windows });
+  for (const [k, w] of windows) {
+    groups.attachGroupDragHandlers(w, k);
+    snap.attachSnapDragHandlers(w, k);
+  }
+  setCursor(-10000, -10000); // 머지 후보 밖
+  return windows;
+}
+
+const rel = (x, y) =>
+  snap
+    .getSnapRelations()
+    .some((r) => (r.a === x && r.b === y) || (r.a === y && r.b === x));
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 1) 네 방향 흡착: 딱 맞닿고 관계가 기록되는가 ===');
+{
+  // 각 방향마다: 목표 지점에서 GAP 만큼 떨어진 곳에 두고, 드래그로 접근시킨다.
+  // targetY 는 방향마다 다르다 — 흡착 결과가 작업 영역(y 25..1080) 안에
+  // 들어가야 클램프가 개입하지 않는다.
+  const cases = [
+    { name: '오른쪽 변 → 상대 왼쪽 변', edge: 'right', gap: 18, targetY: 300 },
+    { name: '왼쪽 변 → 상대 오른쪽 변', edge: 'left', gap: 18, targetY: 300 },
+    { name: '아래 변 → 상대 위 변', edge: 'bottom', gap: 18, targetY: 520 },
+    { name: '위 변 → 상대 아래 변', edge: 'top', gap: 18, targetY: 150 }
+  ];
+  for (const c of cases) {
+    const W = freshWorld();
+    const target = W.get('diagnosis'); // 380x460
+    const mover = W.get('patients'); // 380x420
+    target.place({ x: 800, y: c.targetY });
+    const t = b(target);
+    const m = SPECS.patients;
+
+    // 흡착 후 기대 위치 (수직축은 ALIGN_PX=24 안이면 상대에 맞춰진다).
+    const want = {
+      right: { x: t.x - m.width, y: t.y },
+      left: { x: t.x + t.width, y: t.y },
+      bottom: { x: t.x, y: t.y - m.height },
+      top: { x: t.x, y: t.y + t.height }
+    }[c.edge];
+
+    // 시작 위치 = 기대 위치에서 간격만큼 뒤로 + 수직축을 10px 어긋나게.
+    const off = {
+      right: { x: -c.gap, y: 10 },
+      left: { x: c.gap, y: 10 },
+      bottom: { x: 10, y: -c.gap },
+      top: { x: 10, y: c.gap }
+    }[c.edge];
+    // 드래그 자체는 짧게(32px) — DETACH_PX 와 무관한 순수 흡착 검증.
+    mover.place({ x: want.x + off.x - 16, y: want.y + off.y - 16, ...m });
+    mover.userDrag(16, 16);
+
+    const got = b(mover);
+    check(
+      `${c.name}: 간격 0 으로 흡착`,
+      got.x === want.x && got.y === want.y,
+      `got ${fmt(got)} / want ${want.x},${want.y}`
+    );
+    check(`${c.name}: 관계 기록`, rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
+    check(
+      `${c.name}: 크기는 그대로 (강제 리사이즈 없음)`,
+      got.width === m.width && got.height === m.height
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 2) 임계값 경계: 24px 이내는 붙고, 그 밖은 안 붙는다 ===');
+for (const gap of [24, 25]) {
+  const W = freshWorld();
+  const target = W.get('diagnosis');
+  const mover = W.get('patients');
+  target.place({ x: 900, y: 300 });
+  const t = b(target);
+  // 드래그 8스텝으로 정확히 gap 만큼 떨어진 곳에 도착시킨다.
+  mover.place({ x: t.x - SPECS.patients.width - gap - 16, y: t.y, ...SPECS.patients });
+  mover.userDrag(16, 0);
+  check(
+    `간격 ${gap}px → ${gap <= 24 ? '흡착' : '무시'}`,
+    rel('patients', 'diagnosis') === (gap <= 24),
+    `x=${b(mover).x}`
+  );
+}
+
+console.log('\n--- 모서리만 스친 경우(공유 변 24px 미만)는 붙지 않아야 한다 ---');
+{
+  const W = freshWorld();
+  const target = W.get('diagnosis');
+  const mover = W.get('patients');
+  target.place({ x: 900, y: 300 });
+  const t = b(target);
+  // 세로로 10px 만 겹치도록 아래로 밀어둔다 (MIN_SHARE_PX = 24 미만).
+  mover.place({
+    x: t.x - SPECS.patients.width - 18,
+    y: t.y + t.height - 10,
+    ...SPECS.patients
+  });
+  mover.userDrag(2, 0);
+  check('세로 공유 10px → 흡착 안 함', !rel('patients', 'diagnosis'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 3) 클러스터 이동: 어느 멤버를 끌어도 전원이 같은 delta 로 ===');
+{
+  const W = freshWorld();
+  const A = W.get('diagnosis');
+  const B = W.get('patients');
+  A.place({ x: 800, y: 300 });
+  B.place({ x: 800 - 380 - 18, y: 310, ...SPECS.patients });
+  B.userDrag(2, 0);
+  check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
+
+  for (const [label, leader] of [
+    ['끌린 창 = patients', B],
+    ['끌린 창 = diagnosis', A]
+  ]) {
+    const before = { a: b(A), b: b(B) };
+    const before2 = snap.getSnapDiagnostics().appliedBoundsCount;
+    leader.userDrag(40, 24);
+    const after = { a: b(A), b: b(B) };
+    const da = { x: after.a.x - before.a.x, y: after.a.y - before.a.y };
+    const db = { x: after.b.x - before.b.x, y: after.b.y - before.b.y };
+    check(
+      `${label}: 두 창의 delta 가 동일`,
+      da.x === db.x && da.y === db.y && da.x === 40 && da.y === 24,
+      `A=${JSON.stringify(da)} B=${JSON.stringify(db)}`
+    );
+    check(
+      `${label}: 여전히 맞닿음 (간격 0)`,
+      after.b.x + after.b.width === after.a.x
+    );
+    const applied = snap.getSnapDiagnostics().appliedBoundsCount - before2;
+    check(
+      `${label}: 프로그램적 setBounds 는 유한 (${applied}회, 멤버수 2 이하)`,
+      applied >= 1 && applied <= 2,
+      `${applied}`
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 4) 3창 사슬 A-B-C 가 한 덩어리로 움직인다 ===');
+{
+  const W = freshWorld();
+  const A = W.get('terms'); // 380x240
+  const B = W.get('diagnosis'); // 380x460
+  const C = W.get('patients'); // 380x420
+  B.place({ x: 700, y: 300 });
+  // A 를 B 왼쪽에 붙인다.
+  A.place({ x: 700 - 380 - 18, y: 300, ...SPECS.terms });
+  A.userDrag(2, 0);
+  // C 를 B 오른쪽에 붙인다.
+  C.place({ x: 700 + 380 + 18, y: 300, ...SPECS.patients });
+  C.userDrag(-2, 0);
+  check('사슬 구성 A-B, B-C', rel('terms', 'diagnosis') && rel('patients', 'diagnosis'));
+  check(
+    'clusterOf 가 3개 전부 반환',
+    snap.clusterOf('terms').sort().join(',') === 'diagnosis,patients,terms',
+    snap.clusterOf('terms').join(',')
+  );
+
+  const before = [b(A), b(B), b(C)];
+  B.userDrag(-50, 30); // 가운데 창을 끈다
+  const after = [b(A), b(B), b(C)];
+  const deltas = after.map((r, i) => `${r.x - before[i].x},${r.y - before[i].y}`);
+  check(
+    '세 창 모두 동일 delta',
+    new Set(deltas).size === 1 && deltas[0] === '-50,30',
+    deltas.join(' | ')
+  );
+  check(
+    '사슬 인접성 유지',
+    after[0].x + after[0].width === after[1].x &&
+      after[1].x + after[1].width === after[2].x
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 5) 분리: DETACH_PX(96) 를 넘겨 끌면 떨어진다 ===');
+{
+  const W = freshWorld();
+  const A = W.get('diagnosis');
+  const B = W.get('patients');
+  A.place({ x: 800, y: 300 });
+  B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
+  B.userDrag(2, 0);
+  check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
+
+  // 96px 이하 → 클러스터 이동 (아직 붙어 있음)
+  B.userDrag(0, 80);
+  check('80px 이동은 클러스터 이동 (관계 유지)', rel('patients', 'diagnosis'));
+
+  const aBefore = b(A);
+  // 맞닿은 변에서 멀어지는 방향(왼쪽)으로 크게 — 떨어져야 한다.
+  // (아래로만 끌면 가로로는 여전히 맞닿아 있어 다시 붙는 것이 정상 동작이다.)
+  B.userDrag(-240, 0);
+  check('240px 이동 → 관계 해제', !rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
+  check('분리 드래그에서 상대 창은 안 움직임', b(A).x === aBefore.x && b(A).y === aBefore.y);
+
+  // 분리 후 한 창을 움직여도 다른 창은 그대로
+  const aBefore2 = b(A);
+  B.userDrag(-30, -10);
+  check('분리 후: 한 창 이동이 다른 창을 끌지 않음', b(A).x === aBefore2.x && b(A).y === aBefore2.y);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 6) 되먹임 루프 없음: 사용자 이동 1회당 프로그램 적용이 유한 ===');
+{
+  const W = freshWorld();
+  const keys = ['terms', 'diagnosis', 'patients', 'summary'];
+  // 4창 사슬을 가로로 구성.
+  let x = 300;
+  W.get('terms').place({ x, y: 300, ...SPECS.terms });
+  for (const k of keys.slice(1)) {
+    x += 380;
+    W.get(k).place({ x: x + 18, y: 300, ...SPECS[k] });
+    W.get(k).userDrag(-2, 0);
+  }
+  check('4창 클러스터 구성', snap.clusterOf('terms').length === 4, snap.clusterOf('terms').join(','));
+
+  const before = snap.getSnapDiagnostics().appliedBoundsCount;
+  W.get('summary').userDrag(20, 20);
+  const applied = snap.getSnapDiagnostics().appliedBoundsCount - before;
+  check(
+    `사용자 이동 1회 → 프로그램 setBounds ${applied}회 (멤버 4 이하, 폭주 아님)`,
+    applied >= 1 && applied <= 4,
+    `${applied}`
+  );
+  // 스텁의 setBounds 는 실제 Electron 처럼 'move' 를 다시 쏜다. 위 숫자가
+  // 유한하다는 것 자체가 가드(applyingBounds)가 재진입을 막았다는 증거다.
+  const before2 = snap.getSnapDiagnostics().appliedBoundsCount;
+  W.get('terms').userDrag(-10, 0);
+  const applied2 = snap.getSnapDiagnostics().appliedBoundsCount - before2;
+  check(`반대쪽 끝을 끌어도 ${applied2}회로 유한`, applied2 >= 1 && applied2 <= 4, `${applied2}`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 7) 클러스터는 작업 영역 밖으로 밀려나지 않는다 ===');
+{
+  const W = freshWorld();
+  const A = W.get('diagnosis');
+  const B = W.get('patients');
+  const rightEdge = WORK_AREA.x + WORK_AREA.width;
+  A.place({ x: rightEdge - 380 - 10, y: 300 });
+  B.place({ x: rightEdge - 380 - 10 - 380 - 18, y: 300, ...SPECS.patients });
+  B.userDrag(2, 0);
+  check('사전 조건: 우측 끝에 붙어 있음', rel('patients', 'diagnosis'));
+
+  B.userDrag(80, 0); // 오른쪽으로 밀기 — 10px 만 남았다
+  const ra = b(A);
+  const rb = b(B);
+  check(
+    '오른쪽 클램프: 어느 창도 작업영역을 넘지 않음',
+    ra.x + ra.width <= rightEdge && rb.x + rb.width <= rightEdge,
+    `A right=${ra.x + ra.width} B right=${rb.x + rb.width} limit=${rightEdge}`
+  );
+  check('클램프 후에도 강체 유지 (간격 0)', rb.x + rb.width === ra.x);
+
+  // 위쪽(작업영역 y=25) 으로도 확인
+  const W2 = freshWorld();
+  const C = W2.get('diagnosis');
+  const D = W2.get('patients');
+  C.place({ x: 600, y: WORK_AREA.y + 8 });
+  D.place({ x: 600 - 380 - 18, y: WORK_AREA.y + 8, ...SPECS.patients });
+  D.userDrag(2, 0);
+  D.userDrag(0, -60);
+  check(
+    '위쪽 클램프',
+    b(C).y >= WORK_AREA.y && b(D).y >= WORK_AREA.y,
+    `C.y=${b(C).y} D.y=${b(D).y} min=${WORK_AREA.y}`
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 8) 재시작 후 관계 유지 / 없는 창을 가리키는 관계는 조용히 폐기 ===');
+{
+  const W = freshWorld();
+  const A = W.get('diagnosis');
+  const B = W.get('patients');
+  A.place({ x: 800, y: 300 });
+  B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
+  B.userDrag(2, 0);
+  const savedBounds = { a: b(A), b: b(B) };
+  check('저장소에 관계가 기록됨', (BACKING.windowSnaps ?? []).length === 1, JSON.stringify(BACKING.windowSnaps));
+
+  // ── 재시작 시뮬레이션: 창 객체를 새로 만들고 저장된 bounds 로 복원 ──
+  const windows2 = new Map();
+  Object.keys(SPECS).forEach((k, i) => {
+    const w = new FakeWindow({ x: 0, y: 0, ...SPECS[k] });
+    park(w, i);
+    windows2.set(k, w);
+  });
+  windows2.get('diagnosis').place(savedBounds.a);
+  windows2.get('patients').place(savedBounds.b);
+  groups.initWindowGroups({ windows: windows2, broadcast: () => undefined });
+  snap.initWindowSnap({ windows: windows2 });
+  for (const [k, w] of windows2) snap.attachSnapDragHandlers(w, k);
+  snap.restoreSnaps();
+  check('재시작 후 관계 복원', rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
+
+  // 복원된 관계가 실제로 살아 있는지 — 이동으로 확인
+  const beforeA = windows2.get('diagnosis').getBounds();
+  windows2.get('patients').userDrag(24, 0);
+  check(
+    '복원된 클러스터가 함께 움직임',
+    windows2.get('diagnosis').getBounds().x - beforeA.x === 24,
+    `${windows2.get('diagnosis').getBounds().x - beforeA.x}`
+  );
+
+  // ── 없는 창 / 깨진 항목이 섞인 저장값 ──
+  BACKING.windowSnaps = [
+    { a: 'patients', b: 'diagnosis', edge: 'right' },
+    { a: 'dictation', b: 'ghost-window', edge: 'left' },
+    { a: 'nope', b: 'terms', edge: 'top' },
+    { a: 'terms', b: 'terms', edge: 'top' },
+    { a: 'summary', b: 'questions', edge: 'sideways' },
+    null,
+    'garbage'
+  ];
+  const windows3 = new Map();
+  // dictation 을 아예 만들지 않는다 = "더 이상 존재하지 않는 창".
+  Object.keys(SPECS).forEach((k, i) => {
+    if (k === 'dictation') return;
+    const w = new FakeWindow({ x: 0, y: 0, ...SPECS[k] });
+    park(w, i);
+    windows3.set(k, w);
+  });
+  windows3.get('diagnosis').place(savedBounds.a);
+  windows3.get('patients').place(savedBounds.b);
+  groups.initWindowGroups({ windows: windows3, broadcast: () => undefined });
+  snap.initWindowSnap({ windows: windows3 });
+  let threw = null;
+  try {
+    snap.restoreSnaps();
+  } catch (e) {
+    threw = e;
+  }
+  check('깨진 저장값에도 예외 없음', threw === null, threw ? String(threw) : '');
+  check(
+    '유효한 관계 1건만 남음',
+    snap.getSnapRelations().length === 1 && rel('patients', 'diagnosis'),
+    JSON.stringify(snap.getSnapRelations())
+  );
+
+  // ── 레이아웃이 흩어 놓은 뒤 재시작하면 관계는 스스로 소멸 ──
+  BACKING.windowSnaps = [{ a: 'patients', b: 'diagnosis', edge: 'right' }];
+  const windows4 = new Map();
+  Object.keys(SPECS).forEach((k, i) => {
+    const w = new FakeWindow({ x: 0, y: 0, ...SPECS[k] });
+    park(w, i);
+    windows4.set(k, w);
+  });
+  windows4.get('diagnosis').place({ x: 40, y: 40, ...SPECS.diagnosis });
+  windows4.get('patients').place({ x: 1200, y: 600, ...SPECS.patients });
+  groups.initWindowGroups({ windows: windows4, broadcast: () => undefined });
+  snap.initWindowSnap({ windows: windows4 });
+  snap.restoreSnaps();
+  check('멀리 떨어진 채 복원 → 관계 폐기', snap.getSnapRelations().length === 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 9) applyLayout 은 스냅을 해체한다 ===');
+{
+  const W = freshWorld();
+  const A = W.get('diagnosis');
+  const B = W.get('patients');
+  A.place({ x: 800, y: 300 });
+  B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
+  B.userDrag(2, 0);
+  check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
+  snap.dissolveAllSnaps(); // index.ts 의 'layout:apply' 핸들러가 하는 일
+  check('해체 후 관계 없음', snap.getSnapRelations().length === 0);
+  check('저장소도 비워짐', (BACKING.windowSnaps ?? []).length === 0);
+  const aBefore = b(A);
+  B.userDrag(40, 0);
+  check('해체 후 한 창 이동이 다른 창을 끌지 않음', b(A).x === aBefore.x);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 10) 겹치면 스냅이 아니라 탭 머지 (경계 규칙) ===');
+{
+  const W = freshWorld();
+  const target = W.get('diagnosis');
+  const mover = W.get('patients');
+  target.place({ x: 800, y: 300 });
+  // 타깃 위로 확실히 겹치게 놓고, 커서도 타깃 안에 둔다 (머지 조건).
+  mover.place({ x: 820, y: 320, ...SPECS.patients });
+  setCursor(900, 400);
+  mover.userDrag(8, 8);
+
+  const gs = groups.getGroupsState();
+  check('탭 그룹이 생성됨', gs.length === 1 && gs[0].tabs.length === 2, JSON.stringify(gs));
+  check('스냅 관계는 생기지 않음', snap.getSnapRelations().length === 0, JSON.stringify(snap.getSnapRelations()));
+
+  // 이미 붙어 있던 창이 머지되면 스냅에서 빠진다.
+  const W2 = freshWorld();
+  const T = W2.get('diagnosis');
+  const M = W2.get('patients');
+  const X = W2.get('terms');
+  T.place({ x: 800, y: 300 });
+  M.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
+  M.userDrag(2, 0);
+  check('사전 조건: patients-diagnosis 스냅', rel('patients', 'diagnosis'));
+  X.place({ x: 200, y: 700, ...SPECS.terms });
+  // patients 를 terms 위로 끌어 머지.
+  M.place({ x: 210, y: 710, ...SPECS.patients });
+  setCursor(300, 760);
+  M.userDrag(8, 8);
+  check('머지된 창은 스냅 클러스터에서 빠짐', !rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
+  check('탭 그룹은 정상 생성', groups.getGroupsState().length === 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log("\n=== 11) 'moved' 가 오지 않는 플랫폼(win32) 경로: 디바운스로 드랍 판정 ===");
+{
+  const W = freshWorld();
+  const target = W.get('diagnosis');
+  const mover = W.get('patients');
+  target.place({ x: 800, y: 300 });
+  mover.place({ x: 800 - 380 - 18 - 16, y: 300, ...SPECS.patients });
+  // emitMoved:false = 'moved' 이벤트가 없는 플랫폼 재현.
+  mover.userDrag(16, 0, { emitMoved: false });
+  check("'moved' 직후에는 아직 흡착 안 함", !rel('patients', 'diagnosis'));
+  await sleep(420); // DROP_DEBOUNCE_MS = 320
+  check('디바운스 만료 후 흡착', rel('patients', 'diagnosis'), `x=${b(mover).x}`);
+  check('흡착 위치가 정확히 맞닿음', b(mover).x + b(mover).width === b(target).x);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 12) 멤버 리사이즈는 상대 오프셋을 유지한다 (리플로우 없음) ===');
+{
+  const W = freshWorld();
+  const A = W.get('diagnosis');
+  const B = W.get('patients');
+  A.place({ x: 800, y: 300 });
+  B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
+  B.userDrag(2, 0);
+  const aBefore = b(A);
+  // 마우스 리사이즈 ('resized' 발생) 와 단축키 리사이즈 (이벤트 없음) 둘 다.
+  B.userResize(340, 420);
+  check("마우스 리사이즈: 이웃이 안 움직임", b(A).x === aBefore.x && b(A).y === aBefore.y);
+  A.setBounds({ ...aBefore, width: 420 }); // 단축키 경로 (프로그램적)
+  check('단축키 리사이즈: 관계 유지', rel('patients', 'diagnosis'));
+  const aNow = b(A);
+  const bNow = b(B);
+  B.userDrag(30, 0);
+  check(
+    '리사이즈 후에도 클러스터는 함께 이동',
+    b(A).x - aNow.x === 30 && b(B).x - bNow.x === 30,
+    `dA=${b(A).x - aNow.x} dB=${b(B).x - bNow.x}`
+  );
+}
+
+console.log(`\n${failures === 0 ? '=== ALL PASS ===' : `=== ${failures} FAILURE(S) ===`}`);
+process.exit(failures === 0 ? 0 : 1);
