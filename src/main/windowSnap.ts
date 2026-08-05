@@ -159,8 +159,6 @@ const PENETRATE_PX = 96;
  * 올렸다 (창 높이 240~460 기준으로도 "변이 맞닿았다" 고 부를 최소치).
  */
 const MIN_SHARE_PX = 40;
-/** 수직축 정렬(예: 오른쪽에 붙일 때 위쪽 맞추기) 허용 오차. ENGAGE 와 동일 감각. */
-const ALIGN_PX = 48;
 
 /**
  * 사용자 드래그로 인정할 최소 **누적 변위**(px). windowGroups 와 동일 규율.
@@ -716,15 +714,23 @@ function findEngage(
         trace?.push(`    edge=${c.edge} gap=${c.gap} → 탈락: 너무 깊이 겹침 (< -${PENETRATE_PX})`);
         continue;
       }
-      // 수직축 정렬: 이미 거의 맞아 있으면 딱 맞춘다. 크기는 절대 바꾸지
-      // 않는다 — 오버레이마다 의도된 높이/폭이 다르기 때문(dock 130 vs
-      // diagnosis 460). 강제로 맞추면 정보가 잘린다.
-      let { x, y } = c;
-      if (c.edge === 'right' || c.edge === 'left') {
-        if (Math.abs(b.y - t.y) <= ALIGN_PX) y = t.y;
-      } else if (Math.abs(b.x - t.x) <= ALIGN_PX) {
-        x = t.x;
-      }
+      // 앞쪽 변 정렬(무조건). 좌/우로 붙이면 **위쪽 변**을, 위/아래로 붙이면
+      // **왼쪽 변**을 상대에 맞춘다 — 둘 다 읽는 방향의 시작점이라 사람이
+      // "줄이 맞았다" 고 느끼는 기준선이다.
+      //
+      // [왜 무조건인가] 예전에는 허용 오차(ALIGN_PX=48) 안에 이미 들어와 있을
+      // 때만 맞췄다. 그런데 손으로 끌어다 놓는 오차는 실사용 로그에서 수백 px
+      // 이었고(실측: dictation→patients 흡착 시 x 가 232px 어긋난 채 붙었다),
+      // 그 결과 붙기는 붙되 줄이 어긋난 배치가 남았다 — 사용자 신고 그대로다.
+      // 어긋남의 상한은 이미 MIN_SHARE_PX 가 정해 준다(공유 변이 40px 미만이면
+      // 후보 자체가 탈락). 즉 "붙일 만큼 가까운 변" 에 대해서만 정렬이 일어나므로
+      // 무조건 맞춰도 엉뚱한 곳으로 튀지 않는다. 그래서 허용 오차는 없앴다.
+      //
+      // 크기는 절대 바꾸지 않는다 — 오버레이마다 의도된 높이/폭이 다르기
+      // 때문(dock 130 vs diagnosis 460). 강제로 맞추면 정보가 잘린다. 앞쪽 변을
+      // 맞추는 것과 크기를 맞추는 것은 다른 이야기다.
+      const x = c.edge === 'right' || c.edge === 'left' ? c.x : t.x;
+      const y = c.edge === 'right' || c.edge === 'left' ? t.y : c.y;
       const better = !best || Math.abs(c.gap) < Math.abs(best.gap);
       trace?.push(
         `    edge=${c.edge} gap=${c.gap} share=${c.share} → 통과 (→ ${x},${y})${better ? ' [현재 최선]' : ''}`

@@ -643,5 +643,240 @@ console.log('\n=== 12) 멤버 리사이즈는 상대 오프셋을 유지한다 (
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 사용자 신고: "스냅이 됐을 때 두 창을 상단 기준으로 정렬시키기".
+// 예전에는 허용 오차(ALIGN_PX=48) 안에 이미 들어와 있을 때만 맞췄기 때문에,
+// 크게 어긋난 채 놓으면 붙기만 하고 줄은 어긋난 배치가 남았다. 이제는 무조건
+// 맞춘다 — 드랍 오프셋과 무관하게 결과가 같아야 한다.
+console.log('\n=== 13) 흡착하면 앞쪽 변이 무조건 맞는다 (드랍 오프셋 무관) ===');
+{
+  // 좌우 흡착 → 위쪽 변(y) 정렬. 오프셋은 옛 허용 오차(48)를 훨씬 넘는 값 포함.
+  for (const edge of ['right', 'left']) {
+    const results = [];
+    for (const off of [0, 12, 60, 140, 240]) {
+      const W = freshWorld();
+      const target = W.get('diagnosis'); // 380x460
+      const mover = W.get('patients'); // 380x420
+      target.place({ x: 800, y: 300 });
+      const t = b(target);
+      const m = SPECS.patients;
+      const wantX = edge === 'right' ? t.x - m.width : t.x + t.width;
+      // 세로로 off 만큼 어긋난 채, 가로 간격 18px 을 드래그로 메운다.
+      mover.place({ x: wantX + (edge === 'right' ? -18 : 18), y: t.y + off, ...m });
+      await mover.userDrag(edge === 'right' ? 18 : -18, 0);
+      const got = b(mover);
+      results.push({ off, got });
+      check(
+        `${edge}: 오프셋 ${off}px 로 놓아도 위쪽 변이 상대와 같다`,
+        got.y === t.y,
+        `got.y=${got.y} target.y=${t.y}`
+      );
+      check(
+        `${edge}: 오프셋 ${off}px — 맞닿음 유지 + 크기 불변`,
+        got.x === wantX && got.width === m.width && got.height === m.height,
+        `got ${fmt(got)} wantX=${wantX}`
+      );
+    }
+    check(
+      `${edge}: 모든 드랍 오프셋이 같은 최종 위치로 수렴`,
+      new Set(results.map((r) => `${r.got.x},${r.got.y}`)).size === 1,
+      results.map((r) => `off${r.off}→${r.got.x},${r.got.y}`).join(' | ')
+    );
+  }
+
+  // 상하 흡착 → 왼쪽 변(x) 정렬 (좌우의 거울).
+  for (const edge of ['bottom', 'top']) {
+    const results = [];
+    for (const off of [0, 12, 60, 140, 240]) {
+      const W = freshWorld();
+      const target = W.get('diagnosis'); // 380x460
+      const mover = W.get('patients'); // 380x420
+      target.place({ x: 600, y: edge === 'bottom' ? 520 : 120 });
+      const t = b(target);
+      const m = SPECS.patients;
+      const wantY = edge === 'bottom' ? t.y - m.height : t.y + t.height;
+      mover.place({ x: t.x + off, y: wantY + (edge === 'bottom' ? -18 : 18), ...m });
+      await mover.userDrag(0, edge === 'bottom' ? 18 : -18);
+      const got = b(mover);
+      results.push({ off, got });
+      check(
+        `${edge}: 오프셋 ${off}px 로 놓아도 왼쪽 변이 상대와 같다`,
+        got.x === t.x,
+        `got.x=${got.x} target.x=${t.x}`
+      );
+      check(
+        `${edge}: 오프셋 ${off}px — 맞닿음 유지 + 크기 불변`,
+        got.y === wantY && got.width === m.width && got.height === m.height,
+        `got ${fmt(got)} wantY=${wantY}`
+      );
+    }
+    check(
+      `${edge}: 모든 드랍 오프셋이 같은 최종 위치로 수렴`,
+      new Set(results.map((r) => `${r.got.x},${r.got.y}`)).size === 1,
+      results.map((r) => `off${r.off}→${r.got.x},${r.got.y}`).join(' | ')
+    );
+  }
+
+  // 크기가 다른 두 창(dock 130 vs diagnosis 460)도 정렬만 하고 리사이즈는 안 한다.
+  {
+    const W = freshWorld();
+    const target = W.get('diagnosis'); // 380x460
+    const mover = W.get('dock'); // 380x130
+    target.place({ x: 800, y: 300 });
+    const t = b(target);
+    mover.place({ x: t.x - SPECS.dock.width - 18, y: t.y + 200, ...SPECS.dock });
+    await mover.userDrag(18, 0);
+    const got = b(mover);
+    check(
+      '크기가 크게 다른 창도 위쪽 변만 맞춘다',
+      got.y === t.y && got.x === t.x - SPECS.dock.width,
+      `got ${fmt(got)} target ${fmt(t)}`
+    );
+    check(
+      '높이는 그대로 (130 → 460 강제 리사이즈 없음)',
+      got.height === SPECS.dock.height && b(target).height === SPECS.diagnosis.height,
+      `dock.h=${got.height} diagnosis.h=${b(target).height}`
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 사용자 신고: "이 상태로 서로 같이 움직이게 하기".
+// 실사용 로그(/tmp/dev.log 2026-08-05T21:52)에서 라이브 추종 자체는 돌고 있었다
+// (setBounds > 0). 진짜 원인은 클램프였다: 클러스터가 작업영역 아래로 조금 걸쳐
+// 있으면 이동량이 0 이어도 강제로 안쪽으로 당겨져, 리더는 커서를 따라가고
+// 팔로워는 반대로 끌려가 "같이 안 움직인다" 로 보였다.
+console.log('\n=== 14) 이미 작업영역 밖으로 걸친 클러스터도 함께 움직인다 ===');
+{
+  const OVER = 40; // 아래로 40px 삐져나온 상태
+  const W = freshWorld();
+  const A = W.get('diagnosis'); // 380x460
+  const B = W.get('patients'); // 380x420
+  const waBottom = WORK_AREA.y + WORK_AREA.height;
+  // B 를 A 왼쪽에 붙인다. A 의 아래쪽이 작업영역을 OVER 만큼 넘도록 배치.
+  A.place({ x: 700, y: waBottom + OVER - SPECS.diagnosis.height });
+  const a0 = b(A);
+  B.place({ x: a0.x - SPECS.patients.width - 18, y: a0.y, ...SPECS.patients });
+  await B.userDrag(18, 0);
+  check(
+    '사전 조건: 붙었고, 클러스터가 작업영역 아래로 걸쳐 있다',
+    rel('patients', 'diagnosis') && b(A).y + b(A).height > waBottom,
+    `A=${fmt(b(A))} 작업영역 하단=${waBottom}`
+  );
+
+  // (a) 가로로만 끈다 → 세로는 한 픽셀도 움직이면 안 된다 (강제 교정 금지).
+  const a1 = b(A);
+  const b1 = b(B);
+  await B.userDrag(-120, 0);
+  const dA = { x: b(A).x - a1.x, y: b(A).y - a1.y };
+  const dB = { x: b(B).x - b1.x, y: b(B).y - b1.y };
+  check(
+    '가로 드래그에 세로가 딸려 오지 않는다 (걸친 만큼을 강제 교정하지 않음)',
+    dA.y === 0 && dB.y === 0,
+    `dA=${dA.x},${dA.y} dB=${dB.x},${dB.y}`
+  );
+  check(
+    '두 창이 정확히 같은 delta 로 움직인다',
+    dA.x === dB.x && dA.y === dB.y && dA.x === -120,
+    `dA=${dA.x},${dA.y} dB=${dB.x},${dB.y}`
+  );
+
+  // (b) 안쪽(위)으로는 제한 없이 움직인다.
+  const a2 = b(A);
+  const b2 = b(B);
+  await B.userDrag(0, -60);
+  check(
+    '안쪽으로 들어오는 방향은 그대로 허용',
+    b(A).y - a2.y === -60 && b(B).y - b2.y === -60,
+    `dA.y=${b(A).y - a2.y} dB.y=${b(B).y - b2.y}`
+  );
+
+  // (c) 바깥(아래)으로 더 나가는 방향은 여전히 막힌다 = 창을 잃지 않는다.
+  const a3 = b(A);
+  const b3 = b(B);
+  const slack = waBottom - Math.max(a3.y + a3.height, b3.y + b3.height);
+  await B.userDrag(0, 200);
+  const moved = b(A).y - a3.y;
+  check(
+    '바깥으로 더 나가는 방향은 여전히 막힌다',
+    moved === Math.max(0, slack) && b(B).y - b3.y === moved,
+    `요청 200 → ${moved} (여유=${slack})`
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 사용자 신고: "분리 버튼 만들기" — 버튼은 이미 있었다. 검증할 것은 배선이다:
+// 렌더러가 분리 버튼을 띄우는 근거(IPC.WindowSnapsState 페이로드)가 실제로
+// 도착하는가. 도착하지 않으면 타입은 통과하면서 아이콘만 영영 안 보인다.
+console.log('\n=== 15) 분리 버튼을 띄우는 클러스터 상태가 렌더러에 도착한다 ===');
+{
+  groups.dissolveAllGroups();
+  delete BACKING.windowGroups;
+  delete BACKING.windowSnaps;
+  BACKING.bounds = {};
+  const windows = new Map();
+  Object.keys(SPECS).forEach((k, i) => {
+    const w = new FakeWindow({ x: 0, y: 0, ...SPECS[k] });
+    w.place({ x: -8000, y: -8000 + i * 1000 });
+    windows.set(k, w);
+  });
+  groups.initWindowGroups({
+    windows,
+    broadcast: () => undefined,
+    onGroupChangedMembers: (ks) => snap.normalizeSnapUnits(ks),
+    onSnapUnitReassign: (from, to) => snap.reassignSnapUnit(from, to)
+  });
+  // index.ts 와 같은 배선: onSnapsChanged → broadcast(WindowSnapsState, getSnappedKeys())
+  const broadcasts = [];
+  snap.initWindowSnap({
+    windows,
+    onSnapsChanged: () => broadcasts.push(snap.getSnappedKeys())
+  });
+  for (const [k, w] of windows) {
+    groups.attachGroupDragHandlers(w, k);
+    snap.attachSnapDragHandlers(w, k);
+  }
+  setCursor(-10000, -10000);
+
+  const A = windows.get('diagnosis');
+  const B = windows.get('patients');
+  A.place({ x: 800, y: 300 });
+  B.place({ x: 800 - SPECS.patients.width - 18, y: 300, ...SPECS.patients });
+  const before = broadcasts.length;
+  await B.userDrag(18, 0);
+
+  const payload = broadcasts[broadcasts.length - 1];
+  check('흡착이 브로드캐스트를 발생시킨다', broadcasts.length > before, `${broadcasts.length}회`);
+  check(
+    '페이로드 모양이 렌더러 기대(OverlayKey[])와 같다',
+    Array.isArray(payload) && payload.every((k) => typeof k === 'string'),
+    JSON.stringify(payload)
+  );
+  // useSnapped(myKey) 의 실제 조건을 그대로 재현한다.
+  const visible = (myKey) => Array.isArray(payload) && payload.includes(myKey);
+  check(
+    '붙은 두 창 모두에서 분리 버튼이 보인다',
+    visible('patients') && visible('diagnosis'),
+    JSON.stringify(payload)
+  );
+  check('안 붙은 창에서는 안 보인다', !visible('summary') && !visible('dock'));
+  check(
+    'invoke(WindowSnapsGet) 도 같은 값을 준다 (마운트 직후 경로)',
+    JSON.stringify([...snap.getSnappedKeys()].sort()) === JSON.stringify([...payload].sort()),
+    JSON.stringify(snap.getSnappedKeys())
+  );
+
+  // 분리하면 상태가 즉시 비워져 버튼이 사라진다.
+  const n = broadcasts.length;
+  snap.detachFromCluster('patients');
+  const after = broadcasts[broadcasts.length - 1];
+  check('분리도 브로드캐스트를 발생시킨다', broadcasts.length > n);
+  check(
+    '분리 후에는 아무 창에도 안 보인다',
+    Array.isArray(after) && after.length === 0,
+    JSON.stringify(after)
+  );
+}
+
 console.log(`\n${failures === 0 ? '=== ALL PASS ===' : `=== ${failures} FAILURE(S) ===`}`);
 process.exit(failures === 0 ? 0 : 1);

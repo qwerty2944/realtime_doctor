@@ -20,7 +20,7 @@
 //   npm run build
 //   npx electron scripts/probe-snap-electron.mjs --user-data-dir=$(mktemp -d)
 
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -157,6 +157,47 @@ async function run() {
   );
   check('크기 불변', after.width === m.width && after.height === m.height);
   check('target 은 움직이지 않았다', fmt(target.getBounds()) === fmt(tb));
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 사용자 신고: 붙긴 붙는데 줄이 안 맞는다. 좌우로 붙이면 **위쪽 변**이
+  // 무조건 맞아야 한다 — 드랍 오프셋이 얼마든 결과가 같아야 한다.
+  // 가짜 창 프로브가 이 기능에서 이미 실제 버그를 여러 번 놓쳤으므로 정렬은
+  // 진짜 BrowserWindow 위에서도 확인한다.
+  hideOthers();
+  console.log('[probe] === 흡착하면 위쪽 변이 무조건 맞는다 (드랍 오프셋 무관) ===');
+  {
+    // 케이스 사이의 초기화는 **명시적 분리**(타이틀바 분리 버튼이 쓰는 바로 그
+    // IPC)로 한다. 드래그로는 절대 떨어지지 않는 것이 설계이므로(클러스터 통째
+    // 이동), 드래그로 초기화하려 하면 시나리오가 제 발등을 찍는다.
+    // 덤으로 분리 IPC 자체가 실제 main 위에서 동작하는지도 여기서 확인된다.
+    const detachMover = () => ipcMain.emit('window-snaps:detach', {}, 'patients');
+    const landed = [];
+    const g = target.getBounds();
+    for (const off of [0, 70, 160]) {
+      detachMover();
+      await sleep(150);
+      const m = mover.getBounds();
+      // 왼쪽에서 접근. 세로로 off 만큼 어긋난 채 18px 을 드래그로 메운다.
+      mover.setBounds({ x: g.x - m.width - 18, y: g.y + off, width: m.width, height: m.height });
+      await sleep(400);
+      await drag(mover, 18, 0);
+      const after = mover.getBounds();
+      landed.push(`${after.x},${after.y}`);
+      check(
+        `오프셋 ${off}px 로 놓아도 위쪽 변이 상대와 같다`,
+        after.y === g.y && after.x === g.x - m.width,
+        `after=${fmt(after)} target=${fmt(g)}`
+      );
+      check(
+        `오프셋 ${off}px — 크기 불변 (강제 리사이즈 없음)`,
+        after.width === m.width &&
+          after.height === m.height &&
+          fmt(target.getBounds()) === fmt(g),
+        `mover=${after.width}x${after.height} target=${fmt(target.getBounds())}`
+      );
+    }
+    check('모든 드랍 오프셋이 같은 최종 위치로 수렴', new Set(landed).size === 1, landed.join(' | '));
+  }
 
   // ═════════════════════════════════════════════════════════════════════════
   // 결함 1 회귀: 탭 그룹이 스냅 클러스터의 일원으로 함께 움직이는가.
