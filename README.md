@@ -345,3 +345,151 @@ Supabase 대시보드 → Authentication → Providers → Email → "Confirm em
 **RLS는 활성화되지 않습니다** — publishable key를 가진 누구든 row에 접근 가능합니다.
 멀티유저 운영 전에 `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` 와
 `USING (user_id = auth.uid())` 정책 추가가 필요합니다.
+
+---
+
+## 16. 구독·결제 (포트원 정기결제)
+
+계획서: `tasks/subscription-plan.md`. 현재 S1~S3 까지 구현돼 있습니다.
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| S1 | 구독 스키마 + RLS/GRANT + 가입 트리거 (`supabase/migrations/0002_subscriptions.sql`) | 완료 |
+| S2 | entitlement Edge Function + Electron 기능 게이트 + 72시간 오프라인 유예 | 완료 |
+| S3 | admin-web 결제 페이지 + 빌링키 발급 + 첫 결제 + 다음 주기 예약 1건 | 완료 |
+| S4 | 웹훅 + **매 결제 성공 시 재예약** + 예약 누락 감시 크론 | 완료 |
+| S5 | 결제 실패 dunning + 해지 | 미구현 |
+
+### 상품 조건
+
+단일 플랜 `standard`. 월 **70,000원 (VAT 별도)**, 실제 청구 **77,000원**.
+무료 체험 7일(카드 등록 없음), 기기 2대.
+
+### [HARD] 포트원 예약은 반복되지 않는다
+
+`POST /payments/{id}/schedule` 은 **미래 1건**만 잡습니다. 자동 반복이 아닙니다.
+재예약을 놓치면 **에러도, 로그도, 실패한 결제도 없이** 두 번째 달부터 과금이
+멈춥니다. 첫 증상은 "매출이 왜 안 늘지?" 입니다.
+
+S4 에서 예약을 만드는 구현을 **한 곳으로 모았습니다**: `admin-web/lib/billing/cycle.ts`
+의 `ensureNextSchedule()`. 부르는 곳은 셋입니다.
+
+| 부르는 곳 | 시점 |
+|---|---|
+| `app/api/billing/complete/route.ts` | 첫 결제 직후 (S3) |
+| `app/api/billing/webhook/route.ts` | 결제 성공 웹훅을 받을 때마다 |
+| `app/api/billing/watchdog/route.ts` | 매일, 예약이 빠진 구독을 훑어 복구 |
+
+구현이 갈라지면 언젠가 한 곳만 고쳐지고 결과는 다시 "조용한 과금 중단"입니다.
+
+### 웹훅 (`POST /api/billing/webhook`)
+
+Supabase Edge Function 이 아니라 admin-web 에 둡니다. 성공 시 반드시 해야 하는
+재예약이 포트원 REST 클라이언트·주기 산술·service_role 클라이언트를 전부 필요로
+하는데 그 넷이 이미 admin-web 에 있기 때문입니다. Deno 로 옮기면 같은 것을 한 벌
+더 만들게 되고, 그 순간 위 표의 "구현 하나" 원칙이 깨집니다.
+
+- [HARD] **서명 검증이 먼저입니다.** `@portone/server-sdk/webhook` 의 `verify()` 를
+  파싱보다, DB 쓰기보다 먼저 통과해야 합니다. 검증 없는 웹훅은 "JSON 하나 POST 하면
+  아무 구독이나 켜지는" 구멍, 즉 유료화 전체의 인증 우회입니다.
+- 서명 대상은 **원문 바이트**입니다. Next.js Route Handler 는 본문을 미리 파싱하지
+  않으므로 `await req.text()` 가 수신 바이트를 그대로 줍니다. 이 라우트는
+  `req.json()` 을 부르지 않습니다 — 재직렬화된 문자열로 검증하면 키 순서·공백
+  차이로 전부 조용히 실패합니다.
+- 멱등성 3겹: `webhook_events.portone_event_id` UNIQUE → 결제 성공 반영은
+  `payment_attempts` 를 `status <> 'paid'` 조건부로 갱신했을 때만 →
+  `ensureNextSchedule` 의 결정적 paymentId + UNIQUE.
+- 웹훅 본문에는 `paymentId` 만 있고 금액·상태가 없습니다. 서버가
+  `GET /payments/{id}` 로 직접 확인한 뒤 판정합니다.
+- 검증된 요청은 이벤트 기록만 동기로 하고 즉시 200 을 돌려준 뒤, 실제 처리는
+  `after()` 로 응답 뒤에 돕니다. DB 가 느려도 포트원 재전송을 유발하지 않습니다.
+
+| 이벤트 | 처리 |
+|---|---|
+| `Transaction.Paid` | 기간 1개월 전진, `status=active`, `grace_until` 해제, **다음 주기 재예약** |
+| `Transaction.Failed` | 실패 기록, `status=past_due`, `grace_until = now + 7일` (재시도 사다리는 S5) |
+| `BillingKey.Deleted` | `billing_key`·카드 표시정보 제거. 이미 낸 기간은 유지 |
+| 그 외 | `webhook_events` 에 저장하고 200. 에러를 주면 포트원이 영원히 재전송합니다 |
+
+### 주기 산술 규칙 (`admin-web/lib/billing/period.ts`)
+
+1. **다음 주기는 `current_period_end` 에서 이어붙입니다. `now()` 가 아닙니다.**
+   결제가 늦게 잡힐 때마다 now() 기준으로 잡으면 늦어진 만큼이 매달 공짜로
+   나가고, 어디에도 에러가 남지 않습니다. (예외: 주기가 60일 넘게 밀린 경우에만
+   now() 기준으로 재기준하고 경고 로그를 남깁니다.)
+2. **말일은 클램프하되 앵커일은 침식되지 않습니다.** 31일 가입자는
+   1/31 → 2/28 → **3/31** 로 돌아옵니다. 앵커일을
+   `subscriptions.billing_anchor_day` 에 따로 저장하기 때문입니다. 직전 주기
+   날짜에서 유추하면 2월에 28일로 잘린 뒤 영원히 28일이 되고, 의사는 자기
+   결제일이 옮겨간 걸 모릅니다. 그래서 주기 길이는 28~31일을 오갑니다(월 정액이므로 의도된 동작).
+3. 모든 계산은 UTC 기준입니다.
+
+### 예약 누락 감시 (`/api/billing/watchdog`, 매일)
+
+`Bearer BILLING_CRON_SECRET` 로 호출하는 라우트이고, 스케줄은
+`admin-web/vercel.json` 의 Vercel Cron (매일 UTC 18:00 = KST 03:00)입니다.
+pg_cron 을 쓰지 않은 이유는 이 잡이 탐지만 하지 않고 **복구**하기 때문입니다 —
+복구는 포트원 예약 API 호출이라 `PORTONE_API_SECRET` 을 쥔 서버만 할 수 있습니다.
+
+- 대상: `active`/`past_due` + 빌링키 보유 + 해지 예정 아님인데 **미래 예약이 없는** 구독.
+- 주기 끝이 이미 지났으면 주기를 전진시키지 않고(받지 않은 돈에 서비스를 열어줄
+  수는 없습니다) 가까운 미래로 청구를 잡습니다. 성공하면 웹훅이 정상 경로로 전진시킵니다.
+- 멱등: 두 번째 실행은 아무것도 하지 않습니다.
+- **실행할 때마다 `subscription_watchdog_runs` 에 행을 남깁니다. 문제를 못 찾았을
+  때도 남깁니다.** 이게 없으면 "오늘 이상 없음"과 "이 잡이 3월부터 안 돌고 있음"이
+  DB 상 완전히 같은 모습이 됩니다.
+
+### 포트원 콘솔에서 가져와야 하는 값
+
+PG 는 나이스페이·스마트로 어느 쪽이든 됩니다. 코드에 PG 종속 분기가 없고
+채널키 하나로 결정됩니다.
+
+| 환경변수 | 콘솔 위치 | 성격 |
+|---|---|---|
+| `NEXT_PUBLIC_PORTONE_STORE_ID` | 결제연동 > 연동 정보 > 식별코드·API Keys > Store ID (`store-`) | 공개 |
+| `NEXT_PUBLIC_PORTONE_CHANNEL_KEY` | 결제연동 > 연동 정보 > 채널 관리 > 해당 채널의 채널 키 (`channel-key-`) | 공개 |
+| `PORTONE_API_SECRET` | 결제연동 > 연동 정보 > 식별코드·API Keys > V2 API Secret | **서버 전용** |
+| `PORTONE_WEBHOOK_SECRET` | 결제연동 > 연동 정보 > 웹훅 관리에서 엔드포인트 등록 시 발급 (`whsec_`) | **서버 전용** |
+
+그 외 admin-web 에 필요한 값:
+
+| 환경변수 | 설명 |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | 구독 테이블은 service_role 만 쓸 수 있습니다. **서버 전용** |
+| `BILLING_HANDOFF_SECRET` | Electron 자동 로그인 링크 서명용. `openssl rand -base64 32` |
+| `NEXT_PUBLIC_APP_ORIGIN` | 링크에 박히는 admin-web 주소 (Vercel 은 생략 가능) |
+| `BILLING_CRON_SECRET` | 예약 누락 감시 크론 호출용 Bearer 토큰. `openssl rand -base64 32`. Vercel Cron 을 쓰면 `CRON_SECRET` 에 같은 값을 넣습니다 |
+| `PORTONE_API_BASE` | 기본 `https://api.portone.io`. 테스트에서 목 서버로 바꿀 때만 |
+
+포트원 콘솔의 웹훅 엔드포인트는 `https://<admin-web 도메인>/api/billing/webhook`
+으로 등록하고, `Transaction.Paid` / `Transaction.Failed` / `BillingKey.Deleted`
+세 이벤트를 구독합니다.
+
+하나라도 빠지면 `admin-web/instrumentation.ts` 가 **서버 부팅 시** 이름을 대며
+실패합니다. 의사가 카드 등록 버튼을 누른 순간에 500 이 뜨는 것보다 낫습니다.
+
+[HARD] `PORTONE_API_SECRET` 과 `SUPABASE_SERVICE_ROLE_KEY` 는 서버 전용입니다.
+`NEXT_PUBLIC_` 을 붙이지 말고, `electron.vite.config.ts` 의 `EMBEDDED_ENV_KEYS`
+에도 절대 추가하지 마세요(그 목록의 값은 빌드타임에 앱 번들로 인라인됩니다).
+
+Electron 쪽은 `BILLING_PORTAL_URL` 만 admin-web 의 `/billing` 주소로 맞추면 됩니다.
+
+### Electron → 브라우저 자동 로그인
+
+앱에서 "구독하기"를 누르면 `POST /api/billing/handoff` 로 1회용 링크를 받아
+기본 브라우저로 엽니다. URL 에 실리는 것은 Supabase 가 발급한 1회용 OTP
+해시뿐이고(HMAC 봉투 + **120초** 만료), refresh token 이나 장기 JWT 는 URL 에
+들어가지 않습니다. 세션은 서버가 OTP 를 교환할 때 HttpOnly 쿠키로만 설정됩니다.
+
+### 로컬 검증
+
+```bash
+supabase start
+supabase functions serve --env-file supabase/functions/.env
+node scripts/probe-billing.mjs   # S3: 빌링키 발급 / 첫 결제 / 권한 (38 PASS)
+node scripts/probe-webhook.mjs   # S4: 웹훅 / 재예약 / 감시 크론 (71 PASS)
+```
+
+포트원 HTTP 계층만 목으로 대체되고, 라우트·서명 검증·DB 는 전부 진짜입니다.
+`probe-webhook.mjs` 는 `@portone/server-sdk` 가 검증하는 것과 동일한 HMAC 서명을
+직접 만들어 보냅니다(미서명·위조 서명·본문 변조 케이스 포함).
