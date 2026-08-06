@@ -1,4 +1,4 @@
-import { PRICING } from '@/lib/pricing';
+import { ACTIVE_GEMINI_MODELS, PRICING, isUnpriced } from '@/lib/pricing';
 import { requireAdmin } from '@/lib/admin-gate';
 
 export const dynamic = 'force-dynamic';
@@ -25,19 +25,43 @@ export default async function PricingPage() {
             </tr>
           </thead>
           <tbody>
-            {Object.entries(PRICING.gemini).map(([model, p]) => (
-              <tr key={model} className="border-b border-border/40 last:border-0">
-                <td className="px-3 py-2 font-mono">{model}</td>
-                <td className="px-3 py-2 text-right font-mono">
-                  ${p.input_per_1m.toFixed(3)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono">
-                  ${p.output_per_1m.toFixed(3)}
-                </td>
-              </tr>
-            ))}
+            {Object.entries(PRICING.gemini).map(([model, p]) => {
+              const active = (ACTIVE_GEMINI_MODELS as readonly string[]).includes(model);
+              return (
+                <tr key={model} className="border-b border-border/40 last:border-0">
+                  <td className="px-3 py-2 font-mono">
+                    {model}
+                    {active && (
+                      <span className="ml-2 rounded bg-accent/20 px-1.5 py-0.5 font-sans text-[10px] text-accent">
+                        사용 중
+                      </span>
+                    )}
+                  </td>
+                  {isUnpriced(p) ? (
+                    <td className="px-3 py-2 text-right text-amber-400" colSpan={2}>
+                      미산정 — 단가 미등록
+                    </td>
+                  ) : (
+                    <>
+                      <td className="px-3 py-2 text-right font-mono">
+                        ${p.input_per_1m.toFixed(3)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono">
+                        ${p.output_per_1m.toFixed(3)}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+        <p className="mt-3 text-xs text-foreground/50">
+          &quot;사용 중&quot; 은 <code className="text-foreground/70">ACTIVE_GEMINI_MODELS</code>{' '}
+          목록이고, 이 목록의 모델은 가격표에 항목이 없으면 typecheck 가 깨진다. 항목은
+          있으나 단가가 없는 모델(미산정)은 비용 합계에서 제외되고 각 화면에 경고로
+          표시된다.
+        </p>
       </Section>
 
       <Section title="OpenAI Realtime (per minute audio)">

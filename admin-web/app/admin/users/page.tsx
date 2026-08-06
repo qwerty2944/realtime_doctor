@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { requireAdmin } from '@/lib/admin-gate';
-import { costForRow, type UsageRow } from '@/lib/pricing';
+import { costForRow, type UnpricedSummary, type UsageRow } from '@/lib/pricing';
 import { fmtInt, fmtUsd, fmtDate } from '@/lib/format';
+import { UnpricedNotice } from '@/components/unpriced-notice';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,10 +43,26 @@ export default async function UsersPage() {
 
   const costByUser = new Map<string, number>();
   const lastTsByUser = new Map<string, string>();
+  // 사용자별 비용은 산정 가능한 행만 더한다. 어떤 사용자 행이 얼마나 빠졌는지는
+  // 표 위 배너로 알린다 — 말없이 낮은 금액을 보여주면 열 자체가 못 믿을 값이 된다.
+  const unpricedByUser = new Map<string, number>();
+  const unpricedLabels = new Set<string>();
+  let unpricedCount = 0;
   for (const r of eventRows) {
-    costByUser.set(r.user_id, (costByUser.get(r.user_id) ?? 0) + costForRow(r));
+    const cost = costForRow(r);
+    if (cost.priced) {
+      costByUser.set(r.user_id, (costByUser.get(r.user_id) ?? 0) + cost.usd);
+    } else {
+      unpricedCount += 1;
+      unpricedLabels.add(cost.label);
+      unpricedByUser.set(r.user_id, (unpricedByUser.get(r.user_id) ?? 0) + 1);
+    }
     if (!lastTsByUser.has(r.user_id)) lastTsByUser.set(r.user_id, r.ts);
   }
+  const unpriced: UnpricedSummary = {
+    count: unpricedCount,
+    labels: [...unpricedLabels].sort()
+  };
   const sessionsByUser = new Map<string, number>();
   for (const s of sessionRows) {
     sessionsByUser.set(s.user_id, (sessionsByUser.get(s.user_id) ?? 0) + 1);
@@ -58,13 +75,15 @@ export default async function UsersPage() {
       created_at: p.created_at,
       last_activity: lastTsByUser.get(p.user_id) ?? null,
       sessions: sessionsByUser.get(p.user_id) ?? 0,
-      cost: costByUser.get(p.user_id) ?? 0
+      cost: costByUser.get(p.user_id) ?? 0,
+      unpricedEvents: unpricedByUser.get(p.user_id) ?? 0
     }))
     .sort((a, b) => b.cost - a.cost);
 
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold">사용자</h1>
+      <UnpricedNotice summary={unpriced} scope="누적" />
       <div className="overflow-x-auto rounded-2xl border border-border bg-card">
         <table className="min-w-full text-sm">
           <thead>
@@ -108,6 +127,14 @@ export default async function UsersPage() {
                 </td>
                 <td className="px-4 py-3 text-right font-mono">
                   {fmtUsd(u.cost)}
+                  {u.unpricedEvents > 0 && (
+                    <span
+                      className="ml-1 whitespace-nowrap font-sans text-[10px] text-amber-400"
+                      title="단가를 모르는 모델이라 이 사용자의 합계에서 빠진 이벤트 수"
+                    >
+                      +미산정 {fmtInt(u.unpricedEvents)}건
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -1,6 +1,7 @@
 import { getCookieSupabase } from '@/lib/supabase/ssr';
-import { costForRow, type UsageRow } from '@/lib/pricing';
+import { costForRow, sumCosts, type UsageRow } from '@/lib/pricing';
 import { fmtDuration, fmtInt, fmtUsd } from '@/lib/format';
+import { UnpricedNotice } from '@/components/unpriced-notice';
 import {
   DailyCostLine,
   DailySessionsLine,
@@ -201,7 +202,8 @@ async function AdminDashboard({
     .limit(20_000);
 
   const rows = (events ?? []) as Array<UsageRow & { user_id: string; ts: string }>;
-  const total = rows.reduce((s, r) => s + costForRow(r), 0);
+  // 합계는 산정 가능한 행만 더하고, 빠진 행은 배너로 화면에 드러낸다.
+  const { usd: total, unpriced } = sumCosts(rows);
 
   const byDay = new Map<string, number>();
   for (let i = DAYS - 1; i >= 0; i--) {
@@ -211,7 +213,7 @@ async function AdminDashboard({
   }
   for (const r of rows) {
     const key = r.ts.slice(5, 10);
-    byDay.set(key, (byDay.get(key) ?? 0) + costForRow(r));
+    byDay.set(key, (byDay.get(key) ?? 0) + costForRow(r).usd);
   }
   const lineData = Array.from(byDay, ([date, cost]) => ({ date, cost }));
 
@@ -226,7 +228,7 @@ async function AdminDashboard({
 
   const byUser = new Map<string, number>();
   for (const r of rows) {
-    byUser.set(r.user_id, (byUser.get(r.user_id) ?? 0) + costForRow(r));
+    byUser.set(r.user_id, (byUser.get(r.user_id) ?? 0) + costForRow(r).usd);
   }
   const topUserIds = Array.from(byUser.entries())
     .sort((a, b) => b[1] - a[1])
@@ -248,6 +250,8 @@ async function AdminDashboard({
 
   return (
     <div className="space-y-8">
+      <UnpricedNotice summary={unpriced} scope="최근 30일" />
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card title="최근 30일 비용 합계" value={fmtUsd(total)} />
         <Card title="이벤트 수" value={fmtInt(rows.length)} sub="최근 30일" />
