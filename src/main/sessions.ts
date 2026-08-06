@@ -667,6 +667,43 @@ export async function appendSummary(result: SummaryResult): Promise<void> {
   }
 }
 
+/**
+ * 클라우드에 실재가 확인된 현재 세션 id. 없으면 null.
+ *
+ * A1 에서 노출했다. AI 프록시 요청에 `x-rd-session-id` 로 실어 보내면 서버가
+ * 기록하는 usage_events 행이 세션에 붙는다. 서버는 이 값을 그대로 믿지 않고
+ * **호출자 소유인지 확인한 뒤에만** 쓴다 (_shared/gate.ts recordUsage).
+ */
+export async function currentCloudSessionId(): Promise<string | null> {
+  if (!currentSessionId || !cloudReady) return null;
+  return (await cloudReady) ? currentSessionId : null;
+}
+
+/**
+ * 클라이언트 자진 신고 사용량.
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * [HARD] 이 행들은 과금 근거가 아니다
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * A1 이후 Gemini 와 OpenAI realtime **발급**은 서버가 기록한다
+ * (`usage_events.source = 'server'`). 여기서 쓰는 행은 전부 `source='client'`
+ * 이고(0016 의 기본값), 그건 "클라이언트가 그렇다고 말했다"는 뜻 이상이 아니다 --
+ * 수정한 빌드는 이 함수를 아예 부르지 않으면 그만이다.
+ *
+ * 그런데도 남겨둔 이유는, 아직 서버를 거치지 않는 호출이 있고 그것들에 대해서는
+ * 이 행이 존재하는 유일한 신호이기 때문이다:
+ *
+ *   * clova-csr / clova-stream -- A1 범위 밖. CSR 은 프록시 가능하지만
+ *     스트리밍(gRPC)은 아니라서 반쪽만 옮기지 않았다.
+ *   * openai-realtime 의 `realtime-session` **길이** -- 오디오는 렌더러와
+ *     OpenAI 사이에서 직접 흐르므로 서버가 볼 수 없다. 서버는 "몇 번
+ *     발급했는가"(task='mint')만 셀 수 있고, "얼마나 오래 썼는가"는 앱만 안다.
+ *
+ * 지우지 않고 `source` 로 구분만 한 것은 그래서다. 지우면 CLOVA 사용량이 통째로
+ * 보이지 않게 되고, 구분하지 않으면 믿을 수 있는 행이 믿을 수 없는 행의 신뢰도를
+ * 물려받는다.
+ */
 export async function logUsage(input: UsageEventInput): Promise<void> {
   if (!canPersist()) return;
   const user = getCurrentUser();
@@ -691,7 +728,10 @@ export async function logUsage(input: UsageEventInput): Promise<void> {
       chars: input.chars,
       duration_ms: input.duration_ms,
       app_version: app.getVersion(),
-      platform: process.platform
+      platform: process.platform,
+      // [HARD] 명시적으로 적는다. 0016 의 기본값과 같지만, RESTRICTIVE 정책이
+      // 이 값 외에는 거부한다는 사실을 호출 지점에서 보이게 하려는 것이다.
+      source: 'client'
     });
     if (error) warn('logUsage', error.message);
   } catch (err) {

@@ -212,13 +212,11 @@ function loadEnvFiles(): void {
   }
   if (loadedFrom.length === 0) loadDotenv();
 
-  const trackKeys = [
-    'GEMINI_API_KEY',
-    'OPENAI_API_KEY',
-    'CLOVA_API_KEY_ID',
-    'CLOVA_API_KEY',
-    'CLOVA_SPEECH_SECRET'
-  ];
+  // [A1] GEMINI_API_KEY / OPENAI_API_KEY 는 목록에서 빠졌다. 앱은 더 이상 그
+  // 키들을 읽지 않으므로 "있음/없음"을 보고해봐야 언제나 없음이고, 있는 것처럼
+  // 보이면 진단이 거짓말을 한다. 두 키는 Edge Function 시크릿에만 있다.
+  // (이름을 남겨두면 scripts/ci-assert-embedded.mjs 의 부재 검사에도 걸린다.)
+  const trackKeys = ['CLOVA_API_KEY_ID', 'CLOVA_API_KEY', 'CLOVA_SPEECH_SECRET'];
   const keysPresent: Record<string, boolean> = {};
   for (const k of trackKeys) keysPresent[k] = !!process.env[k];
   envDiagnostics = { candidates, loadedFrom, keysPresent };
@@ -1177,6 +1175,14 @@ ipcMain.handle(IPC.SessionsLoad, async (_event, sessionId: string) => {
   return payload;
 });
 let openaiSessionStartedAt: number | null = null;
+/**
+ * [A1] 발급 응답에 실려 온 모델 이름.
+ *
+ * 예전에는 종료 계량에서 `process.env.OPENAI_TRANSCRIBE_MODEL` 을 읽었다. 그
+ * 값은 이제 앱에 없다 -- 모델은 서버가 정한다. 없는 값을 있는 척 기본값으로
+ * 채우면 실제로 쓴 모델과 다른 이름이 원가 집계에 들어간다.
+ */
+let openaiSessionModel = 'unknown';
 ipcMain.handle(IPC.StreamMint, async () => {
   // [게이트] 실시간 전사 세션 발급 = 녹음 시작. provider fallback 보다 먼저 막는다
   // (여기서 throw 하면 렌더러가 fallback 을 시도하지만 그 경로도 게이트에 걸린다).
@@ -1185,6 +1191,7 @@ ipcMain.handle(IPC.StreamMint, async () => {
   try {
     const result = await mintStreamSession();
     openaiSessionStartedAt = Date.now();
+    openaiSessionModel = result.model;
     return result;
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -1207,7 +1214,10 @@ ipcMain.on(IPC.RealtimeSessionEnd, () => {
   void logUsage({
     provider: 'openai-realtime',
     task: 'realtime-session',
-    model: process.env.OPENAI_TRANSCRIBE_MODEL ?? 'gpt-4o-transcribe',
+    // [A1] 이 행은 source='client' 다. 오디오는 렌더러와 OpenAI 사이에서 직접
+    // 흐르므로 서버는 세션 **길이**를 볼 수 없다 -- 서버가 셀 수 있는 것은
+    // 발급 횟수(task='mint')뿐이고, 그건 ai-realtime 이 이미 기록한다.
+    model: openaiSessionModel,
     duration_ms
   });
 });

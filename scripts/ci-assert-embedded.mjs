@@ -11,17 +11,14 @@
 import { readFileSync, existsSync } from 'node:fs';
 
 // Must stay in sync with EMBEDDED_ENV_KEYS in electron.vite.config.ts.
-// DEVICE_FUNCTION_URL is intentionally optional: src/main/device.ts derives it
-// from SUPABASE_URL when unset.
+// DEVICE_FUNCTION_URL / AI_PROXY_URL are intentionally optional: src/main
+// derives both from SUPABASE_URL when unset.
 const REQUIRED_KEYS = [
-  'GEMINI_API_KEY',
   'GEMINI_TRANSCRIBE_MODEL',
   'GEMINI_DIARIZER_MODEL',
   'GEMINI_ANALYZER_MODEL',
   'GEMINI_SUMMARIZER_MODEL',
   'GEMINI_DICTATOR_MODEL',
-  'OPENAI_API_KEY',
-  'OPENAI_TRANSCRIBE_MODEL',
   'CLOVA_API_KEY_ID',
   'CLOVA_API_KEY',
   'CLOVA_SPEECH_SECRET',
@@ -31,7 +28,20 @@ const REQUIRED_KEYS = [
   'ENTITLEMENT_URL',
   'BILLING_PORTAL_URL'
 ];
-const OPTIONAL_KEYS = ['DEVICE_FUNCTION_URL'];
+const OPTIONAL_KEYS = ['DEVICE_FUNCTION_URL', 'AI_PROXY_URL'];
+
+// [HARD] Keys that A1 moved to Edge Function secrets. Asserting their ABSENCE
+// is the whole point of that migration, and it has to be checked here rather
+// than by eye: `define` inlines silently, so a key re-added to EMBEDDED_ENV_KEYS
+// by a future edit would ship without anyone noticing.
+//
+// Checked two ways, because either alone is weak:
+//   * the literal VALUE from .env must not appear in the bundle (catches the
+//     value arriving through any path, not just `define`);
+//   * the key NAME must not appear either (catches `process.env.OPENAI_API_KEY`
+//     surviving in code, which would be a runtime undefined -- a silent
+//     feature outage rather than a build failure).
+const FORBIDDEN_KEYS = ['GEMINI_API_KEY', 'OPENAI_API_KEY'];
 
 // Non-secret substrings that must appear in the bundle. Safe to print.
 const REQUIRED_SUBSTRINGS = ['yhwvwojjwwlcrvpfxgag'];
@@ -94,6 +104,19 @@ for (const key of OPTIONAL_KEYS) {
 }
 
 console.log(`\nEmbedded keys: ${embedded} (required: ${REQUIRED_KEYS.length})`);
+
+// [HARD] A1: provider keys must not reach the client bundle.
+console.log('\nForbidden (moved to Edge Function secrets in A1):');
+for (const key of FORBIDDEN_KEYS) {
+  const value = env.get(key);
+  if (value && bundle.includes(needleOf(value))) {
+    fail(`${key} VALUE is embedded in ${BUNDLE} — it must live only in Edge Function secrets.`);
+  }
+  if (bundle.includes(key)) {
+    fail(`${key} is referenced by name in ${BUNDLE} — the client must not read this key.`);
+  }
+  console.log(`  ${key.padEnd(26)} ABSENT (value and name)`);
+}
 
 for (const s of REQUIRED_SUBSTRINGS) {
   const ok = bundle.includes(s);

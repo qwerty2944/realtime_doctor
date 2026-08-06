@@ -149,6 +149,109 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
     `out/` 와 `.next/static` 에서 시크릿 9종 grep — 0건.
 - 실제 Supabase 프로젝트(yqdzxitlmtawznzwpkra)에는 **아직 아무것도 적용하지 않았다.**
 
+### 진행 중: provider 키 서버 이전 (A1~)
+
+목표: API 키를 데스크톱 바이너리에서 걷어내고, 계량을 클라이언트가 건너뛸 수 없게 만든다.
+
+- **A1 완료** (커밋 전) — OpenAI realtime mint + Gemini 요청/응답을 Edge Function 뒤로.
+  - **왜**: 키가 번들에 있으면 (1) 빌드를 가진 아무나 소유자 크레딧을 쓰고,
+    (2) 유출돼도 전 설치본 재배포 전엔 회수 불가, (3) 사용량이 자진 신고라
+    고객당 원가를 모른다. 월 77,000원 상품에서 원가를 모른다 = 마진을 모른다.
+  - 새 Edge Function 2개: `ai-realtime`(ephemeral secret 발급), `ai-gemini`
+    (`models/*:generateContent` 투명 프록시). 공통 게이트는 `_shared/gate.ts`.
+  - **판정 규칙을 `_shared/entitlement.ts` 로 추출**했다. entitlement 함수와
+    프록시가 같은 `derive()` 를 쓴다 — 두 벌이 되면 갈라지고, 갈라진 날
+    "화면엔 만료인데 API 는 계속 나간다"가 된다. (S5 크론이 만료 전환 조건을
+    entitlement 와 글자 그대로 맞춘 것과 같은 이유.)
+  - **fail-closed**: 인증 없음 401 / 자격 없음 402 / DB 조회 실패 503 /
+    환경변수 누락 500. **전부 provider fetch 이전**이다. entitlement 함수는
+    DB 장애 때 5xx 를 주고 앱이 캐시로 버티게 하지만, 프록시에서 "버틴다"는
+    곧 "소유자 크레딧을 쓴다"이므로 여기서는 버티지 않는다.
+  - **열린 프록시가 아니다**: 경로는 `models/<model>:generateContent` 하나만,
+    모델은 `gemini-*` 패턴 + 선택적 `GEMINI_ALLOWED_MODELS` allowlist. 모델을
+    앱이 고를 수 있으면 비용 상한이 없다(flash 대신 pro 를 지목하면 그만).
+  - **응답은 가공하지 않는다**. E1 의 `supporting_findings` 검증이 스키마
+    보존에 기대고 있다 — 필드를 하나 떨어뜨리면 근거가 통째로 미검증이 되거나
+    엉뚱한 발화를 가리킨다.
+  - 새 마이그레이션 `0016_usage_event_source.sql`: `usage_events.source`
+    (`server` | `client`, 기본 `client`). RESTRICTIVE 정책으로 authenticated 는
+    `source='server'` 를 INSERT 도 UPDATE 도 못 한다. **SELECT 에는 걸지 않았다** —
+    `for all` 로 걸면 admin-web(`authenticated` 로 읽는다)에서 server 행이 통째로
+    사라진다.
+  - **클라이언트 logUsage 는 남겼다**(`source='client'`). CLOVA(CSR/스트리밍)와
+    realtime **세션 길이**는 아직 서버가 볼 수 없어서 — 오디오는 렌더러와 OpenAI
+    사이에서 직접 흐른다. 서버는 발급 횟수(`task='mint'`)만 셀 수 있다.
+    지우면 CLOVA 사용량이 통째로 사라지고, 구분하지 않으면 믿을 수 있는 행이
+    믿을 수 없는 행의 신뢰도를 물려받는다.
+  - `openaiClient.ts` / `openaiTranscriber.ts` 삭제. 후자는 호출자가 하나도 없는
+    죽은 코드였고, 전자는 그 둘의 유일한 소비처였다.
+  - **`transcribers.ts` 의 `available` 을 다시 기준 잡았다.** 예전엔
+    `!!process.env.GEMINI_API_KEY` 였다 — 그대로 뒀으면 키가 빠지는 순간
+    Gemini/OpenAI 두 공급자가 목록에서 통째로 사라진다.
+  - EMBEDDED_ENV_KEYS 3중 미러(`electron.vite.config.ts` / `build-win.yml` /
+    `ci-assert-embedded.mjs`)에서 두 키 제거 + `AI_PROXY_URL` 옵션 추가.
+    ci-assert 에 **부재 검사**를 넣었다(값 + 이름 양쪽). 나중에 누가 되돌리면
+    빌드가 깨진다.
+  - 검증: `scripts/probe-ai-proxy.mjs` — 가짜 업스트림 모드 **44 PASS / 0 FAIL**,
+    `PROBE_LIVE=1` 실 provider 모드 **45 PASS / 0 FAIL / 7 SKIP**(SKIP 은 호출 카운터가
+    없는 검사). 가짜 업스트림으로 **호출 횟수를 세서** 거절 10건 동안 provider
+    호출 0회를 확인했다 — "게이트가 앞에 있다"는 코드를 읽어서는 증명되지 않는다.
+    실 모드에서는 진짜 Gemini 분석이 감별진단 4건을 냈고 E1 검증기(앱과 같은
+    `partitionDifferentials`)가 4건 전부 통과시켰다. 진짜 `ek_` ephemeral secret
+    수신 확인.
+  - 회귀: probe-entitlement 27 PASS. probe-gate-driver 는 9 FAIL 인데
+    **A1 이전 트리에서도 동일하게 9 FAIL** (stash 후 재실행으로 확인) — 이 환경의
+    로그인 실패이지 A1 회귀가 아니다.
+  - 빌드: 루트 typecheck + electron-vite build 통과. `out/` 전체 39개 파일
+    1.4MB 를 스캔해 두 키의 **값과 이름 모두 0건** 확인.
+  - **배포 완료** (운영 `yhwvwojjwwlcrvpfxgag`). 순서를 지켰다: 0016 적용 →
+    시크릿 → 함수 배포 → 앱 빌드. 거꾸로 하면 새 빌드가 없는 함수를 부른다.
+    - 0016 은 `supabase db query --linked -f` 로 넣었다. **`db push` 를 쓰지
+      않았다** — 원격 이력이 타임스탬프 version(MCP `apply_migration` 경유)으로
+      쌓여 있어 로컬 `0000`~`0016` 과 이름이 하나도 맞지 않는다. push 했으면
+      16개를 전부 다시 실행했을 것이다. 같은 이유로 `schema_migrations` 에
+      0016 행을 남기지 못했다(0015 도 이미 빠져 있다). 이력표는 이 프로젝트에서
+      이미 실제 스키마와 어긋나 있으므로, 다음 마이그레이션도 `db push` 로
+      돌리면 안 된다.
+    - 시크릿 4종: `GEMINI_API_KEY`, `OPENAI_API_KEY`,
+      `GEMINI_ALLOWED_MODELS=gemini-2.5-flash`,
+      `OPENAI_TRANSCRIBE_MODEL=gpt-4o-transcribe`.
+      allowlist 를 **비워 두지 않고 flash 하나로 좁혔다.** 비우면 `gemini-*`
+      패턴 전체가 열리고, 그러면 자격 있는 사용자 한 명이 pro 를 지목해 월
+      77,000원 상품의 원가를 마음대로 올릴 수 있다. 앱이 실제로 쓰는 다섯
+      모델은 전부 flash 다.
+    - `ai-gemini`/`ai-realtime` 둘 다 ACTIVE, `verify_jwt=true`
+      (entitlement/device 와 동일). `_shared` 는 별도 배포 대상이 아니라 각
+      함수 번들에 포함된다(각 696kB).
+    - `AI_PROXY_URL` 을 루트 `.env` 에 넣었다. 옵션 키라 CI 3중 미러는 이미
+      대응돼 있어 수정이 필요 없었다.
+    - 운영 검증 30 PASS / 0 FAIL: 미인증 401, 자격 없음 402, allowlist 밖
+      모델(`gemini-2.5-pro`) 400 `model_not_allowed`, 실 Gemini 왕복이
+      감별진단 4건 → E1 검증기 4건 통과, `ek_` ephemeral secret 599초 만료,
+      `usage_events` 에 `source='server'` 2행이 호출자 본인/본인 세션으로 기록,
+      거절된 사용자에겐 0행. 프로브 계정과 행은 전부 삭제했다.
+  - **이미 나간 0.7.0 빌드는 계속 동작한다** — 그 안의 키는 여전히 유효하고
+    Google/OpenAI 를 직접 부른다. A1 은 그 빌드들을 막지 못한다. 실제로 키를
+    회수하려면 provider 콘솔에서 키를 **로테이트**해야 하고, 그 순간 0.7.0 은
+    AI 기능이 죽는다. 즉 로테이트는 A1 배포가 아니라 **강제 업데이트 정책과 함께**
+    해야 하는 별도 결정이다.
+
+- **A2 (미착수)** — CLOVA. 조사 결과는 아래.
+  - `clovaTranscriber.ts`(CSR, `POST /recog/v1/stt`)는 ai-gemini 와 같은 모양이라
+    프록시가 어렵지 않다. 헤더 2개(`X-NCP-APIGW-API-KEY-ID/-KEY`)와 바이너리
+    본문뿐이다.
+  - `clovaStream.ts`는 `clovaspeech-gw.ncloud.com:50051` 로 나가는 **gRPC 양방향
+    스트림**이다. Supabase Edge Function(Deno)은 아웃바운드 gRPC 스트리밍
+    중계에 맞지 않는다 — 옮기려면 오디오를 서버로 다시 태워야 하고, 그건
+    프록시가 아니라 **미디어 릴레이**를 새로 만드는 일이다.
+  - **NCP 는 OpenAI 같은 단기 키를 주지 않는다.** 공식 문서(gRPC) 확인:
+    `Authorization: Bearer ${secretKey}` 이고 secretKey 는 장문인식 도메인에서
+    발급받는 **장기 도메인 시크릿**이다. 발급/만료 API 가 없다.
+  - 권장: **반쪽만 옮기지 않는다.** CSR 만 프록시하면 스트리밍용
+    `CLOVA_SPEECH_SECRET` 은 여전히 번들에 남아 "키를 걷어냈다"는 말이 거짓이
+    된다. CLOVA 는 (a) 스트리밍까지 처리할 릴레이를 세우거나 (b) 기본
+    공급자에서 내리거나, 둘 중 하나를 정한 뒤에 한 번에 옮긴다.
+
 ### 진행 중: 근거 우선 전환 (E1~E4)
 계획: `tasks/evidence-first-plan.md`.
 

@@ -25,14 +25,17 @@ jobs:
       - name: Write .env from repository secrets
         shell: pwsh
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # [HARD] GEMINI_API_KEY and OPENAI_API_KEY are deliberately absent.
+          # A1 moved them to Edge Function secrets (`ai-gemini`, `ai-realtime`).
+          # Do not re-add them here: anything written into .env is inlined into
+          # out/main/index.js by electron.vite.config.ts, and the build then
+          # ships a spendable key again. scripts/ci-assert-embedded.mjs fails
+          # the build if either key reappears in the bundle.
           GEMINI_TRANSCRIBE_MODEL: ${{ secrets.GEMINI_TRANSCRIBE_MODEL }}
           GEMINI_DIARIZER_MODEL: ${{ secrets.GEMINI_DIARIZER_MODEL }}
           GEMINI_ANALYZER_MODEL: ${{ secrets.GEMINI_ANALYZER_MODEL }}
           GEMINI_SUMMARIZER_MODEL: ${{ secrets.GEMINI_SUMMARIZER_MODEL }}
           GEMINI_DICTATOR_MODEL: ${{ secrets.GEMINI_DICTATOR_MODEL }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_TRANSCRIBE_MODEL: ${{ secrets.OPENAI_TRANSCRIBE_MODEL }}
           CLOVA_API_KEY_ID: ${{ secrets.CLOVA_API_KEY_ID }}
           CLOVA_API_KEY: ${{ secrets.CLOVA_API_KEY }}
           CLOVA_SPEECH_SECRET: ${{ secrets.CLOVA_SPEECH_SECRET }}
@@ -41,20 +44,20 @@ jobs:
           ENTITLEMENT_PUBLIC_KEY: ${{ secrets.ENTITLEMENT_PUBLIC_KEY }}
           ENTITLEMENT_URL: ${{ secrets.ENTITLEMENT_URL }}
           BILLING_PORTAL_URL: ${{ secrets.BILLING_PORTAL_URL }}
-          # Optional: src/main/device.ts derives this from SUPABASE_URL when unset.
+          # Optional: src/main derives both from SUPABASE_URL when unset.
           DEVICE_FUNCTION_URL: ${{ secrets.DEVICE_FUNCTION_URL }}
+          AI_PROXY_URL: ${{ secrets.AI_PROXY_URL }}
         run: |
           # Must stay in sync with EMBEDDED_ENV_KEYS in electron.vite.config.ts
           # and REQUIRED_KEYS in scripts/ci-assert-embedded.mjs.
           $required = @(
-            'GEMINI_API_KEY','GEMINI_TRANSCRIBE_MODEL','GEMINI_DIARIZER_MODEL',
+            'GEMINI_TRANSCRIBE_MODEL','GEMINI_DIARIZER_MODEL',
             'GEMINI_ANALYZER_MODEL','GEMINI_SUMMARIZER_MODEL','GEMINI_DICTATOR_MODEL',
-            'OPENAI_API_KEY','OPENAI_TRANSCRIBE_MODEL',
             'CLOVA_API_KEY_ID','CLOVA_API_KEY','CLOVA_SPEECH_SECRET',
             'SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY',
             'ENTITLEMENT_PUBLIC_KEY','ENTITLEMENT_URL','BILLING_PORTAL_URL'
           )
-          $optional = @('DEVICE_FUNCTION_URL')
+          $optional = @('DEVICE_FUNCTION_URL','AI_PROXY_URL')
 
           $lines = @()
           $missing = @()

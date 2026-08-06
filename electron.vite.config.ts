@@ -4,15 +4,29 @@ import { config as loadDotenv } from 'dotenv';
 
 loadDotenv({ path: resolve(__dirname, '.env') });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// [HARD] 여기 넣는 값은 빌드타임에 main 번들로 **평문 인라인**된다.
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 판단 기준은 하나다: "이 값을 가진 사람이 소유자에게 비용을 발생시킬 수
+// 있는가?" 그럴 수 있으면 여기 넣지 않는다. 빌드를 가진 사람은 곧 그 값을 가진
+// 사람이고, 회수하려면 전 설치본을 다시 배포해야 하기 때문이다.
+//
+// A1 에서 GEMINI_API_KEY 와 OPENAI_API_KEY 를 뺐다. 두 키는 이제 Edge Function
+// 시크릿(`ai-gemini`, `ai-realtime`)에만 있고, 앱은 자기 로그인 토큰으로 그
+// 함수들에 물어본다. 남아 있는 CLOVA 세 개는 A1 범위 밖이다 -- 스트리밍이
+// gRPC 라 프록시가 간단하지 않고, 반쪽만 옮기지 않기로 했다 (STATE.md 참조).
+//
+// [HARD] 이 목록은 세 곳에 미러돼 있다. 하나만 고치면 CI 가 깨진다:
+//   1. 이 파일 (EMBEDDED_ENV_KEYS)
+//   2. .github/workflows/build-win.yml 의 `$required` 배열 + env 블록
+//   3. scripts/ci-assert-embedded.mjs 의 REQUIRED_KEYS
 const EMBEDDED_ENV_KEYS = [
-  'GEMINI_API_KEY',
   'GEMINI_TRANSCRIBE_MODEL',
   'GEMINI_DIARIZER_MODEL',
   'GEMINI_ANALYZER_MODEL',
   'GEMINI_SUMMARIZER_MODEL',
   'GEMINI_DICTATOR_MODEL',
-  'OPENAI_API_KEY',
-  'OPENAI_TRANSCRIBE_MODEL',
   'CLOVA_API_KEY_ID',
   'CLOVA_API_KEY',
   'CLOVA_SPEECH_SECRET',
@@ -27,6 +41,9 @@ const EMBEDDED_ENV_KEYS = [
   'ENTITLEMENT_PUBLIC_KEY',
   'ENTITLEMENT_URL',
   'BILLING_PORTAL_URL',
+  // AI 프록시 Edge Function 들의 베이스 주소 (A1). 미설정이면 SUPABASE_URL 에서
+  // 유도된다. 이것도 주소일 뿐이며 provider 키는 저쪽 끝에만 있다.
+  'AI_PROXY_URL',
   // 기기 등록 Edge Function 주소 (S5). SUPABASE_URL 에서 유도되므로 보통은
   // 설정할 필요가 없다. 이것도 주소일 뿐 비밀이 아니다 -- 판정은 전부 서버가
   // service_role 로 하고, 이 함수는 caller 의 JWT 없이는 아무것도 하지 않는다.

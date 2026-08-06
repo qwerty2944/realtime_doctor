@@ -3,6 +3,7 @@ import type {
   TranscribeProviderId,
   TranscribeProviderInfo
 } from '../shared/types.js';
+import { aiProxyConfigured } from './aiProxy.js';
 import {
   hasClovaCredentials,
   transcribeWithClova
@@ -12,20 +13,33 @@ import { transcribeWithGemini } from './geminiTranscriber.js';
 import { mintOpenAIRealtimeSession } from './openaiStream.js';
 import { getTranscribeProvider, setTranscribeProvider } from './store.js';
 
+/**
+ * [A1] Gemini 와 OpenAI 의 `available` 은 더 이상 API 키의 존재가 아니다.
+ *
+ * 예전에는 `!!process.env.GEMINI_API_KEY` 였다 -- 키가 번들에 인라인돼 있었으니
+ * 그게 곧 "쓸 수 있는가"였다. A1 이후 키는 Edge Function 시크릿에만 있고 앱에는
+ * 없으므로, 그 조건을 그대로 두면 **두 공급자가 통째로 사라진다.**
+ *
+ * 앱이 확인할 수 있는 것은 "물어볼 주소를 아는가"뿐이다. 실제 가부(로그인 여부,
+ * 자격, 키 설정)는 서버가 정하고, 아니면 호출이 401/402/500 으로 거절된다.
+ * 목록에 보이는 것과 실제로 쓸 수 있는 것이 다를 수 있다는 뜻인데, 그 차이는
+ * 이미 구독 게이트가 만들어내는 차이와 같은 종류다 (잠긴 계정에도 메뉴는 보인다).
+ */
 export function listProviders(): TranscribeProviderInfo[] {
+  const proxy = aiProxyConfigured();
   return [
     {
       id: 'gemini',
       label: 'Gemini (gemini-2.5-flash)',
       mode: 'chunk',
-      available: !!process.env.GEMINI_API_KEY,
+      available: proxy,
       notes: '발화 청크 (클라이언트 VAD → audio inline)'
     },
     {
       id: 'openai',
       label: 'OpenAI Realtime (gpt-4o-transcribe)',
       mode: 'stream',
-      available: !!process.env.OPENAI_API_KEY,
+      available: proxy,
       notes: '실시간 스트리밍 (WebRTC + server VAD + partial)'
     },
     {
