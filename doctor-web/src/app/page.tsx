@@ -189,7 +189,15 @@ const APP_STORE_PATH =
 const PLAY_STORE_PATH =
   'M3.6 2.3c-.3.3-.5.8-.5 1.4v16.6c0 .6.2 1.1.5 1.4l.1.1 9.3-9.3v-.2L3.6 2.3zM17 15.5l-3.1-3.1v-.2L17 9.1l.1.1 3.7 2.1c1 .6 1 1.6 0 2.2L17 15.5zM16.4 16.1L13.2 12.9 3.8 22.3c.4.4 1 .4 1.7.1l10.9-6.3zM16.4 7.9L5.5 1.6C4.8 1.3 4.2 1.3 3.8 1.7l9.4 9.4 3.2-3.2z';
 
-const MARQUEE_ITEMS = ['비수다', 'HAE:ON', '오큐가이드', '한자한입', '라틴토이', '원서한장'];
+const MARQUEE_ITEMS = [
+  '비수다',
+  'HAE:ON',
+  '오큐가이드',
+  '한자한입',
+  '라틴토이',
+  '원서한장',
+  'righthand',
+];
 
 export default function HomePage() {
   return (
@@ -272,11 +280,11 @@ export default function HomePage() {
                 </div>
                 <div>
                   <dt>Products</dt>
-                  <dd>모바일 앱 6종</dd>
+                  <dd>모바일 6종 · 데스크톱 1종</dd>
                 </div>
                 <div>
                   <dt>Platform</dt>
-                  <dd>iOS · Android</dd>
+                  <dd>iOS · Android · macOS</dd>
                 </div>
                 <div>
                   <dt>Web</dt>
@@ -369,6 +377,30 @@ export default function HomePage() {
                 <span className="num">P—06</span>
                 <span className="name">원서한장</span>
                 <span className="desc">하루 한 장씩 이어가는 원서 읽기 학습 앱.</span>
+              </li>
+
+              {/*
+                The one desktop product, and the only row whose links leave the
+                homepage. The download sits behind a doctor login on purpose --
+                the installer carries live API keys -- so the label says so
+                rather than letting a visitor discover it at a login wall.
+              */}
+              <li className="row">
+                <span className="num">P—07</span>
+                <span className="name">
+                  righthand<span className="live">Mac</span>
+                </span>
+                <span className="desc">
+                  진료 전 AI 음성 사전 문진으로 SOAP 초안을 준비하는 진료실용 데스크톱 앱.
+                </span>
+                <span className="links">
+                  <a className="st" href="/righthand">
+                    소개
+                  </a>
+                  <a className="st" href="/righthand/doctor/download">
+                    앱 다운로드 · 로그인 필요
+                  </a>
+                </span>
               </li>
             </ul>
           </div>

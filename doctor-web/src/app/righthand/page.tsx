@@ -387,14 +387,21 @@ export default function RightHandLandingPage() {
             <div className="flex flex-wrap items-center gap-3">
               <DemoButton className="t5" />
               <Link
-                href="/righthand/doctor/login"
+                href="/righthand/doctor/download"
                 className="t5 rounded-full border border-line-strong px-6 py-3 font-semibold text-content-primary hover:bg-surface-default"
+              >
+                데스크톱 앱 다운로드
+              </Link>
+              <Link
+                href="/righthand/doctor/login"
+                className="t5 font-semibold text-content-secondary hover:text-content-primary"
               >
                 의사 대시보드 로그인
               </Link>
             </div>
             <p className="t7 text-content-tertiary">
-              모든 AI 출력은 의사 참고용 초안입니다. 진단 확정·처방 기능은 제공하지 않습니다.
+              앱 다운로드에는 의료진 로그인이 필요합니다. 모든 AI 출력은 의사 참고용 초안입니다. 진단
+              확정·처방 기능은 제공하지 않습니다.
             </p>
           </div>
           <DashboardPreview />

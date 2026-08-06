@@ -54,7 +54,12 @@
 do $$
 declare
   v_owned_relations constant text[] := array[
-    'web_stats_export_audit'
+    'web_stats_export_audit',
+    -- Created by 0015, not by this file. Listed here because this pre-flight
+    -- aborts on any `web_%` relation it does not recognise, and a later
+    -- migration in the same history is not the "somebody else" it guards
+    -- against -- without this entry, re-running 0014 after 0015 aborts.
+    'web_app_download_audit'
   ];
   v_owned_functions constant text[] := array[
     'f_web_stats_summary',

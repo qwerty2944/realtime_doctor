@@ -10,7 +10,7 @@
  */
 
 import Link from 'next/link';
-import { Stethoscope } from 'lucide-react';
+import { Download, Stethoscope } from 'lucide-react';
 
 import SignOutButton from '@/app/righthand/doctor/(app)/SignOutButton';
 import DraftNotice from '@/components/DraftNotice';
@@ -26,9 +26,8 @@ export default async function DashboardAppLayout({
       <header className="border-b border-line-default bg-surface-default">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-3">
           {/*
-            No navigation: the web dashboard is a single statistics screen. The
-            waiting list, session detail, settings and admin tools live in the
-            native app.
+            Two screens: statistics, and the desktop-app download. The waiting
+            list, session detail, settings and admin tools live in the native app.
           */}
           <Link
             href="/righthand/doctor/statistics"
@@ -39,6 +38,13 @@ export default async function DashboardAppLayout({
           </Link>
 
           <div className="flex items-center gap-3">
+            <Link
+              href="/righthand/doctor/download"
+              className="flex items-center gap-1.5 t6 font-medium text-content-secondary hover:text-content-primary"
+            >
+              <Download aria-hidden="true" className="size-4" />
+              앱 다운로드
+            </Link>
             <span className="t-meta text-content-tertiary">{doctor.name} 선생님</span>
             <SignOutButton />
           </div>
