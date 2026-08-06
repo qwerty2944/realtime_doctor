@@ -16,5 +16,9 @@ kiosk/.next
 kiosk/node_modules
 kiosk/tsconfig.tsbuildinfo
 kiosk/.vercel
+doctor-web/.next
+doctor-web/node_modules
+doctor-web/tsconfig.tsbuildinfo
+doctor-web/.vercel
 .vercel
 win-build/
