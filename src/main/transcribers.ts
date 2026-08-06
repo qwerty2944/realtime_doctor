@@ -30,7 +30,9 @@ export function listProviders(): TranscribeProviderInfo[] {
   return [
     {
       id: 'gemini',
-      label: 'Gemini (gemini-2.5-flash)',
+      // 모델명을 문자열로 박아두면 모델을 바꿀 때 이 라벨만 옛 이름으로 남는다.
+      // 실제로 호출하는 값과 같은 곳에서 읽는다 (geminiTranscriber.ts).
+      label: `Gemini (${process.env.GEMINI_TRANSCRIBE_MODEL ?? 'gemini-2.5-flash'})`,
       mode: 'chunk',
       available: proxy,
       notes: '발화 청크 (클라이언트 VAD → audio inline)'
