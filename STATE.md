@@ -617,6 +617,44 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
 - 남은 것: `righthand_voice` 앱에 `/righthand/patient` rewrite 추가 (다른 세션 담당),
   QR/키오스크 주소 설정값을 배포 주소로 지정, 접수처 운영 절차.
 
+## doctor-web 별도 배포 (2026-08-06) — 도메인 전환 직전까지
+
+- **Vercel 프로젝트 `doctor-web`** (팀 `mole-bi-coms-projects`, Root Directory `doctor-web`,
+  리전 `icn1`). 배포 주소: <https://doctor-web-cyan.vercel.app>.
+  **`entanglecare.com` 은 아직 `app` 프로젝트가 갖고 있다 — 전환은 하지 않았다.**
+- **git 연결 성공.** `backup`(`mole-bi-com/realtime-doctor`, private) 에 붙였고
+  production branch = `history/v0.6.0-split`. 푸시하면 자동 배포된다.
+  (`vercel git connect` → `PATCH /v1/projects/{id}/branch`. `PATCH /v9/projects/{id}` 은
+  `link`/`gitRepository` 필드를 거부한다.)
+- 프로덕션 환경변수는 **셋뿐**(이름만): `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. 신규 프로젝트라
+  구 `app` 이 들고 있는 죽은 변수(`GEMINI_*`/`CLOVA_*`/`PUBDATA_*`/`INTAKE_TOKEN_SECRET`
+  등)는 애초에 들어오지 않았다.
+- **0014 는 운영에 이미 적용돼 있다** (`f_web_stats_*` 4종 + `web_stats_export_audit` 실재).
+  살아 있는 카탈로그로 권한 실사: 네 함수의 ACL 은 `authenticated`/`postgres`/`service_role`
+  뿐이고 **`anon` 도 PUBLIC(grantee=0) 도 없다.** 0013 의 가드 술어를 `public` 전체에
+  SELECT 로 돌려 **0행**. 실측으로도 anon 키 RPC 4종이 전부 `42501 permission denied`
+  (함수 내부 `auth.uid()` 검사가 아니라 **권한 계층**에서 막힌다). 후속 마이그레이션 불필요.
+- **`/righthand/patient` 는 이제 doctor-web 이 rewrite 로 키오스크에 넘긴다**
+  (`next.config.ts`, `beforeFiles`). 경로를 **벗기지 않는다** — 키오스크가
+  `NEXT_PUBLIC_BASE_PATH=/righthand/patient` 로 빌드돼 있어 `/` 로 넘기면 404 다.
+  검증: 랜딩·`/intake?k=main`·정적 청크가 키오스크 직접 주소와 **sha256 바이트 동일**,
+  `/righthand/patient/api/intake/code/check` 가 실제 DB 판정 문구로 400.
+- [HARD] **루트 `.vercelignore` 가 doctor-web 첫 빌드를 통째로 망가뜨렸다.** admin-web CLI
+  배포용으로 쓰인 패턴들이 앵커되어 있지 않아 `src` 가 `doctor-web/src` 까지 지웠고,
+  `/404` 한 장짜리 앱이 배포됐다(모든 경로 404인데 `next.config` 리다이렉트만 살아 있어
+  라우팅 문제처럼 보였다). `package-lock.json` 도 같이 사라졌다. 루트 전용 패턴을 `/` 로
+  앵커해 고쳤다(커밋 `93b3b58`). **이 파일은 모노레포의 모든 Vercel 프로젝트가 공유한다.**
+- 배포 검증(HTTP): `/` 200(Entanglecare 홈), `/righthand` 200, `/righthand/doctor` 307→login,
+  `/righthand/doctor/login` 200, `/righthand/doctor/statistics` 307→login,
+  `/righthand/patient` 200(키오스크), `/intake` 308→`/righthand/patient`→200,
+  `/dashboard` 308→`/righthand/doctor`.
+- **통계 화면이 DB 에 실제로 닿는다**: 임시 계정을 만들어 Supabase 세션 쿠키로
+  배포된 `/api/dashboard/statistics` 를 호출 → **200 + 집계 JSON**. 프로브 계정은 삭제했고
+  고아 profiles/subscriptions 0행, `web_stats_export_audit` 0행.
+- 남은 것: **도메인 전환**(`entanglecare.com` 을 `app` → `doctor-web`). 롤백을 위해
+  `app` 프로젝트는 손대지 않았다.
+
 ## 알려진 문제
 
 - [해결됨] Email > Confirm email: 2026-08-05 signup 이 세션을 즉시 반환하는 것을 확인 —
