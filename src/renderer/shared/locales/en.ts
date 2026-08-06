@@ -320,7 +320,7 @@ const en: Record<keyof typeof ko, string> = {
   'visitCode.kioskUrl': 'Kiosk address',
   'visitCode.kioskSlug': 'Kiosk slug (optional)',
   'visitCode.settingsHint':
-    'Where the intake web app is deployed, e.g. https://example.com/righthand/patient. Leave the slug empty to accept the code at any of this account kiosks.'
+    'Where the intake web app is deployed. The default is already filled in — change it only if this clinic runs its own address. Clearing a field and saving restores the default.'
 };
 
 export default en;

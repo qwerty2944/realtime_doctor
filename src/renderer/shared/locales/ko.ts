@@ -331,7 +331,7 @@ const ko = {
   'visitCode.kioskUrl': '키오스크 주소',
   'visitCode.kioskSlug': '키오스크 슬러그 (선택)',
   'visitCode.settingsHint':
-    '문진 웹앱이 배포된 주소입니다. 예: https://example.com/righthand/patient — 슬러그를 비워두면 이 계정의 어느 키오스크에서든 쓸 수 있습니다.'
+    '문진 웹앱이 배포된 주소입니다. 기본값이 이미 채워져 있으니 별도 주소를 쓰는 의원만 바꾸면 됩니다. 두 칸 모두 비우고 저장하면 기본값으로 돌아갑니다.'
 } as const;
 
 export default ko;
