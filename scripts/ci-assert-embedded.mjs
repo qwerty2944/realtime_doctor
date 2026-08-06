@@ -46,6 +46,24 @@ const FORBIDDEN_KEYS = ['GEMINI_API_KEY', 'OPENAI_API_KEY'];
 // Non-secret substrings that must appear in the bundle. Safe to print.
 const REQUIRED_SUBSTRINGS = ['yhwvwojjwwlcrvpfxgag'];
 
+// [HARD] The Gemini model ids must match what the `ai-gemini` proxy allows.
+// A model outside GEMINI_ALLOWED_MODELS is refused with 400 `model_not_allowed`
+// BEFORE the provider is called, so a build carrying a stale id has every AI
+// feature dead in the field while looking perfectly healthy at build time.
+//
+// This has to be asserted rather than eyeballed: on the Windows mirror these
+// values arrive as repository secrets, and GitHub masks a registered secret's
+// value in the log, so printing them proves nothing -- comparing them does.
+// Model ids are not secrets, so the expected set is safe to print.
+const MODEL_KEYS = [
+  'GEMINI_TRANSCRIBE_MODEL',
+  'GEMINI_DIARIZER_MODEL',
+  'GEMINI_ANALYZER_MODEL',
+  'GEMINI_SUMMARIZER_MODEL',
+  'GEMINI_DICTATOR_MODEL'
+];
+const ALLOWED_GEMINI_MODELS = ['gemini-3.5-flash-lite'];
+
 const BUNDLE = 'out/main/index.js';
 const ENV_FILE = '.env';
 
@@ -116,6 +134,20 @@ for (const key of FORBIDDEN_KEYS) {
     fail(`${key} is referenced by name in ${BUNDLE} — the client must not read this key.`);
   }
   console.log(`  ${key.padEnd(26)} ABSENT (value and name)`);
+}
+
+// [HARD] Gemini model ids must be ones the proxy allowlist accepts.
+console.log(`\nGemini model ids (allowed: ${ALLOWED_GEMINI_MODELS.join(', ')}):`);
+for (const key of MODEL_KEYS) {
+  const value = env.get(key);
+  if (!ALLOWED_GEMINI_MODELS.includes(value)) {
+    fail(
+      `${key} is not one of the models the ai-gemini proxy allows ` +
+        `(${ALLOWED_GEMINI_MODELS.join(', ')}). Every AI call from this build ` +
+        `would be refused with 400 model_not_allowed.`
+    );
+  }
+  console.log(`  ${key.padEnd(26)} ${value}`);
 }
 
 for (const s of REQUIRED_SUBSTRINGS) {
