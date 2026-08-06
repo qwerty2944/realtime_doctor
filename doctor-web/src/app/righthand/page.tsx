@@ -1,19 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import {
-  ArrowRight,
-  AudioLines,
-  BookOpen,
-  ChevronDown,
-  ClipboardCheck,
-  FileLock2,
-  ListTree,
-  Mic,
-  ScrollText,
-  ShieldAlert,
-  ShieldCheck,
-  Users,
-} from 'lucide-react';
+// Icons only appear where they encode state or action — the listening
+// indicator, the red-flag alert, the evidence lookup, the CTA and the FAQ
+// disclosure. Nothing here is decoration above a heading.
+import { ArrowRight, BookOpen, ChevronDown, Mic, ShieldAlert } from 'lucide-react';
 
 export const metadata: Metadata = {
   title: { absolute: 'righthand — 진료 전에 도착하는 문진 기록' },
@@ -85,17 +75,17 @@ const AFTER = [
 
 const STEPS = [
   {
-    n: '01',
+    n: '1',
     title: '카톡 링크로 사전 문진',
     body: '접수·예약 시 환자에게 링크를 보냅니다. 환자는 모바일 웹에서 동의 3종을 확인한 뒤 AI와 음성으로 대화합니다. 질문은 화면에 크게 표시되고 음성으로도 낭독됩니다.',
   },
   {
-    n: '02',
+    n: '2',
     title: 'AI가 초안을 정리',
     body: 'AI가 감별진단 3~5개와 그에 맞는 검사를 제시할 수 있다고 판단하면 문진을 종료합니다. SOAP 초안, 감별진단, 추천 검사, 타임스탬프가 붙은 원본 대화 전문이 함께 만들어집니다.',
   },
   {
-    n: '03',
+    n: '3',
     title: '진료실에서 검토·승인',
     body: '환자가 진료실에 들어오기 전에 대시보드에 카드가 도착합니다. 의사는 초안을 읽고 수정·승인하며, 그 이력은 감사 로그로 남습니다. 최종 판단은 언제나 의사에게 있습니다.',
   },
@@ -106,7 +96,7 @@ function IntakePreview() {
   return (
     <div
       aria-hidden="true"
-      className="mx-auto flex w-full max-w-xs flex-col gap-5 rounded-3xl border border-line-default bg-surface-default p-6 shadow-sm"
+      className="mx-auto flex w-full max-w-xs flex-col gap-5 rounded-3xl border border-line-default bg-surface-default p-6"
     >
       <div className="flex items-center justify-between">
         <span className="t-caption font-medium text-content-tertiary">문진 4 / 15</span>
@@ -136,7 +126,7 @@ function DashboardPreview() {
   return (
     <div
       aria-hidden="true"
-      className="flex w-full flex-col gap-4 rounded-2xl border border-line-default bg-surface-default p-5 shadow-sm sm:p-6"
+      className="flex w-full flex-col gap-4 rounded-2xl border border-line-default bg-surface-default p-5 sm:p-6"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col">
@@ -201,7 +191,7 @@ function EvidencePreview() {
   return (
     <div
       aria-hidden="true"
-      className="flex w-full flex-col gap-4 rounded-2xl border border-line-default bg-surface-default p-5 shadow-sm sm:p-6"
+      className="flex w-full flex-col gap-4 rounded-2xl border border-line-default bg-surface-default p-5 sm:p-6"
     >
       <span className="t-caption font-semibold tracking-wide text-content-tertiary">감별진단</span>
       <ol className="flex flex-col gap-3">
@@ -220,7 +210,9 @@ function EvidencePreview() {
           </li>
         ))}
       </ol>
-      <div className="flex flex-col gap-2 rounded-xl border border-line-default p-4">
+      {/* Separated by a rule, not a second box — a bordered panel inside a
+          bordered panel reads as a nested card. */}
+      <div className="flex flex-col gap-2 border-t border-line-default pt-4">
         <div className="flex items-center gap-2">
           <BookOpen className="size-4 shrink-0 text-action" />
           <span className="t7 font-semibold text-content-primary">근거 찾기</span>
@@ -258,24 +250,25 @@ const RED_FLAGS = [
   '광시증 + 비문증 급증',
 ];
 
+/**
+ * These carry no icons on purpose. A decorative glyph above every heading makes
+ * four distinct commitments read as one repeated template; the headings say
+ * more than a shield outline can.
+ */
 const SAFETY = [
   {
-    icon: ShieldCheck,
     title: '동의 없이는 시작하지 않습니다',
     body: '개인정보 수집·이용, 녹음, 외부 LLM API 처리 — 세 가지 동의를 문진 시작 전에 받고 저장합니다. 녹음에 동의하지 않으면 녹음 기능은 비활성 상태로 남습니다.',
   },
   {
-    icon: ClipboardCheck,
     title: '의사만 승인할 수 있습니다',
     body: '기록의 열람·수정·삭제·승인은 의사 계정만 가능합니다. 진료 후 보충 내용도 항목별로 승인·거부·수정을 거쳐야 반영됩니다.',
   },
   {
-    icon: ScrollText,
     title: '모든 손길이 로그로 남습니다',
     body: '승인·수정·삭제 이력을 감사 로그로 기록합니다. 어떤 초안이 누구의 손을 거쳐 무엇으로 바뀌었는지 나중에 되짚을 수 있습니다.',
   },
   {
-    icon: FileLock2,
     title: '국내에 보관하고 기한이 지나면 지웁니다',
     body: '데이터는 서울 리전에 보관하고 음성 파일은 비공개 버킷에 둡니다. 보존 기간(기본 90일)이 지나면 자동 파기되며, 기간은 병원이 설정합니다.',
   },
@@ -283,32 +276,26 @@ const SAFETY = [
 
 const FEATURES = [
   {
-    icon: Mic,
     title: '음성 우선, 텍스트는 언제나 폴백',
     body: '고령 환자를 고려해 질문은 TTS로 낭독하고 답변은 STT로 받습니다. 말하기가 어려운 환자는 같은 화면에서 바로 입력할 수 있습니다.',
   },
   {
-    icon: AudioLines,
     title: '진료 중 대화 보충',
     body: '진료 대화를 STT로 받아 의사·환자 화자를 분리하고, 기존 기록에 더할 보충 내용을 항목별 제안으로 올립니다. 화자 라벨이 틀리면 승인 단계에서 고칠 수 있습니다.',
   },
   {
-    icon: ListTree,
     title: '병원 검사 목록에 맞춘 추천',
     body: '검사 마스터 테이블에 등록된 검사 중에서만 추천합니다. 병원에 없는 검사를 권하는 일이 없도록 목록은 설정에서 직접 편집합니다.',
   },
   {
-    icon: BookOpen,
     title: '문헌 근거 즉시 조회',
     body: '감별진단 옆 “근거 찾기”로 PubMed·웹 검색 결과를 출처 링크와 함께 봅니다. 환자 맥락을 담은 자유 질의도 사이드 패널에서 던질 수 있습니다.',
   },
   {
-    icon: Users,
     title: '데스크 연동',
     body: '데스크에서 문진 링크를 발송하고, 환자가 모르고 비워둔 병원 등록번호를 접수 후 맞춰 넣을 수 있습니다.',
   },
   {
-    icon: ScrollText,
     title: '통계로 남는 진료 기록',
     body: '날짜별 내원 추이, 질환별·주소증별 분포, 레드플래그 발생 건수, 평균 문진 시간을 봅니다. 집계는 비식별로만 표시하고 CSV로 내보낼 수 있습니다.',
   },
@@ -372,10 +359,7 @@ export default function RightHandLandingPage() {
       <main className="flex flex-1 flex-col">
         <section className="mx-auto grid w-full max-w-6xl gap-12 px-6 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-16 lg:py-28">
           <div className="flex flex-col items-start gap-6">
-            <span className="t-caption rounded-full border border-line-default bg-surface-default px-3 py-1 font-medium text-content-tertiary">
-              안과 사전 문진 · AI 초안
-            </span>
-            <h1 className="t1 font-bold tracking-tight text-content-primary sm:t0">
+            <h1 className="t1 font-bold tracking-tight text-content-primary sm:t0 lg:t-display">
               진료실 문이 열리기 전에
               <br />
               기록은 이미 준비돼 있습니다
@@ -399,34 +383,42 @@ export default function RightHandLandingPage() {
                 의사 대시보드 로그인
               </Link>
             </div>
+            {/* The scope line sits under the headline, not above it as a
+                kicker — the headline carries its own weight. */}
             <p className="t7 text-content-tertiary">
-              앱 다운로드에는 의료진 로그인이 필요합니다. 모든 AI 출력은 의사 참고용 초안입니다. 진단
-              확정·처방 기능은 제공하지 않습니다.
+              안과 사전 문진 · AI 초안. 앱 다운로드에는 의료진 로그인이 필요합니다. 모든 AI 출력은
+              의사 참고용 초안입니다. 진단 확정·처방 기능은 제공하지 않습니다.
             </p>
           </div>
           <DashboardPreview />
         </section>
 
+        {/* Product mechanics, not achievement metrics — so the value sits on
+            the same line as what it measures instead of towering over it. */}
         <section className="border-y border-line-default bg-surface-default">
-          <div className="mx-auto grid w-full max-w-6xl gap-8 px-6 py-12 sm:grid-cols-2 lg:grid-cols-4">
+          <dl className="mx-auto grid w-full max-w-6xl gap-x-8 gap-y-7 px-6 py-10 sm:grid-cols-2 lg:grid-cols-4">
             {FACTS.map((fact) => (
-              <div key={fact.label} className="flex flex-col gap-1.5">
-                <span className="t1 font-bold tracking-tight text-content-primary">
-                  {fact.value}
-                </span>
-                <span className="t6 font-semibold text-content-primary">{fact.label}</span>
-                <span className="t7 text-content-tertiary">{fact.note}</span>
+              <div key={fact.label} className="flex flex-col gap-1">
+                <dt className="flex items-baseline gap-2">
+                  <span className="t3 font-bold tracking-tight text-content-primary">
+                    {fact.value}
+                  </span>
+                  <span className="t6 font-medium text-content-secondary">{fact.label}</span>
+                </dt>
+                <dd className="t7 text-content-tertiary">{fact.note}</dd>
               </div>
             ))}
-          </div>
+          </dl>
         </section>
 
         <section className="mx-auto w-full max-w-6xl px-6 py-16 lg:py-24">
-          <h2 className="t2 max-w-2xl font-bold tracking-tight text-content-primary">
+          <h2 className="t2 max-w-2xl text-balance font-bold tracking-tight text-content-primary lg:t1">
             달라지는 건 진료의 첫 60초입니다
           </h2>
-          <div className="mt-12 grid gap-6 md:grid-cols-2">
-            <div className="flex flex-col gap-4 rounded-2xl border border-line-default p-6">
+          {/* Two columns of one comparison, so only the "after" side is
+              surfaced — matching boxes would flatten them to equal weight. */}
+          <div className="mt-12 grid gap-6 md:grid-cols-2 md:gap-8">
+            <div className="flex flex-col gap-4 py-6 md:pr-8">
               <span className="t6 font-semibold text-content-tertiary">지금</span>
               <ul className="flex flex-col gap-3">
                 {BEFORE.map((item) => (
@@ -440,7 +432,7 @@ export default function RightHandLandingPage() {
                 ))}
               </ul>
             </div>
-            <div className="flex flex-col gap-4 rounded-2xl border border-action bg-surface-default p-6">
+            <div className="flex flex-col gap-4 rounded-2xl bg-action-weak p-6 sm:p-8">
               <span className="t6 font-semibold text-action">righthand와 함께</span>
               <ul className="flex flex-col gap-3">
                 {AFTER.map((item) => (
@@ -457,16 +449,20 @@ export default function RightHandLandingPage() {
           </div>
         </section>
 
-        <section id="how" className="border-t border-line-default bg-surface-default">
+        <section id="how" className="border-y border-line-default bg-surface-tinted">
           <div className="mx-auto w-full max-w-6xl px-6 py-16 lg:py-24">
-            <h2 className="t2 max-w-2xl font-bold tracking-tight text-content-primary">
+            <h2 className="t2 max-w-2xl text-balance font-bold tracking-tight text-content-primary lg:t1">
               접수부터 진료실까지, 세 단계
             </h2>
             <ol className="mt-12 grid gap-10 md:grid-cols-3 md:gap-8">
               {STEPS.map((step) => (
-                <li key={step.n} className="flex flex-col gap-3 border-t border-line-default pt-5">
-                  <span className="t6 font-bold text-action">{step.n}</span>
-                  <h3 className="t4 font-semibold text-content-primary">{step.title}</h3>
+                <li key={step.n} className="flex flex-col gap-3 border-t border-line-strong pt-5">
+                  {/* The order is real information here, so the ordinal stays —
+                      but as part of the step title, not a standalone marker. */}
+                  <h3 className="t4 font-semibold text-content-primary">
+                    <span className="text-action">{step.n}</span>
+                    <span className="ml-3">{step.title}</span>
+                  </h3>
                   <p className="t6 text-content-secondary">{step.body}</p>
                 </li>
               ))}
@@ -475,20 +471,20 @@ export default function RightHandLandingPage() {
         </section>
 
         <section id="product" className="mx-auto w-full max-w-6xl px-6 py-16 lg:py-24">
-          <h2 className="t2 max-w-2xl font-bold tracking-tight text-content-primary">
+          <h2 className="t2 max-w-2xl text-balance font-bold tracking-tight text-content-primary lg:t1">
             환자가 보는 화면, 의사가 보는 화면
           </h2>
 
           <div className="mt-12 grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
             <div className="flex flex-col gap-4">
-              <span className="t7 font-semibold tracking-wide text-action">환자 · 모바일 웹</span>
-              <h3 className="t3 font-semibold text-content-primary">
+              <h3 className="t3 font-semibold text-content-primary lg:t2">
                 질문 하나가 화면 전체를 차지합니다
               </h3>
               <p className="t5 text-content-secondary">
                 한 번에 한 질문만 보여 주고, 그 질문을 음성으로도 읽어 줍니다. 답은 말로 해도 되고
                 직접 입력해도 됩니다. 진행 정도와 동의 상태는 화면 위에 늘 떠 있습니다.
               </p>
+              <span className="t7 font-semibold text-action">환자 · 모바일 웹</span>
             </div>
             <IntakePreview />
           </div>
@@ -496,8 +492,7 @@ export default function RightHandLandingPage() {
           <div className="mt-20 grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
             <EvidencePreview />
             <div className="flex flex-col gap-4 lg:order-first">
-              <span className="t7 font-semibold tracking-wide text-action">의사 · PC 대시보드</span>
-              <h3 className="t3 font-semibold text-content-primary">
+              <h3 className="t3 font-semibold text-content-primary lg:t2">
                 후보와 근거를 같은 화면에서
               </h3>
               <p className="t5 text-content-secondary">
@@ -509,13 +504,14 @@ export default function RightHandLandingPage() {
                 문진 요약(SOAP) · 감별진단 · 추천 검사 · 원본 대화 — 네 개 탭의 순서는 고정입니다.
                 어느 환자를 열어도 같은 자리에 같은 것이 있습니다.
               </p>
+              <span className="t7 font-semibold text-action">의사 · PC 대시보드</span>
             </div>
           </div>
         </section>
 
         <section id="specialty" className="border-y border-line-default bg-surface-default">
           <div className="mx-auto w-full max-w-6xl px-6 py-16 lg:py-24">
-            <h2 className="t2 max-w-2xl font-bold tracking-tight text-content-primary">
+            <h2 className="t2 max-w-2xl text-balance font-bold tracking-tight text-content-primary lg:t1">
               범용 문진이 아니라 안과 문진입니다
             </h2>
             <p className="t5 mt-5 max-w-2xl text-content-secondary">
@@ -540,10 +536,12 @@ export default function RightHandLandingPage() {
               ))}
             </div>
 
-            <div className="mt-12 flex flex-col gap-5 rounded-2xl border border-status-danger bg-status-danger-weak p-6 sm:p-8">
-              <div className="flex items-center gap-2">
+            {/* Elevation declared once: the danger tint carries it, no border
+                on top of it. */}
+            <div className="mt-14 flex flex-col gap-5 rounded-2xl bg-status-danger-weak p-6 sm:p-10">
+              <div className="flex items-center gap-2.5">
                 <ShieldAlert aria-hidden="true" className="size-5 shrink-0 text-status-danger" />
-                <h3 className="t4 font-semibold text-content-primary">
+                <h3 className="t3 font-semibold tracking-tight text-content-primary">
                   이 여섯 가지는 대기 목록을 앞지릅니다
                 </h3>
               </div>
@@ -565,17 +563,18 @@ export default function RightHandLandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto w-full max-w-6xl px-6 py-16 lg:py-24">
-          <h2 className="t2 max-w-2xl font-bold tracking-tight text-content-primary">
+        <section className="mx-auto w-full max-w-6xl px-6 py-16 lg:py-20">
+          <h2 className="t2 max-w-2xl text-balance font-bold tracking-tight text-content-primary lg:t1">
             진료 흐름을 바꾸지 않고, 앞단만 덜어냅니다
           </h2>
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Six capabilities read as one list, separated by rules. Six boxed
+              cards would make the page structure the thing you notice. */}
+          <div className="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((feature) => (
               <article
                 key={feature.title}
-                className="flex flex-col gap-3 rounded-2xl border border-line-default bg-surface-default p-6"
+                className="flex flex-col gap-2.5 border-t border-line-default pt-5"
               >
-                <feature.icon aria-hidden="true" className="size-5 text-action" />
                 <h3 className="t5 font-semibold text-content-primary">{feature.title}</h3>
                 <p className="t6 text-content-secondary">{feature.body}</p>
               </article>
@@ -585,29 +584,32 @@ export default function RightHandLandingPage() {
 
         <section id="safety" className="border-y border-line-default bg-surface-default">
           <div className="mx-auto w-full max-w-6xl px-6 py-16 lg:py-24">
-            <h2 className="t2 max-w-2xl font-bold tracking-tight text-content-primary">
+            <h2 className="t2 max-w-2xl text-balance font-bold tracking-tight text-content-primary lg:t1">
               환자 건강정보를 다루는 제품의 최소 조건
             </h2>
             <p className="t5 mt-5 max-w-2xl text-content-secondary">
               민감정보를 다루는 이상, 편의보다 먼저 지켜야 하는 것들이 있습니다.
             </p>
-            <div className="mt-12 grid gap-6 md:grid-cols-2">
+            {/* Denser than the feature list on purpose: these are commitments,
+                so each title gets a full column of its own and more air. */}
+            <dl className="mt-14 flex flex-col">
               {SAFETY.map((item) => (
-                <article
+                <div
                   key={item.title}
-                  className="flex flex-col gap-3 rounded-2xl border border-line-default p-6"
+                  className="grid gap-x-10 gap-y-3 border-t border-line-default py-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]"
                 >
-                  <item.icon aria-hidden="true" className="size-5 text-action" />
-                  <h3 className="t5 font-semibold text-content-primary">{item.title}</h3>
-                  <p className="t6 text-content-secondary">{item.body}</p>
-                </article>
+                  <dt className="t4 font-semibold text-content-primary text-balance">
+                    {item.title}
+                  </dt>
+                  <dd className="t6 text-content-secondary">{item.body}</dd>
+                </div>
               ))}
-            </div>
+            </dl>
           </div>
         </section>
 
         <section className="mx-auto w-full max-w-3xl px-6 py-16 lg:py-24">
-          <h2 className="t2 font-bold tracking-tight text-content-primary">자주 받는 질문</h2>
+          <h2 className="t2 font-bold tracking-tight text-content-primary lg:t1">자주 받는 질문</h2>
           <div className="mt-10 flex flex-col">
             {FAQ.map((item) => (
               <details
@@ -629,7 +631,7 @@ export default function RightHandLandingPage() {
 
         <section className="mx-auto w-full max-w-6xl px-6 pb-20 lg:pb-28">
           <div className="flex flex-col items-start gap-6 rounded-3xl bg-content-primary px-8 py-14 sm:px-14">
-            <h2 className="t2 max-w-2xl font-bold tracking-tight text-white">
+            <h2 className="t2 max-w-2xl font-bold tracking-tight text-white lg:t1">
               우리 병원에 맞는 문진, 같이 만들어 봅니다
             </h2>
             <p className="t5 max-w-xl text-grey-300">

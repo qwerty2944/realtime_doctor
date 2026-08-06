@@ -113,6 +113,12 @@
   --color-surface-canvas: #f8f9fb; /* cream canvas — app background */
   --color-surface-default: #ffffff; /* card / sheet background */
   --color-surface-layered: #ffffff; /* raised layer on white */
+  /* Cobalt-tinted neutral, derived from the action hue laid over the cream
+     canvas. Third surface step so long pages can alternate cream / white /
+     tinted instead of only cream / white. Deep enough to read as a distinct
+     band, light enough that content-secondary stays at 7.4:1. Do NOT put
+     content-tertiary text on it — that pair falls below AA. */
+  --color-surface-tinted: #edf1f9;
 
   /* --- Semantic: text / content (blue-ink hue family) --- */
   --color-content-primary: #181f30; /* brand ink */
@@ -148,6 +154,13 @@
    Typography scale (size + line-height only; weight comes from font-* utils).
    Sizes in rem so OS text-size preferences scale them (accessibility).
    --------------------------------------------------------------------------- */
+/* Marketing display step, one above t0. Only the landing hero uses it, at lg
+   and up, where the headline needs enough size to out-rank t0 body headings.
+   Product screens stay on t0 and below. */
+@utility t-display {
+  font-size: 3.25rem; /* 52px */
+  line-height: 4rem; /* 64px */
+}
 /* Display size for the patient-facing voice intake: the AI's question is the
    single dominant element on screen and must stay readable with presbyopia. */
 @utility t0 {
@@ -200,4 +213,27 @@ html {
   font-family: var(--font-sans);
   /* Korean text wraps more naturally on word boundaries. */
   word-break: keep-all;
+}
+
+/* Browser-owned surfaces. These ship with defaults that belong to no design
+   system, so they get the brand palette too. */
+::selection {
+  background-color: var(--color-action-weak);
+  color: var(--color-content-primary);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
+
+/* Form controls (checkbox, radio, range) tint from the action colour. */
+:root {
+  accent-color: var(--color-action);
+  caret-color: var(--color-action);
+}
+
+a {
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: from-font;
 }
