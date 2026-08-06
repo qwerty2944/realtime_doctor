@@ -18,6 +18,7 @@ import { toGeminiSchema, zodToJsonSchema } from '@/lib/llm/schema';
 import type {
   LlmMessage,
   LlmProvider,
+  LlmUsage,
   ToolCallOutcome,
   ToolCallRequest
 } from '@/lib/llm/types';
@@ -42,8 +43,13 @@ function apiBase(): string {
  * 기본 모델. 강제 도구 호출(`functionCallingConfig.mode = "ANY"`)을 지키는
  * 모델이어야 한다 — 문진 흐름 전체가 그 위에 서 있으므로, 그걸 제안 정도로
  * 취급하는 모델은 산문 품질과 무관하게 탈락이다.
+ *
+ * 데스크톱의 다섯 `GEMINI_*_MODEL` 과 **같은 모델로 맞춰 둔다**. 키오스크는
+ * `GEMINI_MODEL` 이라는 자기만의 변수를 읽으므로, 제품이 모델을 갈아탈 때
+ * (커밋 0b137d9) 여기만 조용히 뒤처질 수 있다. 실제로 그렇게 됐었다 —
+ * 결정이 아니라 사고로 다른 모델 위에 서 있었다.
  */
-const DEFAULT_MODEL = 'gemini-3.5-flash';
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 
 /**
  * 모델의 내부 추론용으로 따로 잡아두는 출력 예산.
@@ -90,10 +96,38 @@ interface GeminiPart {
   functionCall?: { name?: string; args?: unknown };
 }
 
+interface GeminiUsageMetadata {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
+}
+
 interface GeminiResponse {
   candidates?: { content?: { parts?: GeminiPart[] }; finishReason?: string }[];
   promptFeedback?: { blockReason?: string };
+  usageMetadata?: GeminiUsageMetadata;
   error?: { message?: string };
+}
+
+/** 숫자가 아니면 0 이 아니라 null. "모른다" 와 "안 썼다" 는 다르다. */
+function tokenCount(value: number | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function toUsage(
+  model: string,
+  meta: GeminiUsageMetadata | undefined,
+  durationMs: number
+): LlmUsage {
+  return {
+    provider: 'gemini',
+    model,
+    prompt_tokens: tokenCount(meta?.promptTokenCount),
+    // Gemini 는 숨은 추론 토큰도 여기에 센다. 과금되는 값이므로 그대로 쓴다.
+    output_tokens: tokenCount(meta?.candidatesTokenCount),
+    total_tokens: tokenCount(meta?.totalTokenCount),
+    duration_ms: durationMs
+  };
 }
 
 /**
@@ -129,6 +163,8 @@ export const geminiProvider: LlmProvider = {
     const model = geminiModel();
     const key = geminiApiKey();
 
+    const startedAt = Date.now();
+
     const response = await fetch(
       `${apiBase()}/models/${encodeURIComponent(model)}:generateContent`,
       {
@@ -149,6 +185,7 @@ export const geminiProvider: LlmProvider = {
     );
 
     const body = (await response.json().catch(() => null)) as GeminiResponse | null;
+    const usage = toUsage(model, body?.usageMetadata, Date.now() - startedAt);
 
     // 전송/API 에러는 돌려주지 않고 던진다: 401 이나 429 는 잘못된 도구 호출이
     // 받는 즉시 재질의가 아니라 백오프 정책이 필요하다.
@@ -167,7 +204,8 @@ export const geminiProvider: LlmProvider = {
         reason: blockReason
           ? `the request was blocked by a safety filter (${blockReason})`
           : 'the response contained no candidates',
-        raw: body
+        raw: body,
+        usage
       };
     }
 
@@ -181,10 +219,11 @@ export const geminiProvider: LlmProvider = {
         reason: truncated
           ? `the response hit the output token limit before completing a call to "${request.toolName}"`
           : `the model did not call "${request.toolName}" (finishReason=${candidate.finishReason ?? 'unknown'})`,
-        raw: parts
+        raw: parts,
+        usage
       };
     }
 
-    return { ok: true, input: call.functionCall.args ?? {} };
+    return { ok: true, input: call.functionCall.args ?? {}, usage };
   }
 };

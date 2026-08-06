@@ -23,7 +23,8 @@ import {
   ModelOutputError,
   type LlmMessage,
   type LlmProvider,
-  type LlmProviderName
+  type LlmProviderName,
+  type LlmUsage
 } from '@/lib/llm/types';
 
 const PROVIDERS: Record<LlmProviderName, LlmProvider> = {
@@ -81,6 +82,14 @@ export interface StructuredCallOptions<T> {
   maxAttempts?: number;
   /** `LLM_PROVIDER` 를 덮어쓴다. 테스트와 일회성 스크립트용. */
   provider?: LlmProvider;
+  /**
+   * **시도마다** 한 번씩 불린다. 재시도가 있었으면 여러 번 불린다 — 실패한
+   * 시도도 토큰을 태웠으므로 계량에서 빠지면 안 된다.
+   *
+   * 던지지 않아야 하지만, 계량 실패가 환자의 문진을 깨뜨리는 것은 본말전도라
+   * 호출부에서 한 번 더 감싸 삼키고 로그만 남긴다.
+   */
+  onUsage?: (usage: LlmUsage) => void;
 }
 
 /**
@@ -132,7 +141,8 @@ export async function callStructuredTool<T>({
   schema,
   maxTokens,
   maxAttempts = 1,
-  provider
+  provider,
+  onUsage
 }: StructuredCallOptions<T>): Promise<T> {
   const llm = provider ?? getLlmProvider();
   const attempts = Math.max(1, maxAttempts);
@@ -150,6 +160,16 @@ export async function callStructuredTool<T>({
       schema,
       maxTokens
     });
+
+    // 판정보다 먼저 계량한다. 아래 어느 분기로 가든(성공·재시도·throw)
+    // 이 시도의 토큰은 이미 쓰였다.
+    if (outcome.usage && onUsage) {
+      try {
+        onUsage(outcome.usage);
+      } catch (error) {
+        console.error(`[llm:${llm.name}] usage callback threw; metering skipped.`, error);
+      }
+    }
 
     if (!outcome.ok) {
       lastError = new ModelOutputError(
@@ -178,4 +198,9 @@ export async function callStructuredTool<T>({
 }
 
 export { ModelOutputError, LLM_PROVIDERS } from '@/lib/llm/types';
-export type { LlmMessage, LlmProvider, LlmProviderName } from '@/lib/llm/types';
+export type {
+  LlmMessage,
+  LlmProvider,
+  LlmProviderName,
+  LlmUsage
+} from '@/lib/llm/types';

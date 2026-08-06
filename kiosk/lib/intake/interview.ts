@@ -24,7 +24,7 @@ import 'server-only';
  */
 
 import { MAX_INTAKE_TURNS } from '@/lib/intake/limits';
-import { callStructuredTool, type LlmMessage } from '@/lib/llm';
+import { callStructuredTool, type LlmMessage, type LlmUsage } from '@/lib/llm';
 import {
   INTERVIEW_BOOTSTRAP_MESSAGE,
   INTERVIEW_FORCE_FINISH_MESSAGE,
@@ -97,7 +97,11 @@ function toLlmMessages(turns: readonly DialogueTurn[], forceFinish: boolean): Ll
  * 반환된 플래그에 덮어쓰기로.
  */
 export async function runInterviewTurn(
-  turns: readonly DialogueTurn[]
+  turns: readonly DialogueTurn[],
+  options: {
+    /** 시도마다 불린다(재시도 포함). `lib/usage.ts` 참고. */
+    onUsage?: (usage: LlmUsage) => void;
+  } = {}
 ): Promise<InterviewTurn> {
   const forceFinish = countAgentTurns(turns) >= MAX_INTAKE_TURNS;
 
@@ -111,7 +115,8 @@ export async function runInterviewTurn(
     maxTokens: INTERVIEW_MAX_TOKENS,
     // 환자가 문진 도중 기다리고 있고 이 경로에는 상위 재시도가 없다.
     // 형식이 깨진 턴 하나가 접수처로 가라는 에러로 이어져서는 안 된다.
-    maxAttempts: INTERVIEW_MAX_ATTEMPTS
+    maxAttempts: INTERVIEW_MAX_ATTEMPTS,
+    onUsage: options.onUsage
   });
 
   return forceFinish ? { ...turn, done: true } : turn;

@@ -22,7 +22,8 @@ import {
   ModelOutputError,
   callStructuredTool,
   getLlmProvider,
-  type LlmMessage
+  type LlmMessage,
+  type LlmUsage
 } from '@/lib/llm';
 import type { DialogueTurn } from '@/lib/intake/interview';
 import { buildIntakeProvenance } from '@/lib/intake/provenance';
@@ -162,7 +163,12 @@ export interface GeneratedIntakeResult {
  */
 export async function generateAndStoreIntakeResult(
   supabase: SupabaseClient,
-  params: { encounterId: string; turns: readonly DialogueTurn[] }
+  params: {
+    encounterId: string;
+    turns: readonly DialogueTurn[];
+    /** 시도마다 불린다(재시도 포함). `lib/usage.ts` 참고. */
+    onUsage?: (usage: LlmUsage) => void;
+  }
 ): Promise<GeneratedIntakeResult> {
   const userMessage = buildResultUserMessage(params.turns);
 
@@ -193,7 +199,8 @@ export async function generateAndStoreIntakeResult(
           'Record the SOAP draft, the 3-5 prioritized differential diagnoses, the recommended examinations, the follow-up questions for the physician and the medical term explanations.',
         schema: modelIntakeResultSchema,
         maxTokens: RESULT_MAX_TOKENS,
-        provider
+        provider,
+        onUsage: params.onUsage
       });
 
       row = assembleRow(model, params.turns);

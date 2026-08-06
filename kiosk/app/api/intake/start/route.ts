@@ -41,6 +41,7 @@ import {
   visitCodeMessage
 } from '@/lib/intake/visitCodeServer';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { UsageCollector } from '@/lib/usage';
 
 export interface IntakeStartResponse {
   encounterId: string;
@@ -106,7 +107,9 @@ export async function POST(request: Request): Promise<Response> {
         `[POST /api/intake/start] Resuming encounter=${encounterId} kiosk=${resolution.slug} redeem=${redemption.redeemCount}`
       );
       const token = mintIntakeToken({ encounterId, clinicianId });
-      const turn = await runInterviewTurn([]);
+      const usage = new UsageCollector(supabase, clinicianId, encounterId);
+      const turn = await runInterviewTurn([], { onUsage: usage.collect });
+      await usage.flush('kiosk-interview');
       return Response.json({
         encounterId,
         question: turn.message,
@@ -177,7 +180,9 @@ export async function POST(request: Request): Promise<Response> {
     const token = mintIntakeToken({ encounterId, clinicianId });
 
     // 아직 대화가 없으므로 모델이 여는 질문을 만든다.
-    const turn = await runInterviewTurn([]);
+    const usage = new UsageCollector(supabase, clinicianId, encounterId);
+    const turn = await runInterviewTurn([], { onUsage: usage.collect });
+    await usage.flush('kiosk-interview');
 
     return Response.json({
       encounterId,

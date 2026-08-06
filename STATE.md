@@ -851,3 +851,64 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
 - 진단: `RD_SNAP_DEBUG=1 npm run dev` → `/tmp/dev.log`. 드래그당 2줄로 요약된다.
 - 라이브 개입 끄기: `RD_SNAP_LIVE=0` (흡착·추종이 함께 꺼진다).
 - **main 프로세스 변경은 HMR 로 반영되지 않는다. 반드시 재시작.**
+
+## 원가 가시성 · 키오스크 계량 (2026-08-06)
+
+세 가지를 고쳤다. 전부 "조용한 실패" 계열이다.
+
+### 1. 미산정 모델이 ₩0 으로 읽히던 문제 (admin-web)
+
+`costForRow` 가 가격표에 없는 모델에 대해 0 을 돌려줬다. 제품이
+`gemini-3.5-flash-lite` 로 갈아탄 순간(0b137d9) 어드민의 비용 열 전체가 0 이 됐다 —
+원가를 보이게 하려고 만든 화면이 기본값 하나에 무력화됐다.
+
+- `costForRow` 는 이제 `number` 가 아니라 `Cost` (`{priced:true,usd}` | `{priced:false,…}`)
+  를 돌려준다. 호출자 4개 파일 전부 갱신했다.
+- 합계는 `sumCosts()` 로 내고, **미산정 행 수와 라벨을 함께** 돌려준다. 미산정 행을
+  말없이 빼면 "0 원" 대신 "실제보다 낮은 금액" 이라는 더 알아채기 어려운 같은 버그가 된다.
+- 화면: 행 셀은 `미산정`(fmtCost), 집계 화면 상단에 `UnpricedNotice` 배너,
+  사용자 목록·공급자별·모델별 표에 미산정 건수 배지.
+- **재발 방지 두 겹**:
+  1. 컴파일 타임 — `ACTIVE_GEMINI_MODELS` 가 `satisfies readonly (keyof PRICING.gemini)[]`.
+     쓰는 모델을 표에 넣지 않으면 `npm run typecheck` 가 깨진다.
+     (검증: 없는 모델을 넣어 TS2322 로 실패하는 것을 확인했다.)
+  2. 런타임 — 모델은 환경변수로도 바뀌고 그 경로는 타입 검사를 지나지 않는다. 그래서
+     표에 `UNPRICED` 로 **명시**된 모델은 화면이 미산정이라고 말한다.
+  즉 표에 없으면 typecheck 가 깨지고, 표에 있는데 단가가 없으면 화면이 말한다.
+  어느 쪽도 0 으로 보이지 않는다.
+- **남은 것**: `gemini-3.5-flash-lite` 의 실제 단가. `admin-web/lib/pricing.ts` 의
+  `TODO(pricing)` 자리에 `UNPRICED` 를 실제 값으로 바꾸면 배지·배너가 저절로 사라진다.
+  값을 지어내지 않았다 — 그럴듯한 오답은 0 보다 나쁘다.
+
+### 2. `.mcp.json` 이 삭제된 프로젝트를 가리키고 있었다
+
+`yqdzxitlmtawznzwpkra`(구, 삭제됨) → `yhwvwojjwwlcrvpfxgag`(운영). 그대로 두면 다음
+세션의 Supabase MCP 가 죽은 프로젝트를 향한다.
+
+### 3. 키오스크: 모델 정렬 + 사용량 계량
+
+- 키오스크는 자기 `GEMINI_MODEL`(기본 `gemini-3.5-flash`)을 읽어서, 제품 전체가
+  flash-lite 로 옮길 때 **혼자 뒤처져 있었다 — 결정이 아니라 사고였다.** 기본값을
+  `gemini-3.5-flash-lite` 로 맞췄다. 운영 Vercel 에 `GEMINI_MODEL` 은 설정돼 있지
+  않으므로(README 의 환경변수 목록 기준) 재배포만으로 반영된다.
+- 키오스크의 Gemini 호출은 `ai-gemini` Edge Function 을 지나지 않는다(서버측 자기 키로
+  Google 직접 호출). 서버 전용 키라 유출은 아니지만 **그 돈이 어디에도 기록되지 않았다.**
+  이제 호출마다 `usage_events` 에 적는다 — `lib/usage.ts`, Edge 의 `recordUsage` 와 같은 역할.
+  - `user_id` = 담당 의사(`encounters.user_id`), `source='server'`(0016 정의상 과금 근거로
+    삼아도 되는 행), `platform='kiosk'`, `session_id=null`, task = `kiosk-interview` /
+    `kiosk-result`.
+  - 재시도한 시도도 각각 한 행. 쓸 수 없는 응답도 토큰은 이미 태웠다.
+  - [HARD] 계량 실패는 문진을 깨뜨리지 않는다(전부 삼키고 `console.error`). 다만 조용히
+    삼키지 않는다 — 로그가 없으면 "계량되고 있다" 는 착각이 생긴다.
+  - 추가 환경변수 없음. 기존 `SUPABASE_SERVICE_ROLE_KEY` 로 쓴다.
+- **아직 계량하지 않는 것**: CLOVA STT(`/api/intake/transcribe`). `usage_events` 는
+  `provider='clova-csr'` 를 이미 이해하지만 CLOVA 응답에서 과금 단위를 꺼내는 일은
+  이번 범위 밖이다.
+- 검증: 로컬 Supabase + 로컬 키오스크 + **실제 Gemini** 로 `probe-production.mjs`
+  ALL PASS, 그리고 `usage_events` 에 4행(kiosk-interview 3 + kiosk-result 1,
+  전부 `gemini-3.5-flash-lite` / `source=server` / 실토큰)이 남는 것을 확인했다.
+  프로브가 만든 행은 전부 지웠다.
+
+**주의**: 이 두 변화는 맞물린다. 키오스크 문진 비용이 이제 어드민에 나타나지만,
+flash-lite 단가가 없으므로 **"미산정" 으로** 나타난다. 보이지 않던 것이 "0 원" 이 아니라
+"모른다" 로 보이는 상태이고, 단가를 채우는 순간 금액이 된다.

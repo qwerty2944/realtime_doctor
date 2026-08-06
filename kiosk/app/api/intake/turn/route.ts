@@ -23,6 +23,7 @@ import { generateAndStoreIntakeResult } from '@/lib/intake/result';
 import { intakeTurnRequestSchema } from '@/lib/intake/schemas';
 import { verifyIntakeToken } from '@/lib/intake/token';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { UsageCollector } from '@/lib/usage';
 
 export type IntakeTurnResponse =
   | { done: false; question: string }
@@ -91,7 +92,12 @@ export async function POST(request: Request): Promise<Response> {
     // 클라이언트가 보낸 기록에 이번 답변을 얹은 것이 현재 대화다.
     const dialogue: DialogueTurn[] = [...turns, { role: 'patient', text }];
 
-    const turn = await runInterviewTurn(dialogue);
+    // 모델 사용량은 인가를 통과한 뒤부터 센다. 거절된 호출은 모델을 부르지도
+    // 않으므로 쓸 토큰이 없다.
+    const usage = new UsageCollector(supabase, row.user_id, encounterId);
+
+    const turn = await runInterviewTurn(dialogue, { onUsage: usage.collect });
+    await usage.flush('kiosk-interview');
 
     // red flag 는 매 턴 지금까지의 모든 답변에 대해 평가한다. 두 답변에 걸쳐야
     // 완성되는 패턴도 잡히도록. 다만 답변은 따로따로 넘기므로, 한 답변 안의
@@ -114,9 +120,12 @@ export async function POST(request: Request): Promise<Response> {
     try {
       await generateAndStoreIntakeResult(supabase, {
         encounterId,
-        turns: [...dialogue, { role: 'agent', text: turn.message }]
+        turns: [...dialogue, { role: 'agent', text: turn.message }],
+        onUsage: usage.collect
       });
     } catch (error) {
+      // 실패한 생성도 토큰을 태웠다. 에러로 빠져나가기 전에 기록한다.
+      await usage.flush('kiosk-result');
       // 진료는 intake_in_progress 로 남아 있으므로 접수처에서 다시 시도할 수 있다.
       console.error(
         `[POST /api/intake/turn] Result generation failed for encounter ${encounterId}.`,
@@ -124,6 +133,8 @@ export async function POST(request: Request): Promise<Response> {
       );
       return jsonError(500, RESULT_FAILURE_MESSAGE);
     }
+
+    await usage.flush('kiosk-result');
 
     return Response.json({ done: true, message: turn.message } satisfies IntakeTurnResponse);
   } catch (error) {

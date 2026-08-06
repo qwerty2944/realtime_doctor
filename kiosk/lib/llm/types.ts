@@ -28,6 +28,25 @@ export interface LlmMessage {
   content: string;
 }
 
+/**
+ * 모델 호출 한 번이 실제로 쓴 양.
+ *
+ * 프로바이더가 채운다 — 호출을 실제로 한 쪽만이 진실을 안다. 위쪽 코드는
+ * 토큰 수를 추정하지 않는다(추정한 계량은 계량이 아니다). 벤더가 사용량을
+ * 돌려주지 않으면 필드는 null 로 남고, 그건 "0 토큰" 이 아니라 "모른다" 로
+ * 저장된다.
+ */
+export interface LlmUsage {
+  provider: LlmProviderName;
+  /** 실제로 호출한 모델 id. */
+  model: string;
+  prompt_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  /** 벤더 왕복에 걸린 시간. */
+  duration_ms: number;
+}
+
 /** 강제된 도구 호출 한 번. */
 export interface ToolCallRequest {
   system: string;
@@ -51,8 +70,12 @@ export interface ToolCallRequest {
  * 그건 즉시 재질의가 아니라 백오프 정책이 필요한 사건이다.
  */
 export type ToolCallOutcome =
-  | { ok: true; input: unknown }
-  | { ok: false; reason: string; raw: unknown };
+  | { ok: true; input: unknown; usage?: LlmUsage }
+  /**
+   * 실패한 시도에도 `usage` 가 붙는다. 쓸 수 없는 응답도 토큰은 이미 태웠고,
+   * 계량에서 그것을 빼면 재시도가 잦을수록 원가가 실제보다 싸 보인다.
+   */
+  | { ok: false; reason: string; raw: unknown; usage?: LlmUsage };
 
 export interface LlmProvider {
   readonly name: LlmProviderName;

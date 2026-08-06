@@ -157,7 +157,7 @@ MAC 입력: v1 | encounterId | clinicianId | 만료시각
 | `GEMINI_API_BASE` | | Gemini 엔드포인트 override. 사내 프록시용. 운영에서는 설정하지 않습니다. |
 | `GEMINI_API_KEY` | ✅ | 문진 질문 생성 및 결과 초안 작성. (`GOOGLE_API_KEY`도 인식) |
 | `LLM_PROVIDER` | | 현재 `gemini`만 지원, 기본값도 `gemini`. 환자 동의서의 처리자 이름이 여기서 나옵니다. |
-| `GEMINI_MODEL` | | 기본 `gemini-3.5-flash`. 강제 도구 호출을 지키는 모델이어야 합니다. |
+| `GEMINI_MODEL` | | 기본 `gemini-3.5-flash-lite` — 루트 `.env.example` 의 다섯 `GEMINI_*_MODEL` 과 같은 모델. 강제 도구 호출을 지키는 모델이어야 합니다. **설정하지 않는 편을 권장**합니다(배포에 박아두면 기본값 변경이 반영되지 않습니다). |
 | `CLOVA_SPEECH_INVOKE_URL` | | 음성 입력용. **둘 다** 설정해야 녹음 버튼이 나타납니다. |
 | `CLOVA_SPEECH_SECRET` | | 없으면 글자 입력만으로 문진이 정상 동작합니다. |
 
@@ -215,6 +215,36 @@ npm start           # 프로덕션 서버
 > 실제 프로젝트에는 아직 적용되지 않았습니다.
 
 ---
+
+## 사용량 계량 (`usage_events`)
+
+키오스크는 자기 서버측 `GEMINI_API_KEY` 로 Google 을 직접 호출합니다(데스크톱처럼
+`ai-gemini` Edge Function 을 경유하지 않습니다). 서버 전용 키이므로 유출은 아니지만,
+그렇게 쓴 돈이 어디에도 기록되지 않으면 문진 원가가 어드민 화면에서 통째로 사라집니다.
+그래서 모델 호출마다 `public.usage_events` 에 한 행을 적습니다 — Edge Function 의
+`recordUsage`(`supabase/functions/_shared/gate.ts`)와 같은 역할입니다.
+
+| 컬럼 | 값 |
+|---|---|
+| `user_id` | **담당 의사** auth user id (`encounters.user_id` 에서 읽은 값). 환자는 계정이 없고, 이 컬럼은 NOT NULL 입니다. |
+| `task` | `kiosk-interview`(질문 생성) / `kiosk-result`(결과 초안). 데스크톱 task 와 섞이지 않도록 접두사를 붙입니다. |
+| `source` | `server` — 프로바이더 호출을 한 서버가 직접 적은 행입니다(0016 의 정의). 과금 근거로 삼아도 됩니다. |
+| `platform` | `kiosk` |
+| `session_id` | 항상 `null`. `sessions` 는 데스크톱 녹음 세션이라 문진에는 대응물이 없습니다. |
+| 토큰 | Gemini 응답의 `usageMetadata` 그대로. 값이 없으면 0 이 아니라 `null`("모른다")입니다. |
+
+재시도한 시도도 각각 한 행씩 남습니다 — 쓸 수 없는 응답도 토큰은 이미 태웠습니다.
+
+[HARD] **계량 실패는 문진을 깨뜨리지 않습니다.** `lib/usage.ts` 가 모든 오류를 삼키고
+`console.error` 로만 남깁니다. 다만 조용히 삼키지는 않습니다 — 로그가 없으면
+"계량되고 있다" 는 착각이 생기고, 그건 계량이 없는 것보다 나쁩니다.
+
+추가 환경변수는 필요 없습니다. 이미 있는 `SUPABASE_SERVICE_ROLE_KEY` 로 씁니다
+(서비스 롤은 RLS 를 우회하므로 0016 의 `source='client'` 제한에 걸리지 않습니다).
+
+**아직 계량되지 않는 것**: CLOVA STT(`/api/intake/transcribe`). `usage_events` 는
+`provider='clova-csr'` 행을 이미 이해하지만, CLOVA 응답에서 과금 단위(청크 수/시간)를
+꺼내는 일은 이번 변경 범위 밖입니다.
 
 ## 배포 (Vercel 기준)
 
