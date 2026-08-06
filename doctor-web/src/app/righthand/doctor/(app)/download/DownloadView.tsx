@@ -17,7 +17,6 @@ import {
   DESKTOP_ARTIFACTS,
   DESKTOP_ARTIFACT_KEYS,
   formatFileSize,
-  WINDOWS_BUILD_AVAILABLE,
   type DesktopArtifactKey,
 } from '@/lib/releases/catalog';
 
@@ -121,19 +120,10 @@ export default function DownloadView() {
     <div className="flex flex-col gap-6">
       {/* Platform hint */}
       {platform === 'windows' ? (
-        <section
-          role="note"
-          className="flex items-start gap-3 rounded-xl border border-status-warning bg-status-warning-weak px-4 py-3 text-orange-900"
-        >
-          <MonitorDown aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-          <div className="flex flex-col gap-1">
-            <p className="t6 font-semibold">Windows 버전은 아직 준비되지 않았습니다</p>
-            <p className="t7">
-              현재 {DESKTOP_APP_VERSION} 빌드는 macOS용만 있습니다. Windows 설치 파일이 준비되면 이
-              화면에 올라옵니다. 지금은 macOS 기기에서 내려받아 주세요.
-            </p>
-          </div>
-        </section>
+        <p className="t6 text-content-secondary">
+          Windows로 접속하셨습니다. 아래{' '}
+          <b className="font-semibold text-content-primary">Windows 64비트</b> 파일을 받으시면 됩니다.
+        </p>
       ) : null}
 
       {platform === 'mac' ? (
@@ -156,7 +146,10 @@ export default function DownloadView() {
         <ul className="flex flex-col gap-3">
           {DESKTOP_ARTIFACT_KEYS.map((key) => {
             const artifact = DESKTOP_ARTIFACTS[key];
-            const isRecommended = platform === 'mac' && key === 'mac-universal';
+            const isRecommended =
+              (platform === 'mac' && key === 'mac-universal') ||
+              (platform === 'windows' && key === 'win-x64');
+            const PlatformIcon = artifact.platform === 'mac' ? Apple : MonitorDown;
 
             return (
               <li
@@ -166,7 +159,7 @@ export default function DownloadView() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex min-w-0 flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Apple aria-hidden="true" className="size-4 text-content-tertiary" />
+                      <PlatformIcon aria-hidden="true" className="size-4 text-content-tertiary" />
                       <span className="t5 font-semibold text-content-primary">{artifact.label}</span>
                       {isRecommended ? (
                         <span className="t-caption rounded-full bg-action-weak px-2 py-0.5 font-semibold text-action">
@@ -204,12 +197,6 @@ export default function DownloadView() {
           })}
         </ul>
 
-        {!WINDOWS_BUILD_AVAILABLE ? (
-          <p className="t7 text-content-tertiary">
-            Windows 설치 파일은 {DESKTOP_APP_VERSION} 기준으로 아직 빌드되지 않았습니다. 준비되는 대로
-            이 목록에 추가됩니다.
-          </p>
-        ) : null}
       </section>
 
       {/* Verifying the download */}
@@ -219,9 +206,21 @@ export default function DownloadView() {
           내려받은 파일이 위에 적힌 것과 같은 파일인지 확인하려면, 터미널에서 아래 명령을 실행하고
           출력된 값이 그 파일의 SHA-256과 같은지 비교하세요.
         </p>
-        <pre className="t7 overflow-x-auto rounded-lg bg-surface-canvas px-4 py-3 font-mono text-content-secondary">
-          shasum -a 256 ~/Downloads/Realtime\ Doctor-{DESKTOP_APP_VERSION}-universal.dmg
-        </pre>
+        <div className="flex flex-col gap-1">
+          <span className="t-caption font-semibold text-content-tertiary">macOS (터미널)</span>
+          <pre className="t7 overflow-x-auto rounded-lg bg-surface-canvas px-4 py-3 font-mono text-content-secondary">
+            shasum -a 256 ~/Downloads/Realtime\ Doctor-{DESKTOP_APP_VERSION}-universal.dmg
+          </pre>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="t-caption font-semibold text-content-tertiary">
+            Windows (PowerShell)
+          </span>
+          <pre className="t7 overflow-x-auto rounded-lg bg-surface-canvas px-4 py-3 font-mono text-content-secondary">
+            Get-FileHash &quot;$env:USERPROFILE\Downloads\Realtime Doctor Setup{' '}
+            {DESKTOP_APP_VERSION}.exe&quot; -Algorithm SHA256
+          </pre>
+        </div>
       </section>
 
       {/* First launch */}
@@ -229,7 +228,9 @@ export default function DownloadView() {
         <div className="flex items-start gap-3">
           <ShieldAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
           <div className="flex flex-col gap-1">
-            <h2 className="t5 font-semibold">처음 실행할 때: 공증(notarization)되지 않은 앱입니다</h2>
+            <h2 className="t5 font-semibold">
+              macOS에서 처음 실행할 때: 공증(notarization)되지 않은 앱입니다
+            </h2>
             <p className="t6">
               이 macOS 빌드는 Apple 공증을 받지 않았습니다. 그래서 아이콘을 그냥 두 번 눌러 실행하면
               &ldquo;확인되지 않은 개발자&rdquo; 경고와 함께 열리지 않습니다. 고장이 아니라 예상된
@@ -267,6 +268,42 @@ export default function DownloadView() {
             </Button>
           </div>
         </div>
+      </section>
+
+      {/*
+        Windows first launch. The installer is built with
+        CSC_IDENTITY_AUTO_DISCOVERY=false and carries no Authenticode signature,
+        so SmartScreen will interrupt it. Saying so plainly is the point: a
+        doctor who is told to expect the warning can tell it apart from a real
+        one, and the SHA-256 above is what actually settles the question.
+      */}
+      <section className="flex flex-col gap-4 rounded-xl border border-status-warning bg-status-warning-weak p-5 text-orange-900">
+        <div className="flex items-start gap-3">
+          <ShieldAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+          <div className="flex flex-col gap-1">
+            <h2 className="t5 font-semibold">
+              Windows에서 처음 실행할 때: 코드 서명이 없는 설치 파일입니다
+            </h2>
+            <p className="t6">
+              이 Windows 설치 파일에는 아직 코드 서명 인증서가 없습니다. 그래서 실행하면 Windows가
+              &ldquo;Windows의 PC 보호&rdquo; 파란 화면으로 한 번 막습니다. 고장이 아니라 예상된
+              동작입니다. 이 파일이 맞는지는 위의 SHA-256 값으로 확인하실 수 있습니다.
+            </p>
+          </div>
+        </div>
+
+        <ol className="flex list-decimal flex-col gap-2 pl-9 t6">
+          <li>
+            내려받은 <b className="font-semibold">Realtime Doctor Setup {DESKTOP_APP_VERSION}.exe</b>{' '}
+            를 실행합니다.
+          </li>
+          <li>
+            파란 경고 화면이 뜨면 <b className="font-semibold">추가 정보</b>를 누릅니다.
+          </li>
+          <li>
+            아래에 나타나는 <b className="font-semibold">실행</b> 버튼을 누르면 설치가 계속됩니다.
+          </li>
+        </ol>
       </section>
     </div>
   );
