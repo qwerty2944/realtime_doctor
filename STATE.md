@@ -912,3 +912,127 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
 **주의**: 이 두 변화는 맞물린다. 키오스크 문진 비용이 이제 어드민에 나타나지만,
 flash-lite 단가가 없으므로 **"미산정" 으로** 나타난다. 보이지 않던 것이 "0 원" 이 아니라
 "모른다" 로 보이는 상태이고, 단가를 채우는 순간 금액이 된다.
+
+## 0.8.0 릴리스 (2026-08-06)
+
+**A1 이 실제로 나간 첫 빌드**다. 이게 필드에 깔려야 provider 키를 로테이트할 수 있다.
+
+### 산출물
+
+| 파일 | bytes | sha256 |
+|---|---|---|
+| `Realtime Doctor-0.8.0-universal.dmg` | 192,604,784 | `b78d6378b602e5a13ea958ab129d96e9848962cc752aa0d65751f3de40d44687` |
+| `Realtime Doctor-0.8.0-arm64.dmg` | 109,794,565 | `5d4bcc9300c808b0208755fb8effebea5ce5ed90293ebb88da88ad4e8c3c4e88` |
+| `Realtime Doctor Setup 0.8.0.exe` | 86,460,695 | `d2f1eebe6ff8eb0c1f33fd34cb235b7fe221bb7a81736d2ff377fac00cb62acc` |
+
+맥 빌드는 `release/`, 윈도우는 `win-build/v0.8.0/`. 둘 다 gitignore 돼 있다.
+
+### 맥 빌드 — 함정 두 개는 여전히 실재한다
+
+- **`~/.zshrc` 가 `OPENAI_API_KEY` 를 export 하고 dotenv 는 기존 `process.env` 를
+  덮지 않는다.** 실측 확인했다(`'OPENAI_API_KEY' in process.env` → true).
+  래퍼 `/tmp/build-mac-080.py` 가 (1) 셸에서 그 키를 **제거**하고 (2) `.env` 를
+  나중에 읽어 이기게 한다. 0.8.0 에서는 그 키가 애초에 인라인 목록에 없지만,
+  래퍼는 목록이 아니라 환경을 지키므로 되돌아와도 막힌다.
+- **Developer ID Application 인증서가 이 머신에 없다** (`security find-identity`:
+  Apple Development + Apple Distribution 둘뿐). 공증은 불가능하므로
+  `--config.mac.notarize=false` + `CSC_NAME=Apple Development: …(ZR7TZHJVK2)` 로
+  **서명은 하되 공증은 하지 않는** 빌드를 냈다. Apple 관련 환경변수는 래퍼가
+  지운다 — 남겨두면 electron-builder 가 10분짜리 빌드 끝에서 공증을 시도하다 죽는다.
+- `dist:universal` 한 번으로 universal 과 arm64 DMG 가 **둘 다** 나온다
+  (`--universal` 이 package.json 의 arm64 타깃에 더해진다). 따로 돌릴 필요 없다.
+
+### [HARD] 키 부재는 `out/` 이 아니라 **배포되는 DMG 안에서** 증명했다
+
+0.7.0 asar 에서 두 키가 실제로 발견된 적이 있어서, 이번엔 `.dmg` 를 마운트해
+`app.asar` 를 꺼내 검사했다 (`/tmp/verify-asar.sh`). DMG 2개 × 6748 파일:
+
+- `GEMINI_API_KEY` / `OPENAI_API_KEY` — **값도 이름도 0건**.
+- `~/.zshrc` 의 OPENAI 값(=.env 와 다른 값)도 별도로 0건. 위 함정이 실제로
+  막혔다는 뜻이다.
+- `ENTITLEMENT_PRIVATE_KEY` 이름 0건.
+- **양성 대조**: `gemini-3.5-flash-lite` 는 **발견된다**. 이게 없으면 "grep 이
+  고장나서 깨끗해 보이는 것"과 구별할 수 없다.
+- 서명: `Apple Development: …(ZR7TZHJVK2)`, TeamIdentifier `88CR983RJZ`.
+  `spctl` 은 예상대로 `rejected` — 공증이 없기 때문이고 다운로드 페이지가
+  이미 이 상황을 안내한다.
+
+### 윈도우 — 미러 CI
+
+- run **31073710817** (`mole-bi-com/realtime-doctor-winbuild`, success).
+  미러 `main` 에 force-push 후 `workflow_dispatch`.
+- 임베딩 검증: 필수 13키 EMBEDDED, `DEVICE_FUNCTION_URL`/`AI_PROXY_URL` 은
+  optional 미설정(런타임 유도), **`GEMINI_API_KEY` / `OPENAI_API_KEY` 는
+  `ABSENT (value and name)`**. 부재 검사는 A1 때 이미 들어가 있었다.
+- **새로 넣은 검사**: `GEMINI_*_MODEL` 5종이 프록시 allowlist 에 있는 모델인지
+  대조한다. 모델 id 가 낡으면 빌드는 완벽해 보이는데 필드에서 모든 AI 호출이
+  400 `model_not_allowed` 로 죽는다 — 번들에 빠진 게 없으므로 기존 검사는 전부
+  통과한다. CI 로그에서는 GitHub 가 등록된 시크릿 값을 마스킹해 `***` 로 나오므로
+  **출력이 아니라 등가 비교만이 실패할 수 있다.** 실제로 로그에 `***` 로 찍혔고
+  (= 미러 시크릿 값이 정확히 `gemini-3.5-flash-lite` 라는 뜻) 검사는 통과했다.
+
+### 운영 프록시 allowlist 실측
+
+`GEMINI_ALLOWED_MODELS` 는 flash-lite 로 갱신돼 있다. 프로브 계정으로 실제
+`ai-gemini` 를 불러 확인했다: 미인증 401 / `gemini-3.5-flash-lite` **200 (실제
+Gemini 응답)** / `gemini-2.5-pro` **400 `model_not_allowed`**. allowlist 가
+넓어지지도 않았다. 프로브 계정과 행은 전부 삭제.
+
+### 다운로드 페이지
+
+- 스토리지 `app-releases` (비공개). 새 경로 `mac/0.8.0/…` 2개 + **`win/0.8.0/…` 1개**.
+  업로드 후 서버가 보고한 크기가 로컬과 바이트 단위로 일치.
+- **버킷 MIME 허용 목록을 넓혀야 했다.** `allowed_mime_types` 가
+  `application/x-apple-diskimage` 하나여서 `.exe` 업로드가 거부된다.
+  `application/vnd.microsoft.portable-executable` 를 추가했다.
+  크기 상한 256 MiB 는 그대로이고 최대 파일이 192.6MB 라 여유가 있다.
+- `WINDOWS_BUILD_AVAILABLE` 는 `true` 로 바꾸지 않고 **삭제**했다. "산출물이
+  없다"를 말하려고 있던 값이라 영구히 true 인 boolean 은 목록이 이미 말하는
+  사실의 두 번째 약한 출처가 된다. `DesktopArtifact.platform` 을 추가해
+  아이콘·권장 표시가 윈도우에서도 맞게 했다.
+- **0.7.0 은 더 이상 제공하지 않는다. 다만 버킷에서 지우지도 않았다.**
+  카탈로그가 서명할 수 있는 유일한 출처(`signDesktopDownload` 는 요청에서 경로를
+  받지 않는다)라 항목을 빼는 것만으로 도달 불가가 된다. 바이트를 남긴 이유는
+  0.7.0 다운로드마다 남은 감사 행이 그 경로와 digest 를 가리키고 있어서다.
+  제공을 끊은 이유는 이 릴리스의 목적 그 자체다 — 0.7.0 설치본은 asar 안에
+  소유자 키를 들고 있고, 한 부를 더 나눠주는 것은 회수 불가능한 키를 한 부 더
+  나눠주는 것이며 정확히 로테이션을 막고 있는 것이다.
+- 윈도우 안내는 **코드 서명이 없다**는 사실을 그대로 적었다
+  (`CSC_IDENTITY_AUTO_DISCOVERY=false` 로 빌드된다). SmartScreen 이 막는 것은
+  예상된 동작이고, 파일이 맞는지는 SHA-256 이 판정한다.
+
+### 라이브 검증 (entanglecare.com) — 33 PASS / 0 FAIL
+
+`/tmp/probe-download-live.mjs`. 비로그인 POST 401 · 페이지 307→login /
+로그인 세션으로 페이지 200, 0.8.0 표기, 세 digest 전부 출력, "준비되지
+않았습니다" 문구 사라짐, 0.7.0 미노출 / 세 산출물 전부 서명 URL 발급 /
+**win-x64 는 86MB 전체를 받아 해시가 게시값과 일치**, DMG 2개는 head·middle·tail
+레인지 GET 이 로컬 파일과 바이트 동일 + 서버가 보고한 전체 길이 일치 /
+`web_app_download_audit` 에 3행(전부 `app_version=0.8.0`, digest 일치).
+프로브 계정·감사행 전부 삭제, 잔여 0행.
+
+배포 후 경로 확인: `/` 200, `/righthand` 200, `/righthand/patient` 200(키오스크),
+`/righthand/doctor/download` 307(비로그인).
+
+### [HARD] 키 로테이션 — 지금 안전한가
+
+**아직 아니다.** 0.8.0 이 *제공*되기 시작했을 뿐, 필드의 0.7.0 설치본은 그대로
+살아 있고 그 안의 키로 Google/OpenAI 를 직접 부른다. 로테이트하는 순간 그
+설치본들의 AI 기능이 죽는다. 로테이션 전에 필요한 것:
+
+1. **모든 사용자가 0.8.0 이상으로 올라왔다는 확인.** 앱에 강제 업데이트도
+   버전 리포팅도 없다 — 지금은 누가 무엇을 쓰는지 셀 방법이 없다.
+   (약한 대용: `usage_events.source='client'` 행이 계속 들어오면 구버전이
+   살아 있다는 신호지만, 0.8.0 도 CLOVA·realtime 때문에 client 행을 쓴다.)
+2. 로테이트 시 **함께 갱신해야 하는 곳** (전부 서버측이고 재배포 불필요):
+   - Supabase function secret `GEMINI_API_KEY` (`ai-gemini` 가 읽는다)
+   - Supabase function secret `OPENAI_API_KEY` (`ai-realtime` 이 읽는다)
+   - 키오스크 Vercel 프로젝트 `righthand-patient` 의 `GEMINI_API_KEY`
+     — **키오스크는 프록시를 지나지 않고 자기 키로 Google 을 직접 부른다.**
+       여기를 빠뜨리면 문진이 통째로 죽는다. 환경변수 변경 후 **재배포 필요.**
+   - 미러 `realtime-doctor-winbuild` 의 `GEMINI_API_KEY`/`OPENAI_API_KEY`
+     시크릿은 **이제 워크플로가 읽지 않는다.** 갱신할 필요가 없고, 오히려
+     지워도 된다(남아 있으면 언젠가 누가 다시 쓴다).
+   - 로컬 `.env` 의 두 키는 프로브·키오스크 로컬 실행용이라 개발자 편의 문제다.
+3. CLOVA 3종은 **여전히 번들에 있다**(A2 미착수). "키를 걷어냈다"는 provider
+   두 곳에 대해서만 참이다.
