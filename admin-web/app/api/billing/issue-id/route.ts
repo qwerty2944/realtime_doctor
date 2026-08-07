@@ -3,6 +3,7 @@ import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { getServiceSupabase } from '@/lib/supabase/service';
 import { firstPaymentId, newIssueId, portoneCustomerId } from '@/lib/billing/ids';
 import { requireEnv } from '@/lib/env';
+import { billingUnavailable } from '@/lib/billing/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,11 @@ export const dynamic = 'force-dynamic';
  * 시작한 발급 요청의 결과가 맞는가"를 서버가 확인할 근거가 필요하다.
  */
 export async function POST() {
+  // 포트원 자격이 없으면 여기서 끝낸다. 아래로 내려가면 issue 행만 쌓이고
+  // 결제창은 열리지 않는다 -- 쓰레기 행과 원인 모를 실패를 동시에 만든다.
+  const unavailable = billingUnavailable();
+  if (unavailable) return unavailable;
+
   const supabase = await getCookieSupabase();
   const {
     data: { user }

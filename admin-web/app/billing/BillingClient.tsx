@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PLAN, formatKrw } from '@/lib/billing/plan';
 import { Spinner } from '@/components/spinner';
+import { withBasePath } from '@/lib/base-path';
 
 /**
  * 카드 등록 흐름 (S3).
@@ -30,7 +31,13 @@ export function BillingClient({ hasCard, status }: { hasCard: boolean; status: s
     setDone(null);
     setPhase('working');
     try {
-      const issueRes = await fetch('/api/billing/issue-id', { method: 'POST' });
+      const issueRes = await fetch(withBasePath('/api/billing/issue-id'), { method: 'POST' });
+      if (issueRes.status === 503) {
+        // 서버가 아직 포트원 자격을 갖고 있지 않다. 화면은 이 상태에서 버튼을
+        // 렌더링하지 않지만(page.tsx), 오래 열어 둔 탭이 여기 올 수 있다.
+        // "다시 시도"를 권하지 않는다 -- 다시 시도해도 되지 않는다.
+        throw new Error('결제 시스템이 아직 준비되지 않았습니다. 준비되면 안내드리겠습니다.');
+      }
       if (!issueRes.ok) throw new Error('결제 준비에 실패했습니다. 잠시 후 다시 시도해 주세요.');
       const issue = (await issueRes.json()) as {
         issueId: string;
@@ -54,7 +61,7 @@ export function BillingClient({ hasCard, status }: { hasCard: boolean; status: s
         throw new Error(result?.message ?? '카드 등록이 취소되었습니다.');
       }
 
-      const completeRes = await fetch('/api/billing/complete', {
+      const completeRes = await fetch(withBasePath('/api/billing/complete'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ issueId: issue.issueId, billingKey: result.billingKey })

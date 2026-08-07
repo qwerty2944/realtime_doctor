@@ -3,6 +3,7 @@ import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { getServiceSupabase } from '@/lib/supabase/service';
 import { ensureNextSchedule } from '@/lib/billing/cycle';
 import { revokeUpcomingSchedules } from '@/lib/billing/dunning';
+import { billingUnavailable } from '@/lib/billing/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,11 @@ interface Body {
 }
 
 export async function POST(req: Request) {
+  // 해지는 DB 플래그만이 아니라 포트원 예약 철회가 알맹이다(아래 주석 참조).
+  // 자격이 없으면 철회할 수 없으므로 "해지됐습니다"라고 말해서는 안 된다.
+  const unavailable = billingUnavailable();
+  if (unavailable) return unavailable;
+
   const supabase = await getCookieSupabase();
   const {
     data: { user }

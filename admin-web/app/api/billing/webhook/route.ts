@@ -3,6 +3,7 @@ import { verify, WebhookVerificationError } from '@portone/server-sdk/webhook';
 import { getServiceSupabase } from '@/lib/supabase/service';
 import { requireEnv } from '@/lib/env';
 import { handleWebhookEvent, narrowEvent } from '@/lib/billing/webhook-handlers';
+import { billingUnavailable } from '@/lib/billing/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,6 +55,14 @@ export const dynamic = 'force-dynamic';
  */
 
 export async function POST(req: Request) {
+  // --- 0) 자격 확인 ---------------------------------------------------------
+  // PORTONE_WEBHOOK_SECRET 이 없으면 서명을 검증할 방법이 없다. 검증을 건너뛰고
+  // 받아들이는 것은 "JSON 하나 POST 하면 아무 구독이나 켜지는" 구멍이고,
+  // requireEnv 가 던지게 두면 500 이 되어 설정 누락이 서버 장애로 보인다.
+  // 503 으로 **거절 사실과 이유를 함께** 남긴다.
+  const unavailable = billingUnavailable();
+  if (unavailable) return unavailable;
+
   // --- 1) 원문 --------------------------------------------------------------
   let raw: string;
   try {

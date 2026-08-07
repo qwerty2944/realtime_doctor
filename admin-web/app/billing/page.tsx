@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getCookieSupabase } from '@/lib/supabase/ssr';
+import { withBasePath } from '@/lib/base-path';
+import { missingPortOneEnv } from '@/lib/env';
 import { PLAN, formatKrw } from '@/lib/billing/plan';
 import { BillingClient } from './BillingClient';
 import { CancelClient } from './CancelClient';
@@ -69,7 +71,7 @@ export default async function BillingPage() {
   const {
     data: { user }
   } = await supabase.auth.getUser();
-  if (!user) redirect('/login?next=/billing');
+  if (!user) redirect('/billing/login?next=/billing');
 
   // 클라이언트는 subscriptions 본 테이블이 아니라 0002 의 secret-free 뷰만 읽는다.
   // billing_key 는 이 뷰에 아예 컬럼이 없다.
@@ -87,6 +89,10 @@ export default async function BillingPage() {
     .limit(24)
     .returns<AttemptRow[]>();
 
+  // 결제를 실제로 받을 수 있는 상태인가. API 라우트·헬스체크와 **같은 판정**을
+  // 쓴다 (lib/env.ts). 판정이 갈라지면 "버튼은 보이는데 503" 이 된다.
+  const billingReady = missingPortOneEnv().length === 0;
+
   const status = sub?.status ?? 'none';
   const nextBilling =
     status === 'trialing' ? sub?.trial_ends_at ?? null : sub?.current_period_end ?? null;
@@ -95,13 +101,14 @@ export default async function BillingPage() {
     <div className="mx-auto max-w-3xl px-6 py-10">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <Link href="/admin" className="text-[11px] text-foreground/40 hover:text-foreground">
-            ← 내 진료 기록
-          </Link>
-          <h1 className="mt-1 text-2xl font-semibold">구독 관리</h1>
+          {/* '내 진료 기록'(/admin) 으로 가는 링크를 두지 않는다. 그 경로는
+              브랜드 도메인에서 재작성되지 않으므로 의사에게는 404 로 보이고,
+              관리 호스트에서만 맞는 링크는 두 곳 중 한 곳에서 반드시 틀린다.
+              의사는 데스크톱 앱에서 이 화면으로 오고, 앱으로 돌아간다. */}
+          <h1 className="text-2xl font-semibold">구독 관리</h1>
           <p className="mt-1 text-sm text-foreground/60">{user.email}</p>
         </div>
-        <form action="/api/auth/signout" method="post">
+        <form action={withBasePath('/api/billing/signout')} method="post">
           <button
             type="submit"
             className="rounded-md border border-border px-3 py-1 text-xs text-foreground/70 hover:bg-muted hover:text-foreground"
@@ -154,18 +161,24 @@ export default async function BillingPage() {
             )}
           </div>
           <div className="mt-4">
-            <BillingClient hasCard={!!sub?.has_billing_key} status={status} />
+            {billingReady ? (
+              <BillingClient hasCard={!!sub?.has_billing_key} status={status} />
+            ) : (
+              <BillingNotReady trialEndsAt={sub?.trial_ends_at ?? null} status={status} />
+            )}
           </div>
         </div>
 
         {/* 해지 / 해지 취소 (S5) */}
-        <div className="mt-6 border-t border-border pt-4">
-          <CancelClient
-            cancelAtPeriodEnd={!!sub?.cancel_at_period_end}
-            currentPeriodEnd={sub?.current_period_end ?? null}
-            status={status}
-          />
-        </div>
+        {billingReady && (
+          <div className="mt-6 border-t border-border pt-4">
+            <CancelClient
+              cancelAtPeriodEnd={!!sub?.cancel_at_period_end}
+              currentPeriodEnd={sub?.current_period_end ?? null}
+              status={status}
+            />
+          </div>
+        )}
       </section>
 
       {/* 결제 내역 */}
@@ -201,6 +214,54 @@ export default async function BillingPage() {
           </table>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * 포트원 자격이 아직 없을 때 의사에게 보이는 것.
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * [HARD] 되지 않는 것을 될 것처럼 보이게 하지 않는다
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * 여기서 흔한 실수는 버튼을 그대로 두고 눌렀을 때만 실패시키는 것이다. 그러면
+ * 의사는 카드번호를 꺼내 입력하려다 실패를 만나고, 그 실패는 "이 서비스가
+ * 고장났다"로 기억된다. 버튼 자체를 렌더링하지 않는다.
+ *
+ * 반대쪽 실수는 아무 말도 안 하는 것이다. 체험이 끝나 가는 의사에게 결제 화면이
+ * 조용히 비어 있으면 그는 결제할 방법을 찾다가 포기한다. 그래서 지금 상태와
+ * **그가 지금 할 수 있는 일**을 명시한다.
+ *
+ * 비어 있는 환경변수 이름은 이 화면에 싣지 않는다. 의사가 고칠 수 있는 것이
+ * 아니고, 배포 구성을 사용자에게 노출할 이유도 없다. 그 정보는 부팅 로그와
+ * `/api/health` 에 있고, 그쪽은 운영자가 본다.
+ */
+function BillingNotReady({
+  trialEndsAt,
+  status
+}: {
+  trialEndsAt: string | null;
+  status: string;
+}) {
+  return (
+    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+      <div className="text-sm font-semibold text-amber-200">
+        카드 등록은 아직 준비 중입니다
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-amber-100/80">
+        결제 대행사 연동을 마무리하고 있습니다. 준비가 끝나면 이 화면에서 바로 카드
+        등록과 구독 시작이 가능합니다.
+      </p>
+      {status === 'trialing' && trialEndsAt && (
+        <p className="mt-2 text-sm leading-relaxed text-amber-100/80">
+          무료 체험은 {fmtDate(trialEndsAt)}까지입니다. 그전까지 결제가 열리지 않으면
+          이용이 끊기지 않도록 체험 기간을 연장해 드립니다.
+        </p>
+      )}
+      <p className="mt-3 text-xs text-amber-100/60">
+        문의: 앱 내 문의하기 또는 담당자에게 직접 연락해 주세요.
+      </p>
     </div>
   );
 }

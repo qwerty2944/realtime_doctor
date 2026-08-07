@@ -6,6 +6,7 @@ import { portoneCustomerId } from '@/lib/billing/ids';
 import { addMonthOnAnchor, anchorDayOf } from '@/lib/billing/period';
 import { ensureNextSchedule } from '@/lib/billing/cycle';
 import { getBillingKey, maskedCard, payWithBillingKey } from '@/lib/portone/client';
+import { billingUnavailable } from '@/lib/billing/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,9 @@ interface Body {
 }
 
 export async function POST(req: Request) {
+  const unavailable = billingUnavailable();
+  if (unavailable) return unavailable;
+
   const supabase = await getCookieSupabase();
   const {
     data: { user }
