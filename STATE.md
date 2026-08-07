@@ -684,6 +684,16 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
   user_id `a79fdc6c-f356-413a-b08d-206dd7e3bfeb`. 공개 `/auth/v1/signup` 경로로 가입 →
   트리거가 standard 7일 체험 생성(`trial_ends_at` 2026-08-12). is_admin=false, 기기 2대 한도.
   체험 만료 후에는 잠기므로 계속 쓰려면 `subscriptions.trial_ends_at` 연장 필요.
+- **PG 심사용 계정 발급 (2026-08-07)**: `pg-review@entanglecare.com`.
+  user_id `25070b96-b890-4f52-b5d8-d997a521c34f`. 이메일 확인됨, 비밀번호 로그인 200 실측.
+  standard 7일 체험(`trial_ends_at` 2026-08-14), is_admin=false. 심사가 길어지면 만료 전에
+  `trial_ends_at` 연장 필요 — 만료되면 기능이 잠겨 심사자가 빈 화면을 보게 된다.
+  환자 데모 데이터도 이 계정에 복제해 넣었다(2026-08-07): `demo.friend` 소유 행을
+  `insert ... select` 로 복제하되 **새 id = 기존 id의 첫 hex 자리를 `a` 로 치환**
+  (`('a' || substr(id::text,2))::uuid`) — 부모/자식 매핑이 그대로 보존되고 재실행해도
+  무동작이다. 두 계정의 행 수가 동일함을 확인했고(환자 4/방문 4/레드플래그 1/문진 4/
+  세션 1/전사 6/요약 1/분석 1/구술 1), 소유자 교차 참조 0건을 6개 조인으로 검증했다.
+  `facts_fingerprint` 는 복사하지 않고 0011 트리거가 재계산하게 뒀다(4행 전부 채워짐).
 - **데모 환자 데이터 시드 (2026-08-05)**: `scripts/seed-demo.sql`(신규, 멱등 — 고정 UUID +
   `on conflict do nothing`, 파일 하단에 주석 처리된 정리 블록). 위 데모 계정 소유로 원격
   프로젝트에 적용 완료: 환자 4(김데모/이시연/박준호/최영자) + encounters 4
