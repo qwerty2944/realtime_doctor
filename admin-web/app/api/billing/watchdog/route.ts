@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServiceSupabase } from '@/lib/supabase/service';
-import { requireEnv } from '@/lib/env';
+import { CRON_SECRET_ENV, missingPortOneEnv, requireEnv } from '@/lib/env';
 import { ensureNextSchedule } from '@/lib/billing/cycle';
 import {
   DUNNING_COLUMNS,
@@ -63,8 +63,18 @@ export const maxDuration = 300;
  * 호출이고, 그건 PORTONE_API_SECRET 을 쥔 서버만 할 수 있다. pg_cron 은 DB 안에서
  * 돌기 때문에 "예약이 없다"는 사실까지만 알 수 있고, 알아낸 걸로 할 수 있는 일이
  * 없다. 그래서 복구 로직은 서버에 두고, 트리거는 Vercel Cron 으로 매일 건다
- * (admin-web/vercel.json, 매일 UTC 18:00 = KST 03:00). 인터페이스는
- * "Bearer BILLING_CRON_SECRET 로 POST" 하나다.
+ * (admin-web/vercel.json, 매일 UTC 18:00 = KST 03:00).
+ *
+ * ── [HARD] 인터페이스는 "Bearer $CRON_SECRET" 하나다 -- 이름이 계약이다
+ *
+ * Vercel Cron 은 환경변수 이름이 **정확히 `CRON_SECRET`** 일 때만 Authorization
+ * 헤더를 붙인다. 다른 이름을 기대하면 크론은 매 실행 401 을 받고, 아래에서
+ * 실행 기록을 인증 뒤에 쓰기 때문에 `subscription_watchdog_runs` 가 비어 있는
+ * 채로 남는다 -- 증상이 "아무 일도 안 일어남"이라 이 잡이 탐지하려는 침묵과
+ * 구분되지 않는다. 그래서 이름을 리터럴로 쓰지 않고 `CRON_SECRET_ENV` 를
+ * 참조하며, 되돌림은 `scripts/assert-cron-secret-name.mjs` 가 빌드 단계에서
+ * 막고, 그래도 인증이 깨지면 `/api/health` 의 `watchdog` 검사가 "마지막 실행이
+ * 오래됐다"로 드러내 ops 프로버에 잡히게 한다.
  *
  * ── 조용한 0 과 안 도는 잡의 구분
  *
@@ -101,7 +111,7 @@ type Finding = {
 };
 
 function authorized(req: Request): boolean {
-  const expected = requireEnv('BILLING_CRON_SECRET');
+  const expected = requireEnv(CRON_SECRET_ENV);
   const header = req.headers.get('authorization') ?? '';
   const token = header.toLowerCase().startsWith('bearer ') ? header.slice(7) : '';
   const a = Buffer.from(token);
@@ -164,6 +174,27 @@ async function run() {
         ...(error ? { error: error.slice(0, 1000) } : {})
       })
       .eq('id', runId);
+  }
+
+  // ── 포트원 자격이 없으면 여기서 멈춘다 ─────────────────────────────────
+  //
+  // 이 잡의 복구 수단(예약 생성·철회·재시도 청구)은 전부 포트원 REST 호출이다.
+  // 자격이 없으면 탐지는 되지만 고칠 수가 없고, 고치지 못한 것을 findings 에
+  // 'failed' 로 잔뜩 쌓아 두면 매일 같은 목록이 반복되면서 정작 사람이 봐야 할
+  // 진짜 실패를 덮는다.
+  //
+  // [HARD] 그래도 **실행 기록은 이미 만들었다.** 위에서 행을 먼저 넣는 순서가
+  // 여기서 값을 한다: "돌긴 돌았고 자격이 없어서 멈췄다"가 DB 에 남는다.
+  // 조용히 끝나면 이 파일이 막으려는 실패(=흔적 없는 침묵)와 같은 모습이 된다.
+  const missingPortOne = missingPortOneEnv();
+  if (missingPortOne.length > 0) {
+    const reason = `포트원 자격 미설정: ${missingPortOne.join(', ')}`;
+    await record(reason);
+    console.error(`[watchdog] run=${runId} 중단 — ${reason}`);
+    return NextResponse.json(
+      { error: 'not_configured', runId, detail: reason, missing: missingPortOne },
+      { status: 503 }
+    );
   }
 
   try {

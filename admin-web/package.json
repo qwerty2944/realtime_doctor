@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/assert-cron-secret-name.mjs",
     "build": "next build",
+    "guard": "node scripts/assert-cron-secret-name.mjs",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
