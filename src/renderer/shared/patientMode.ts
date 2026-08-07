@@ -13,6 +13,7 @@ import {
   type PartitionResult,
   type SourceUtterance
 } from '../../shared/findings';
+import { readIntakeDifferentialName } from '../../shared/differentials';
 import type { TKey } from './i18n';
 
 /**
@@ -221,10 +222,18 @@ export function patientDifferentialsPartitioned(
   for (const raw of rows) {
     const row = asRecord(raw);
     if (!row) continue;
-    const name =
-      pickText(row, 'name_kr', 'nameKr', 'name', 'name_en', 'nameEn') ?? null;
-    if (!name) continue;
-    const nameEn = pickText(row, 'name_en', 'nameEn');
+    // 정규 키는 `name_kr` 하나다. 다섯 철자를 더듬던 자리를 여기로 접었다 —
+    // 어떤 철자를 받아줄지는 `src/shared/differentials.ts` 한 곳에만 적혀 있다.
+    const read = readIntakeDifferentialName(row);
+    if (!read) continue;
+    if (read.legacyKey) {
+      // 0018 의 CHECK 제약 이후로는 새 행이 여기 올 수 없다. 그래도 왔다면
+      // 제약보다 오래된 행이라는 뜻이므로 눈에 띄게 남긴다.
+      console.warn(
+        `[patientMode] 구 표기 감별진단 행: 진단명을 '${read.legacyKey}' 에서 읽었다 (정규 키는 name_kr).`
+      );
+    }
+    const { name, nameEn } = read;
     const icd10 = pickText(row, 'icd10', 'icd_10');
     mapped.push({
       name,

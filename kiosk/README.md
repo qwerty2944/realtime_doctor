@@ -330,16 +330,32 @@ Electron 파서: `../src/renderer/shared/patientMode.ts`
 
 ### `intake_results.differentials_json`
 
+**정규형이고, DB 가 강제한다** (`0018` 의 `intake_results_differentials_canonical`).
+아래 다섯 키가 전부이고 다른 키는 하나도 허용되지 않는다 — `name`/`nameEn`/`nameKr`
+같은 camelCase 는 물론이고, 아직 아무도 생각하지 않은 여섯 번째 철자도 거절된다.
+기준 선언은 `../src/shared/differentials.ts` 의 `INTAKE_DIFFERENTIAL_KEYS` 이고,
+이 파일·zod 스키마·SQL 제약·통계 함수가 어긋나면 `npm run check:differentials`
+(루트 `build` 가 부른다) 가 빌드를 세운다.
+
 ```jsonc
 [
   {
     "rank": 1,                       // index 0 이 항상 최우선 (서버에서 재정렬)
-    "name_kr": "망막박리",
-    "name_en": "Retinal detachment", // M4 PubMed 조회의 검색어. 한글/약어 금지.
-    "rationale": "커튼처럼 시야가 가려진다는 진술과 부합"
+    "name_kr": "망막박리",           // 필수·공백 불가. 통계가 이 키로 집계한다.
+    "name_en": "Retinal detachment", // 필수. M4 PubMed 조회의 검색어. 한글/약어 금지.
+    "rationale": "커튼처럼 시야가 가려진다는 진술과 부합",
+    // E1 근거. 서버가 실제 대화와 대조해 통과한 것만 남기므로 빈 배열일 수 있다.
+    "supporting_findings": [
+      { "finding": "커튼처럼 가려진다", "source": "#3" }
+    ]
   }
 ]
 ```
+
+> 데스크톱 실시간 분석이 쓰는 `analyses.differential_diagnoses` 는 camelCase
+> (`name`/`nameEn`/`icd10`/`reasoning`/`supportingFindings`)이고 **일부러 다르다** —
+> 진행 중인 진료의 해석이라 `rank` 가 없고 진료 언어를 따른다. 근거는 `0018` 헤더.
+> 그쪽 출력을 이 컬럼으로 넘길 때는 `toIntakeDifferentials()` 를 지난다.
 
 ### `intake_results.soap_json`
 

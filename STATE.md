@@ -1291,3 +1291,94 @@ Vercel DNS 패널의 `*` ALIAS 레코드는 권한이 없어 무의미하다(`di
   이미 배포된 설치본은 여전히 죽은 `admin.realtime-doctor.app` 을 연다.
 - **관측 상태 화면** — admin-web 에 아직 없다(OBSERVABILITY.md §5 가 대신한다).
 - **알림 채널** `OPS_ALERT_WEBHOOK_URL` 미설정 — 여전히 가장 큰 구멍.
+
+## 감별진단 저장 형태 정규화 (2026-08-07) — 0018
+
+### 무엇이 갈라져 있었나
+
+`intake_results.differentials_json` 의 진단명 키가 누가 썼느냐에 따라 달랐다.
+키오스크는 `name_kr`/`name_en`(둘 다 필수), Electron 분석기 스키마는
+`name`/`nameEn`, 그리고 읽는 쪽(`patientMode.ts:225`)은 다섯 철자를 차례로
+더듬었다: `pickText(row, 'name_kr','nameKr','name','name_en','nameEn')`.
+
+지금 급해진 이유는 두 가지다.
+
+1. `f_web_stats_diagnosis`(0014)가 살아 있고 `differentials_json -> 0 ->> 'name_kr'`
+   로 집계한다. camelCase 행은 **에러가 아니라 '미분류'** 로 조용히 떨어진다.
+2. `rederive_intake_interpretation`(0011)은 아직 호출부가 없다. 그것이 데스크톱
+   분석기 출력에 연결되는 날 `intake_results` 를 **대량으로** 다른 철자로 다시
+   쓴다 — 몇 달 뒤 "3월에 진단 통계가 왜 무너졌지"로 발견될 종류의 사고.
+
+### 무엇을 정규형으로 골랐나
+
+**컬럼 단위**로 정했다. 앱 단위가 아니다.
+
+- `intake_results.differentials_json` = snake_case
+  `{rank, name_kr, name_en, rationale, supporting_findings}`.
+  근거: 이 스키마의 저장 JSON 이 전부 snake_case 이고(`soap_json` 의
+  `follow_up_questions`·`medical_terms`, `recommended_tests_json` 의 `name_kr`),
+  0014 가 이미 이 철자로 집계하며, **운영의 24개 항목 전부가 이미 이 모양**이다.
+  다른 쪽으로 정했다면 맞는 데이터를 틀리게 만드는 마이그레이션을 스스로 만들어야 했다.
+- `analyses.differential_diagnoses` = camelCase 유지. **통일하지 않았다.**
+  같은 이름의 다른 산출물이다: 진행 중인 진료의 해석이라 세션마다 제자리
+  upsert 되고, `rank` 가 없고(순서는 배열 위치, 매 패스마다 다시 매겨짐),
+  `icd10` 이 있고, `name` 이 진료 언어를 따른다 — 영어 진료에는 한국어 진단명이
+  **존재하지 않으므로** `name_kr` 은 채울 때마다 거짓말이 된다. 게다가 이 컬럼은
+  통계가 집계하지도, `patientMode` 가 읽지도 않는다. 통일의 수혜자가 0이다.
+
+통일해야 하는 것은 두 테이블이 아니라 **한 컬럼에 쓰는 모든 writer** 였다.
+
+### 기존 행 — 세기 전에 옮기지 않았다
+
+| | 행 | 항목 | `name_kr` | `nameKr` | `name` | `name_en` | `nameEn` |
+|---|---|---|---|---|---|---|---|
+| `intake_results` | 8 | 24 | **24** | 0 | 0 | **24** | 0 |
+| `analyses` | 2 | 4 | — | 0 | **4** | 0 | **4** |
+
+구 표기 행이 **0건**이다. 그래서 백필 마이그레이션을 쓰지 않았다 — 옮길 데이터가
+없다. 읽기 쪽 레거시 분기는 남겼지만 **정상 경로가 아니라 표시된 폴백**이고,
+탄 사실이 `legacyKey` 값과 `console.warn` 으로 드러난다.
+
+적용 전후 데이터 지문(md5) 동일: `045c05fc…`(intake) / `97ca8b60…`(analyses).
+
+### 통계 — 숫자가 움직이지 않았다
+
+`f_web_stats_diagnosis` 를 실제 임상의 2명으로 가장해서 호출한 결과가 0018 전후로
+같다 (각 4행: 건성안 1 · 급성 폐쇄각 녹내장 1 · 바이러스결막염 1 · 백내장 1,
+'미분류' 0). 함수는 **일부러 손대지 않았다** — 이미 `name_kr` 을 먼저 읽으므로
+정규형과 일치한다. 달라진 것은 그 폴백이 이제 새 행에 대해 도달 불가능하다는 점,
+즉 폴백이 "camelCase writer 와 틀린 차트 사이에 서 있는 유일한 것"이기를 그만뒀다.
+
+### 재발 방지 — 세 층, 각각 다른 writer 를 막는다
+
+1. **DB CHECK 제약** (`0018`). 유일하게 SQL writer 를 막는 층이고,
+   `rederive_intake_interpretation` 이 정확히 그 writer다. 키를 **허용목록**으로
+   검사한다(부정목록이 아니라) — `dx_name` 같은 아직 없는 여섯 번째 철자도 같은
+   이유로 거절된다. 서브쿼리를 못 쓰는 CHECK 제약이라 `jsonb_path_exists` 로 썼고,
+   helper 함수를 만들지 않은 이유는 그것이 0013 이 금지하는 EXECUTE 권한을 요구하기
+   때문이다. `rederive` 안에는 이유를 말하는 `raise` 를 따로 넣었다.
+2. **zod `.strict()`** (키오스크). 기본 `z.object` 는 모르는 키를 **조용히 버린다** —
+   여섯 번째 철자가 소리 없이 태어나는 경로가 정확히 그것이었다.
+3. **`npm run check:differentials`** — 루트 `build`/`dist`/`typecheck` 가 부른다.
+   `scripts/probe-differentials-shape.mjs` 가 정규형 선언 네 벌
+   (`src/shared/differentials.ts` · 키오스크 zod · `0018` SQL · `0014` 집계)이
+   어긋났는지 검사하고, grep 이 아니라 **진짜 모듈을 불러서 돌린다**.
+
+가드가 실제로 문다는 것은 두 번 확인했다: 키오스크 스키마의 `name_kr` 을 `nameKr`
+로 바꾸니 `build` 가 exit 1 (electron-vite 는 실행조차 안 됨), `0018` 의 허용목록만
+`nameEn` 으로 어긋뜨려도 exit 1. 둘 다 되돌린 뒤 exit 0.
+
+### 리허설
+
+스테이징(`ywsdxnpilcesudtyrewt`)에 0018 을 먼저 적용하고 합성 데이터로 확인했다:
+camelCase insert · 여섯 번째 철자 insert · 공백 `name_kr` · `analyses` 에 snake_case
+전부 `23514` 로 거절, camelCase `rederive` 는 이유를 말하는 `22023` 으로 거절,
+정규형 `rederive` 는 정상 supersede + insert. 권한 감사 PASS. 그다음 운영에 적용했고
+운영에서도 감사 PASS, 구조 지문 diff 는 **0줄**(스테이징과 완전 일치).
+
+### 발견했지만 건드리지 않은 것
+
+- 운영의 `supabase_migrations.schema_migrations` 에 **`0017` 이 없다.** 스키마상으로는
+  적용돼 있다(지문 diff 0줄이 그 증거). 이력표만 비어 있다.
+- `patientMode.recommendedTestsText` 도 `name_kr`/`nameKr`/`name`/`code` 를 더듬는다.
+  `recommended_tests_json` 은 이번 범위 밖이라 두었다 — 같은 종류의 갈래다.

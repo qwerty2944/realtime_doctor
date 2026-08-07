@@ -7,14 +7,15 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "check:differentials": "node --import ./scripts/probe-findings-register.mjs scripts/probe-differentials-shape.mjs",
+    "build": "npm run check:differentials && electron-vite build",
     "start": "electron-vite preview",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "dist": "electron-vite build && electron-builder --mac --arm64",
-    "dist:universal": "electron-vite build && electron-builder --mac --universal",
-    "dist:win": "electron-vite build && electron-builder --win --x64"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run check:differentials",
+    "dist": "npm run check:differentials && electron-vite build && electron-builder --mac --arm64",
+    "dist:universal": "npm run check:differentials && electron-vite build && electron-builder --mac --universal",
+    "dist:win": "npm run check:differentials && electron-vite build && electron-builder --win --x64"
   },
   "build": {
     "appId": "dev.realtime.doctor",

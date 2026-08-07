@@ -277,10 +277,23 @@ export const transcriptLineSchema = z.object({
   text: z.string().min(1)
 });
 
-/** intake_results.differentials_json — index 0 이 최우선이어야 한다. */
+/**
+ * intake_results.differentials_json — index 0 이 최우선이어야 한다.
+ *
+ * [HARD] 키 집합은 `src/shared/differentials.ts` 의 `INTAKE_DIFFERENTIAL_KEYS`
+ * 와 정확히 같아야 한다. 여기서 kiosk 가 그 파일을 import 하지 않는 것은
+ * 의도적이다 — 키오스크는 독립 배포되는 Next 앱이고 Electron 소스 트리를
+ * 빌드 입력으로 끌어들이면 두 배포가 한 몸이 된다. 대신
+ * `scripts/probe-differentials-shape.mjs` 가 두 선언이 어긋났는지 검사하고,
+ * 어긋나면 빌드를 세운다.
+ *
+ * `.strict()` 인 이유: zod 의 기본 object 는 모르는 키를 **조용히 버린다**.
+ * 그러면 미래의 writer 가 `nameKr` 을 하나 더 붙여도 검증은 통과하고 값만
+ * 사라진다 — 여섯 번째 철자가 아무 소리 없이 태어나는 정확히 그 경로다.
+ */
 export const differentialsJsonSchema = z
   .array(
-    z.object({
+    z.strictObject({
       rank: z.number().int().min(1),
       name_kr: z.string().trim().min(1),
       name_en: z.string().trim().min(1),
@@ -293,7 +306,7 @@ export const differentialsJsonSchema = z
        * 것보다 낫다.
        */
       supporting_findings: z.array(
-        z.object({
+        z.strictObject({
           finding: z.string().trim().min(1),
           source: z.string().trim().min(1)
         })
