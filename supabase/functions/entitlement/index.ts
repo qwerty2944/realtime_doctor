@@ -22,6 +22,15 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // 판정을 해야 하기 때문이다 -- 두 벌이 되면 갈라지고, 갈라진 날 "화면엔 만료인데
 // API 는 계속 나간다"가 된다. 여기서 바뀐 것은 위치뿐이고 규칙은 그대로다.
 import { derive, SUBSCRIPTION_COLUMNS, type Row } from '../_shared/entitlement.ts';
+import {
+  envPresence,
+  healthResponse,
+  isHealthRequest,
+  rollUp,
+  signingKeyUsable,
+  tableReachable,
+  type HealthCheck
+} from '../_shared/health.ts';
 
 /** 서명 토큰 유효기간 = 오프라인 유예 창(계획서 72시간). */
 const TOKEN_TTL_MS = 72 * 60 * 60 * 1000;
@@ -127,8 +136,77 @@ function json(body: unknown, status: number): Response {
   });
 }
 
+/**
+ * GET ?health=1 -- 이 함수가 실제로 실패할 세 가지를 확인한다.
+ *
+ * 확인하는 것:
+ *   env      -- 네 개의 환경변수가 존재하는가 (값은 보지 않는다)
+ *   database -- service_role 로 `subscriptions` 에 닿는가. 이게 안 되면 이
+ *               함수는 전원에게 503 을 주고, 그러면 모든 앱이 캐시 유예로
+ *               버티다가 72시간 뒤 일제히 잠긴다.
+ *   signing  -- ECDSA 개인키를 import 해서 실제로 한 번 서명하는가. 서명이
+ *               안 되면 판정을 전달할 수단이 없고, 그건 자격 있는 의사가
+ *               진료 중에 잠긴다는 뜻이다.
+ *
+ * 증명하지 못하는 것: 특정 사용자의 판정이 옳은지. 그건 그 사용자의 JWT 로
+ * 실제 POST 를 해야 알 수 있고, 감시자는 그 계정을 갖고 있지 않다(그리고
+ * 가져서도 안 된다).
+ */
+async function health(): Promise<Response> {
+  const startedAt = Date.now();
+  const checks: HealthCheck[] = [];
+
+  checks.push(
+    envPresence([
+      'SUPABASE_URL',
+      'SUPABASE_SERVICE_ROLE_KEY',
+      'SUPABASE_ANON_KEY',
+      'ENTITLEMENT_PRIVATE_KEY'
+    ])
+  );
+
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (url && serviceKey) {
+    const admin = createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    checks.push(await tableReachable(admin, 'subscriptions', 'database'));
+    // plans 는 device_limit 의 출처다. 없으면 자격은 나가지만 기기 수가 0 이
+    // 되어 앱이 등록을 못 한다 -- 치명적이지는 않으므로 critical 이 아니다.
+    checks.push(await tableReachable(admin, 'plans', 'plans'));
+  } else {
+    checks.push({ name: 'database', ok: false, detail: '환경변수가 없어 조회를 시도하지 못함' });
+  }
+
+  checks.push(await signingKeyUsable('ENTITLEMENT_PRIVATE_KEY'));
+
+  return healthResponse({
+    surface: 'edge:entitlement',
+    status: rollUp(checks, ['env', 'database', 'signing']),
+    checkedAt: new Date().toISOString(),
+    latencyMs: Date.now() - startedAt,
+    checks,
+    provesWhenOk: [
+      '함수가 배포되어 있고 요청을 받는다',
+      'service_role 로 subscriptions/plans 를 읽을 수 있다',
+      'ECDSA P-256 개인키를 import 해서 실제로 서명할 수 있다'
+    ],
+    doesNotProve: [
+      '특정 사용자의 자격 판정이 옳은지 (사용자 JWT 가 필요하다)',
+      '앱이 갖고 있는 공개키가 이 개인키와 짝인지 (검증은 앱 쪽에서 일어난다)',
+      '토큰 만료·오프라인 유예 로직이 옳은지 (scripts/probe-entitlement.mjs 의 일이다)'
+    ]
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  // [HARD] 헬스체크는 호출자 JWT 검사보다 **먼저**다. 감시자에게 사용자 계정을
+  // 요구하면 감시가 그 계정의 수명에 묶이고, 계정이 만료되는 날 감시도 같이
+  // 조용히 멈춘다. 게이트웨이의 JWT 검증(anon 키면 통과)이 외부 노출을 막고,
+  // 응답에는 구독 내용도 키도 들어가지 않으므로 새로 열리는 문은 없다.
+  if (isHealthRequest(req)) return await health();
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
   const url = Deno.env.get('SUPABASE_URL');

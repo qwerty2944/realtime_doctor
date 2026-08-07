@@ -25,6 +25,7 @@
 // (앱 쪽 상수와 글자 그대로 같아야 한다: src/main/openaiStream.ts)
 
 import { openGate, recordUsage, json, CORS } from '../_shared/gate.ts';
+import { aiProxyHealth, isHealthRequest } from '../_shared/health.ts';
 
 const PROMPT_KO =
   '한국 의료 진료 대화를 들리는 그대로 충실히 받아 적습니다. 한국어로 말한 부분은 한국어, 영어로 말한 부분(MRI, BP, amoxicillin 등)은 그 영어 그대로. 음차/병기/의역 금지. 숫자와 단위는 아라비아 숫자로.';
@@ -34,6 +35,11 @@ const PROMPT_EN =
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  // [HARD] 헬스체크는 게이트보다 **먼저**이고, provider 를 부르지 않는다.
+  // 게이트 뒤에 두면 감시자가 유효한 구독을 들고 있어야 하고, 구독이 만료되는
+  // 날 감시도 같이 조용히 멈춘다. 확인 항목과 그 한계는 _shared/health.ts 의
+  // aiProxyHealth 주석에 있다.
+  if (isHealthRequest(req)) return await aiProxyHealth('edge:ai-realtime', 'OPENAI_API_KEY');
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
   // [HARD] 게이트가 먼저다. 아래 OpenAI fetch 는 이 분기를 통과해야만 도달한다.

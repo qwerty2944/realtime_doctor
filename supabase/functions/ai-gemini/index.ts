@@ -31,6 +31,7 @@
 // 없어진다(flash 대신 pro 를 지목하면 그만이다).
 
 import { openGate, recordUsage, json, CORS } from '../_shared/gate.ts';
+import { aiProxyHealth, isHealthRequest } from '../_shared/health.ts';
 
 /**
  * 업스트림 주소.
@@ -72,6 +73,11 @@ interface UsageMetadata {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  // [HARD] 헬스체크는 게이트보다 **먼저**이고, provider 를 부르지 않는다.
+  // 게이트 뒤에 두면 감시자가 유효한 구독을 들고 있어야 하고, 구독이 만료되는
+  // 날 감시도 같이 조용히 멈춘다. 확인 항목과 그 한계는 _shared/health.ts 의
+  // aiProxyHealth 주석에 있다.
+  if (isHealthRequest(req)) return await aiProxyHealth('edge:ai-gemini', 'GEMINI_API_KEY');
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
   // [HARD] 게이트가 먼저다. 아래 Google fetch 는 이 분기를 통과해야만 도달한다.

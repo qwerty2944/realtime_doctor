@@ -173,6 +173,20 @@ step "Reading credentials"
 SUPABASE_URL="$(read_env_value "${LOCAL_ENV_FILE}" NEXT_PUBLIC_SUPABASE_URL)"
 SUPABASE_ANON_KEY="$(read_env_value "${LOCAL_ENV_FILE}" NEXT_PUBLIC_SUPABASE_ANON_KEY)"
 SUPABASE_SERVICE_ROLE_KEY="$(read_env_value "${LOCAL_ENV_FILE}" SUPABASE_SERVICE_ROLE_KEY)"
+# Observability (O1). CRON_SECRET is generated here when absent rather than being
+# required, because a missing one makes the prober refuse to run -- and a deploy
+# that silently ships a monitoring job that never runs is the exact failure the
+# job was built to catch. The generated value is written back to .env.local so a
+# re-run does not rotate it (rotating it would 401 the cron until the next deploy).
+CRON_SECRET="$(read_env_value "${LOCAL_ENV_FILE}" CRON_SECRET)"
+if [ -z "${CRON_SECRET}" ]; then
+  CRON_SECRET="$(openssl rand -hex 32)"
+  printf '\nCRON_SECRET=%s\n' "${CRON_SECRET}" >> "${LOCAL_ENV_FILE}"
+  info "CRON_SECRET was missing; generated one and appended it to .env.local."
+fi
+# Optional. Absent means alerts are recorded but delivered nowhere -- which the
+# system reports loudly rather than hiding. See .env.example.
+OPS_ALERT_WEBHOOK_URL="$(read_env_value "${LOCAL_ENV_FILE}" OPS_ALERT_WEBHOOK_URL)"
 
 # Fail before touching Vercel rather than deploying an app that throws on first use.
 # Every one of these is required at runtime by `requireEnv`.
@@ -271,13 +285,18 @@ put_env() {
   [ "${status}" -eq 0 ] || fail "Failed to set ${name} (status ${status}). Try: ${VERCEL_BIN} env add ${name} ${TARGET_ENV}"
 }
 
-# These three are the complete set. Variables for intake, the LLM providers, CLOVA
+# The Supabase three plus the two observability variables are the complete set. Variables for intake, the LLM providers, CLOVA
 # Speech, PubMed and the public-data integrations were removed along with the code
 # that read them; if the Vercel project still carries them from an older deploy,
 # they are dead weight and can be deleted by hand.
 put_env NEXT_PUBLIC_SUPABASE_URL      "${SUPABASE_URL}"
 put_env NEXT_PUBLIC_SUPABASE_ANON_KEY "${SUPABASE_ANON_KEY}"
 put_env SUPABASE_SERVICE_ROLE_KEY     "${SUPABASE_SERVICE_ROLE_KEY}"
+# [HARD] The name CRON_SECRET is load-bearing: Vercel Cron attaches
+# `Authorization: Bearer $CRON_SECRET` only for a variable with exactly this
+# name. Renaming it makes every scheduled run 401 and never succeed.
+put_env CRON_SECRET                   "${CRON_SECRET}"
+put_env OPS_ALERT_WEBHOOK_URL         "${OPS_ALERT_WEBHOOK_URL}" optional
 
 if [ "${ENV_ONLY}" -eq 1 ]; then
   step "Done (--env-only): environment variables synced, nothing deployed."

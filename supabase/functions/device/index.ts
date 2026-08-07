@@ -34,6 +34,14 @@
 // 망가지지 않는 쪽이 기본값이다.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import {
+  envPresence,
+  healthResponse,
+  isHealthRequest,
+  rollUp,
+  tableReachable,
+  type HealthCheck
+} from '../_shared/health.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -66,8 +74,56 @@ function str(v: unknown, max = 200): string {
   return typeof v === 'string' ? v.slice(0, max) : '';
 }
 
+/**
+ * GET ?health=1
+ *
+ * 이 함수가 실제로 실패할 곳은 두 군데다: 환경변수와 DB. 판정에 쓰는 두
+ * 테이블(`devices`, `plans`)에 직접 닿아 본다. `devices` 는 클라이언트에게서
+ * 쓰기 권한을 전부 걷어낸 테이블이라(0005) service_role 로만 접근되며, 그
+ * 경로가 끊기면 기기 등록이 통째로 멈춘다 -- 새 기기로 로그인한 의사가 아무
+ * 것도 못 하게 되는 실패이고, 화면에는 원인이 드러나지 않는다.
+ *
+ * 아무 기기도 등록하거나 해지하지 않는다. 행 내용은 읽지 않는다.
+ */
+async function health(): Promise<Response> {
+  const startedAt = Date.now();
+  const checks: HealthCheck[] = [];
+
+  checks.push(envPresence(['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY']));
+
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (url && serviceKey) {
+    const admin = createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    checks.push(await tableReachable(admin, 'devices', 'database'));
+    checks.push(await tableReachable(admin, 'plans', 'plans'));
+  } else {
+    checks.push({ name: 'database', ok: false, detail: '환경변수가 없어 조회를 시도하지 못함' });
+  }
+
+  return healthResponse({
+    surface: 'edge:device',
+    status: rollUp(checks, ['env', 'database', 'plans']),
+    checkedAt: new Date().toISOString(),
+    latencyMs: Date.now() - startedAt,
+    checks,
+    provesWhenOk: [
+      '함수가 배포되어 있고 요청을 받는다',
+      'service_role 로 devices/plans 를 읽을 수 있다 -- 기기 등록·해지의 전제'
+    ],
+    doesNotProve: [
+      '기기 수 제한이 옳게 세어지는지 (등록을 실제로 해봐야 알 수 있고, 그건 상태를 바꾼다)',
+      '특정 사용자의 기기 목록이 옳은지 (사용자 JWT 가 필요하다)'
+    ]
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  // 헬스체크는 호출자 JWT 검사보다 먼저. 사유는 entitlement/index.ts 와 같다.
+  if (isHealthRequest(req)) return await health();
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
   const url = Deno.env.get('SUPABASE_URL');
