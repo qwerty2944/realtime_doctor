@@ -35,8 +35,16 @@ export async function middleware(req: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
+    // [HARD] 결제 화면과 관리 화면은 **다른 로그인 경로**로 보낸다.
+    // 브랜드 도메인(entanglecare.com)에서 재작성되는 것은 `/billing/*` 뿐이라,
+    // 결제 화면에 온 의사를 `/login` 으로 보내면 doctor-web 의 404 로 떨어진다.
+    //
+    // `req.nextUrl` 은 basePath 를 제외한 경로를 담고, 여기에 세팅한 pathname 은
+    // 리다이렉트 시 Next 가 다시 접두사를 붙여 준다. 그래서 이 파일에서만은
+    // withBasePath 를 쓰지 않는다 -- 쓰면 접두사가 두 번 붙는다.
     const url = req.nextUrl.clone();
-    url.pathname = '/login';
+    const isBilling = req.nextUrl.pathname.startsWith('/billing');
+    url.pathname = isBilling ? '/billing/login' : '/login';
     url.searchParams.set('next', req.nextUrl.pathname);
     return NextResponse.redirect(url);
   }

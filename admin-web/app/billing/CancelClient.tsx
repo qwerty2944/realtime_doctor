@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/spinner';
+import { withBasePath } from '@/lib/base-path';
 
 /**
  * 해지 / 해지 취소 (S5).
@@ -52,7 +53,7 @@ export function CancelClient({
     setErr(null);
     setNote(null);
     try {
-      const res = await fetch('/api/billing/cancel', {
+      const res = await fetch(withBasePath('/api/billing/cancel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancel })

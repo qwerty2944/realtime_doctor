@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getServiceSupabase } from '@/lib/supabase/service';
 import { buildHandoffUrl, HANDOFF_TTL_MS } from '@/lib/billing/handoff';
-import { appOrigin, requireEnv } from '@/lib/env';
+import { publicBaseUrl, requireEnv } from '@/lib/env';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const origin = appOrigin();
+  // basePath 를 포함한 공개 주소. 링크가 앱에서 브라우저로 그대로 열리므로
+  // 접두사가 빠지면 doctor-web 의 404 로 간다.
+  const origin = publicBaseUrl();
   const { data, error } = await getServiceSupabase().auth.admin.generateLink({
     type: 'magiclink',
     email
