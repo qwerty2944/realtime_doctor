@@ -62,6 +62,26 @@ typecheck && npm run build`. Flutter는 `cd mobile && flutter test`.
 - Postgres 함수의 PUBLIC EXECUTE는 회수돼 있다(0010). 새 함수를 만들면 같은 처리를 해야 한다.
 - 릴리스 빌드에 결제 시크릿이 새는지 `.next/static`와 `out/`을 grep하는 검사가 관례다.
 
+## 관측 (2026-08-07)
+
+제품이 자기 고장을 알리는 경로가 생겼다. 상세는 `OBSERVABILITY.md`.
+
+- **사람이 볼 URL 하나: `https://entanglecare.com/api/health`.** 제품 상태와 감시자 자신의
+  상태(`extra.prober.stale`), 알림 대상 유무를 한 응답에 싣는다.
+- 헬스체크는 각 표면이 **실제로 실패할 의존성**을 실행한다(통계 함수 4종, 방문 코드 판정,
+  ECDSA 서명). provider 는 부르지 않고 PHI 도 만들지 않는다. 각 응답이 `provesWhenOk` /
+  `doesNotProve` 를 스스로 싣는다 — 무엇을 증명하지 못하는지 적지 않은 헬스체크는 잘못된
+  확신을 판다.
+- 프로버는 `doctor-web` `/api/ops/probe`(Vercel Cron, KST 03:00). **admin-web 이 아니다 —
+  admin-web 은 미배포이고 배포되지 않은 앱의 크론은 실행되지 않는다.**
+- 하루 1회는 Hobby 플랜 상한이지 설계가 아니다. 외부 스케줄러로 같은 URL 을 치면 주기도
+  올라가고 "Vercel 자체 장애"까지 볼 수 있다.
+- **알림은 아직 아무 데도 안 간다.** `OPS_ALERT_WEBHOOK_URL` 미설정이 현재 상태이고, 그
+  사실이 다섯 곳에 기록된다(조용한 no-op 금지). `/api/health` 가 이 때문에 `degraded` 로
+  보이는 것이 지금의 정상이다.
+- 마이그레이션 0017: `ops_probe_runs`(이상 없어도 기록), `ops_probe_alert_state`(중복 억제),
+  `ops_probe_status`(뷰), `f_ops_stats_probe()`, `f_ops_intake_probe()`. 전부 service_role 전용.
+
 ## 작업 로그
 
 `STATE.md`가 세션 간 기록이고, 계획은 `tasks/`(todo.md, subscription-plan.md).

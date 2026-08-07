@@ -1036,3 +1036,79 @@ Gemini 응답)** / `gemini-2.5-pro` **400 `model_not_allowed`**. allowlist 가
    - 로컬 `.env` 의 두 키는 프로브·키오스크 로컬 실행용이라 개발자 편의 문제다.
 3. CLOVA 3종은 **여전히 번들에 있다**(A2 미착수). "키를 걷어냈다"는 provider
    두 곳에 대해서만 참이다.
+
+## 관측 계층 (2026-08-07) — O1
+
+배경: 제품이 자기 고장을 아무에게도 알리지 않았다. 키오스크가 멈추거나 `entitlement` 가
+500 을 뿜기 시작하면 첫 신호가 진료 중인 의사의 전화였다. 운영 문서는 `OBSERVABILITY.md`.
+
+### 만든 것
+
+- **헬스체크 6개.** 각 표면이 **실제로 실패할 의존성**을 실행한다. Node/Deno 생존만
+  확인하는 200 은 잘못된 확신을 만들기 때문에 만들지 않았다.
+  - `doctor-web /api/health` — Supabase 도달 + `f_ops_stats_probe()` 로 `f_web_stats_*`
+    네 함수를 실제 테이블 위에서 실행 + 프로버 생사 + 알림 대상 유무
+  - `kiosk /righthand/patient/api/health` — 담당 의사 실재 확인 +
+    `f_ops_intake_probe()` 로 `redeem_visit_access_code()` 를 **롤백되는 서브트랜잭션**
+    에서 실행(무차별 대입 카운터 무소모, `consumedNothing` 이 값으로 증명)
+  - Edge Function 4종 — `GET ?health=1`. 호출자 JWT 검사 **앞**에 둔다(감시가 사용자
+    계정 수명에 묶이면 계정이 만료되는 날 감시도 조용히 멈춘다). entitlement 는 ECDSA
+    개인키를 import 해 실제로 한 번 서명한다.
+  - 공통: provider 호출 없음(감시 주기가 곧 비용이 되면 감시가 꺼진다), PHI 없음,
+    비밀값 없음. 각 응답이 `provesWhenOk` / `doesNotProve` 를 스스로 싣는다.
+- **프로버** `doctor-web /api/ops/probe` + Vercel Cron(KST 03:00). 6개 표면을 병렬로
+  치고 down / degraded / unknown(200 인데 헬스 보고서가 아님) 을 구별한다. 이상이 없어도
+  `ops_probe_runs` 에 행을 남긴다(0004 원칙).
+- **알림** `OPS_ALERT_WEBHOOK_URL` 하나. `(surface, issue)` 중복 억제 + 복구 알림.
+- **마이그레이션 0017** — `ops_probe_runs`, `ops_probe_alert_state`, `ops_probe_status`(뷰),
+  `f_ops_stats_probe()`, `f_ops_intake_probe()`. 전부 service_role 전용. 0013 가드를
+  파일 끝에서 재실행해 살아 있는 카탈로그로 확인.
+
+### 결정과 근거
+
+- **프로버를 admin-web 이 아니라 doctor-web 에 뒀다.** 기존 크론은 `admin-web/vercel.json`
+  에 있지만 **admin-web 은 미배포**다. 배포되지 않은 앱의 크론은 실행되지 않으므로,
+  관례를 따랐다면 프로버는 첫날부터 한 번도 안 돌면서 "감시가 붙었다"는 인상만 남겼다.
+- **자기 죽음 처리.** 스케줄 잡은 자기 죽음을 스스로 알릴 수 없다(죽으면 코드가 안 돈다).
+  둘 다 한다: (1) 실행 간격을 재서 `missed_previous_run` 으로 **사후** 보고,
+  (2) `expected_next_run_at` 을 기록하고 `ops_probe_status.prober_stale` 을 `/api/health`
+  가 실어 날라 **URL 하나로 상시 노출**. 남는 구멍은 Vercel 자체 장애 — 크론과 헬스체크가
+  같은 계정 위라 같이 죽는다. 외부 스케줄러만이 이걸 막는다.
+- **`CRON_SECRET` 이라는 이름은 필수다.** Vercel Cron 은 정확히 이 이름일 때만 Bearer 를
+  자동으로 붙인다. 미설정 시 프로버는 조용히 통과시키지 않고 503 으로 거절한다.
+- **미설정 알림 대상을 조용히 넘기지 않는다.** 다섯 곳에 기록된다
+  (`alert_target_configured`, `alerts_undeliverable`, `details.wouldHaveSent` 에 보냈어야
+  할 내용 그대로, `alert_error`, `/api/health` 의 `alerting` 검사).
+- **알림 채널 자체에 대해서는 알리지 않는다.** "보낼 곳이 없다"를 보낼 곳 없는 채널로
+  알리는 것은 순환이다(첫 운영 실행에서 실제로 매 실행 전달불가 1건을 만들었다).
+
+### 검증 (전부 라이브)
+
+- 마이그레이션 0017 라이브 적용. 카탈로그 확인: `ops_*` / `f_ops_*` 에 PUBLIC·anon·
+  authenticated 권한 **0건**, RLS 켜짐·정책 0개. PostgREST 로도 anon 은 42501.
+- 헬스체크 6개 전부 200/ok. 키오스크를 **잘못된 service_role 키**로 띄운 별도 인스턴스는
+  503 + `database`/`intake_rpc` 실패로 정확히 떨어졌다(실패가 실제로 검출된다는 증거).
+- 실패 순회: doctor-web·kiosk 404(배포 전) → `down` 2건 기록 + 전달불가 2건 +
+  `wouldHaveSent` 에 내용 저장. 재실행 시 억제 2건(중복 억제 동작).
+- 로컬 수신기를 붙인 순회에서 웹훅 2건 실제 수신 확인(전달 경로 동작).
+- `CRON_SECRET` 미설정 → 503, 잘못된 Bearer → 401.
+- 배포 후 순회: 6개 표면 중 5개 ok, doctor-web 만 `alerting` 하나로 degraded.
+  `entanglecare.com` 의 `/`, `/righthand`, `/righthand/patient`, `/righthand/doctor/download`
+  전부 이전과 동일(200/200/200/307).
+
+### 남은 것
+
+- **알림 채널 미설정** — 지금 가장 큰 구멍. `OPS_ALERT_WEBHOOK_URL` 만 채우면 된다.
+  이것 때문에 `/api/health` 가 `degraded` 로 보이는 것이 현재의 정상 상태다.
+- **주기 하루 1회** — Vercel Hobby 상한. Pro 이거나 외부 스케줄러면 5분으로 내려간다.
+- **외부 감시자 없음** — Vercel 자체 장애를 볼 수 없다.
+- **상태 화면** — admin-web 배포 후. 데이터는 `ops_probe_status` 로 준비돼 있다.
+- **provider 키 유효성** — 유료 호출 없이 확인 불가라 의도적으로 범위 밖.
+
+### 발견했지만 손대지 않은 것
+
+`admin-web` 의 빌링 감시 크론은 `BILLING_CRON_SECRET` 을 기대하는데, **Vercel Cron 은
+`CRON_SECRET` 이라는 이름에만 Bearer 를 자동으로 붙인다.** 두 값이 같지 않으면 그 크론은
+배포되는 순간부터 매 실행 401 을 받고 한 번도 성공하지 못한다 — 그리고 그 잡은 자기
+실행 기록을 401 이후에 쓰므로 `subscription_watchdog_runs` 도 비어 있어, 증상이
+"아무 일도 안 일어남"이다. admin-web 배포 전에 확인할 것.
