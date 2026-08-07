@@ -758,6 +758,51 @@ righthand_voice 의 환자 기능을 realtime_doctor(Electron) 에 이식. 계�
 - 남은 것: **도메인 전환**(`entanglecare.com` 을 `app` → `doctor-web`). 롤백을 위해
   `app` 프로젝트는 손대지 않았다.
 
+## 스테이징 환경 (2026-08-07) — 운영 문서는 `STAGING.md`
+
+배경: 지금까지 마이그레이션과 Edge Function 배포가 전부 운영 DB 로 곧바로 나갔다.
+매번 검증했고 되돌릴 방법이 있었지만 그건 주의력이지 안전장치가 아니다.
+
+- **새 Supabase 프로젝트 `ywsdxnpilcesudtyrewt`** (`realtime-doctor-staging`,
+  ap-northeast-2). 도구: `scripts/staging/db.mjs` (apply / fingerprint / audit / inventory).
+- **`0000`~`0017` 18개 전부를 빈 프로젝트에 처음부터 적용해 성공했다.** 마이그레이션
+  이력이 데이터베이스를 무에서 재구성할 수 있다는 첫 실증이다. `db push` 는 쓰지 않는다
+  (운영 원격 이력이 타임스탬프 version 이라 파일 번호와 안 맞는다 — A1 기록 참고).
+  스테이징의 이력표는 처음부터 파일 번호(`0000`…`0017`)로 맞춰 뒀다.
+- **[HARD] 첫 시도는 실패했다.** 프로젝트가 `ACTIVE_HEALTHY` 를 보고한 뒤에도 storage
+  서비스의 자체 마이그레이션이 아직 안 끝나 `storage.buckets` 가 없었고, `0000` 이
+  거기 INSERT 한다. Management API query 엔드포인트가 **한 트랜잭션**으로 돌려서
+  public 테이블 0개로 깨끗이 롤백됐고, 잠시 뒤 재실행하니 전부 통과했다.
+  마이그레이션 결함이 아니라 프로비저닝 경합이다.
+- **구조 지문 diff = 0줄.** 1225줄(컬럼·테이블+RLS·함수+SECURITY DEFINER·정책·인덱스·
+  제약·트리거(public+auth)·테이블/함수 GRANT·확장·시퀀스·enum·`pg_default_acl`)이
+  운영과 md5 까지 동일하다. **운영 스키마는 마이그레이션 파일에서 벗어나 있지 않다.**
+- **권한 감사 PASS** (0013 verdict, 살아 있는 카탈로그 기준). 감사가 진짜 구멍을 본다는
+  것은 스테이징에 일부러 `grant select on ops_probe_runs to anon` 을 넣어 verdict 가
+  FAIL 로 뒤집히는 것까지 확인했다(revoke 후 다시 PASS).
+- **Edge Function 4종 배포** (`entitlement`/`device`/`ai-gemini`/`ai-realtime`, 전부
+  ACTIVE + `verify_jwt=true`). 헬스체크 4개 전부 ok.
+- **[HARD] entitlement 서명 키쌍은 스테이징 전용으로 새로 발급했다.** 스테이징이 운영
+  앱이 받아들이는 토큰을 찍을 수 있으면 환경 분리가 없는 것과 같다. 합성 계정으로
+  실제 토큰을 받아 검증: 스테이징 공개키로 통과, **운영 공개키로 실패**. 공개키는
+  `STAGING.md` 에 적어 뒀다. 공급자 키(Gemini/OpenAI)는 같은 값을 쓴다.
+- **Vercel preview 를 스테이징에 배선했다.** `doctor-web` 의 Production 4개는 손대지
+  않고 Preview 스코프에 4개를 새로 넣었다. 별도 Vercel 프로젝트를 만들지 않은 이유:
+  rewrite·리전·루트 `.vercelignore` 가 두 벌이 되면 리허설이 실물과 다른 것을 검증한다.
+  검증: `rehearsal/staging-preview` 푸시 → preview 자동 빌드 → **빌드된 클라이언트 번들
+  11개에 스테이징 ref 1건 / 운영 ref 0건**, 운영 번들은 정확히 그 거울상.
+  preview `/api/health` 의 `prober.everRan=false`(운영은 true)도 서로 다른 DB 라는 신호다.
+- 운영 경로 무영향 확인: `entanglecare.com` 의 `/` 200, `/righthand` 200,
+  `/righthand/patient` 200(키오스크), `/righthand/doctor/download` 307, `/api/health` 200.
+- **미러하지 않는 것**: 실제 PHI, PortOne 자격증명, `app-releases` 버킷, 커스텀 도메인,
+  Vercel Cron, `OPS_ALERT_WEBHOOK_URL`, 키오스크 preview. 각각의 이유는 `STAGING.md`.
+- **남은 것**: 스테이징의 legacy JWT API 키(anon/service_role)가 이 세션의 터미널
+  출력에 노출됐다. 스테이징에는 PHI 가 없고 RLS 가 전 테이블에 켜져 있지만,
+  대시보드 Settings > API Keys 에서 legacy 키를 비활성화하는 것을 권한다
+  (Management API 로 끄려다 도구 권한에 막혔다). 끄면 Vercel Preview 의
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` 를 새 형식
+  (`sb_publishable_` / `sb_secret_`) 으로 바꿔야 한다.
+
 ## 알려진 문제
 
 - [해결됨] Email > Confirm email: 2026-08-05 signup 이 세션을 즉시 반환하는 것을 확인 —
