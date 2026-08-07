@@ -81,6 +81,48 @@ if (!watchdogReadsRequired) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 크론 경로가 basePath 를 포함하는가
+// ---------------------------------------------------------------------------
+// 같은 실패의 다른 얼굴. Vercel Cron 은 배포물의 URL 경로를 그대로 치므로,
+// basePath 를 켜 놓고 vercel.json 에 접두사 없는 경로를 적으면 매 실행 404 가
+// 된다. 404 는 라우트 코드에 닿기 전이라 실행 기록도 남지 않는다 -- 시크릿
+// 이름이 틀렸을 때와 증상이 완전히 같다. 그래서 같은 가드에서 함께 본다.
+{
+  const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').trim().replace(/\/+$/, '');
+  const vercelJsonPath = join(ROOT, 'vercel.json');
+  let crons = [];
+  try {
+    crons = JSON.parse(readFileSync(vercelJsonPath, 'utf8')).crons ?? [];
+  } catch (err) {
+    problems.push(`vercel.json 을 읽지 못했습니다: ${err.message}`);
+  }
+
+  for (const cron of crons) {
+    const path = cron.path ?? '';
+    if (basePath && !path.startsWith(`${basePath}/`)) {
+      problems.push(
+        `vercel.json 의 cron path "${path}" 가 basePath "${basePath}" 로 시작하지 않습니다.\n` +
+          '  Vercel Cron 은 이 경로를 그대로 칩니다. 접두사가 빠지면 매 실행 404 이고,\n' +
+          '  404 는 라우트에 닿기 전이라 실행 기록조차 남지 않습니다.',
+      );
+      continue;
+    }
+    // 접두사를 벗긴 경로에 실제 라우트 파일이 있는가. 경로 오타는 위 검사를
+    // 통과하면서도 똑같이 404 를 만든다.
+    const rel = basePath ? path.slice(basePath.length) : path;
+    const routeFile = join(ROOT, 'app', rel.replace(/^\//, ''), 'route.ts');
+    try {
+      statSync(routeFile);
+    } catch {
+      problems.push(
+        `vercel.json 의 cron path "${path}" 에 대응하는 라우트가 없습니다: ` +
+          `${relative(ROOT, routeFile)}`,
+      );
+    }
+  }
+}
+
 if (problems.length > 0) {
   console.error('\n[admin-web] 빌드 가드 실패\n');
   for (const p of problems) console.error(`  ${p}\n`);

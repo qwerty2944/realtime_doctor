@@ -34,9 +34,20 @@ import {
 const FALLBACK_ENTITLEMENT_PUBLIC_KEY =
   'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElr+E32CHs/FVYKCWZPivFoULd57Q6HCL7XpNJh/4ovF1JYE12LlykVKmHfLewFdr/xAfxTQqtcoYldxkid4fAw==';
 
-// admin-web 의 결제 페이지 (S3 에서 만든 `/billing`). 도메인은 배포처에 맞춰
-// BILLING_PORTAL_URL 로 덮어쓴다. 경로(`/billing`)는 그대로 두어야 한다.
-const FALLBACK_BILLING_URL = 'https://admin.realtime-doctor.app/billing';
+// admin-web 의 결제 페이지 (S3 에서 만든 `/billing`).
+//
+// 실제 배포 주소다. 자리표시자가 아니다 -- 이 값이 틀리면 "구독하기" 버튼이
+// 존재하지 않는 도메인을 열고, 체험이 끝난 의사는 결제할 방법을 잃는다.
+//
+// [HARD] `/righthand` 접두사를 빼지 말 것. admin-web 은 basePath 를 달고
+// entanglecare.com 아래에 재작성으로 얹혀 있어서(doctor-web/next.config.ts),
+// 접두사 없는 `/billing` 은 doctor-web 의 404 다.
+//
+// 빌드 시 BILLING_PORTAL_URL 로 덮어쓸 수 있다(electron.vite.config.ts 의
+// EMBEDDED_ENV_KEYS, scripts/ci-assert-embedded.mjs 가 존재를 강제한다).
+// fallback 을 실제 주소로 두는 이유는 그 셋 중 하나라도 어긋난 빌드가 죽은
+// 링크를 들고 나가지 않게 하기 위해서다.
+const FALLBACK_BILLING_URL = 'https://entanglecare.com/righthand/billing';
 
 /** 갱신 요청 타임아웃. 진료 중에 IPC 가 오래 매달려 있으면 안 된다. */
 const FETCH_TIMEOUT_MS = 8000;

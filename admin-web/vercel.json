@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/billing/watchdog",
+      "path": "/righthand/api/billing/watchdog",
       "schedule": "0 18 * * *"
     }
   ]
