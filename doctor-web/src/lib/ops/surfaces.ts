@@ -58,6 +58,19 @@ export function surfaces(): Surface[] {
       critical: true,
       impact: '대기실 태블릿에서 환자가 문진을 시작할 수 없다.',
     },
+    {
+      name: 'admin-web',
+      kind: 'web',
+      // 키오스크와 같은 이유로 **브랜드 도메인 경유**로 친다. admin-web 은
+      // doctor-web 의 rewrite(next.config.ts) 뒤에 있으므로, 자기 Vercel 주소로
+      // 직접 치면 재작성이 깨진 날에도 "결제 정상"이 보고된다 -- 그날 의사는
+      // 결제 페이지에 도달조차 못 한다.
+      url: `${o}/righthand/api/health`,
+      critical: true,
+      impact:
+        '체험이 끝난 의사가 결제할 수 없다. 결제가 막히면 자격이 만료되고 앱 전체가 잠긴다. ' +
+        '이 표면의 헬스체크는 결제 주기 감시 크론(watchdog)의 생사도 함께 싣는다.',
+    },
   ];
 
   if (sb) {
