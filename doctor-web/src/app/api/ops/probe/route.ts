@@ -252,10 +252,16 @@ async function run(): Promise<Response> {
         '이 잡이 그동안 돌지 않았고, 그동안 아무도 제품을 지켜보지 않았다.',
     });
   }
-  const healthySurfaces = results.filter((r) => r.status === 'ok').map((r) => r.surface);
-  if (!missedPreviousRun) healthySurfaces.push('prober');
+  // 응답을 받아 개별 검사까지 판정할 수 있었던 표면. 'unknown'(200 인데 헬스
+  // 보고서가 아님)과 'unreachable' 은 제외한다 -- 그 경우 어떤 이슈가 해소됐는지
+  // 알 수 없고, 모르는 것을 해소로 처리하면 조용히 잊는 것이 된다.
+  const evaluatedSurfaces = results
+    .filter((r) => r.status === 'ok' || r.status === 'degraded' || r.status === 'down')
+    .filter((r) => r.issue !== 'unreachable' && r.issue !== 'not_a_health_report')
+    .map((r) => r.surface);
+  evaluatedSurfaces.push('prober');
 
-  const alerts = await dispatchAlerts(db, runId, failing, healthySurfaces);
+  const alerts = await dispatchAlerts(db, runId, failing, evaluatedSurfaces);
 
   // ── 상태 판정 ──────────────────────────────────────────────────────────
   let status: 'ok' | 'degraded' | 'down' | 'error';
