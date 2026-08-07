@@ -49,6 +49,7 @@ import {
   type HealthCheck,
   type HealthReport,
 } from '@/lib/ops/report';
+import { alertTarget } from '@/lib/ops/notify';
 import { probeIntervalMinutes } from '@/lib/ops/schedule';
 
 export const runtime = 'nodejs';
@@ -156,6 +157,15 @@ export async function GET(): Promise<Response> {
             '프로버가 한 번도 실행된 적 없음 (ops_probe_runs 가 비어 있음). 배포 직후라면 첫 크론을 기다리는 중이고, 하루가 지났다면 크론이 붙지 않은 것이다.',
         });
         extra.prober = { everRan: false, intervalMinutes: probeIntervalMinutes() };
+        const targetNow = alertTarget() !== null;
+        checks.push({
+          name: 'alerting',
+          ok: targetNow,
+          detail: targetNow
+            ? '알림 대상(OPS_ALERT_WEBHOOK_URL)이 설정되어 있다'
+            : '알림 대상(OPS_ALERT_WEBHOOK_URL)이 설정되지 않았다. 이상은 DB 에 기록되지만 아무에게도 전달되지 않는다.',
+        });
+        extra.alerting = { targetConfigured: targetNow };
       } else {
         checks.push({
           name: 'prober',
@@ -167,12 +177,18 @@ export async function GET(): Promise<Response> {
 
         // [HARD] 알림 대상 미설정을 별도 검사로 올린다. 조용히 no-op 하는
         // 알림기는 이 기능이 막으려는 실패 그 자체다.
+        //
+        // 판정 근거는 **지금 이 프로세스의 환경변수**이지 마지막 실행의 기록이
+        // 아니다. 프로버는 이 앱 안에서 돌므로 여기서 보는 값이 곧 프로버가 쓸
+        // 값이고, 마지막 실행 기록은 과거 사실이다. 기록만 보면 "지난주에는
+        // 설정돼 있었다"가 "지금 알림이 나간다"로 읽힌다.
+        const targetNow = alertTarget() !== null;
         checks.push({
           name: 'alerting',
-          ok: data.alert_target_configured,
-          detail: data.alert_target_configured
+          ok: targetNow,
+          detail: targetNow
             ? '알림 대상(OPS_ALERT_WEBHOOK_URL)이 설정되어 있다'
-            : `알림 대상(OPS_ALERT_WEBHOOK_URL)이 설정되지 않았다. 이상은 DB 에 기록되지만 **아무에게도 전달되지 않는다.** 마지막 실행에서 보내지 못한 알림 ${data.alerts_undeliverable}건.`,
+            : '알림 대상(OPS_ALERT_WEBHOOK_URL)이 설정되지 않았다. 이상은 DB 에 기록되지만 **아무에게도 전달되지 않는다.** 채널을 붙이기 전까지는 이 URL 을 사람이 직접 봐야 한다.',
         });
 
         extra.prober = {
@@ -189,7 +205,10 @@ export async function GET(): Promise<Response> {
           openIssueCount: data.open_issue_count,
         };
         extra.alerting = {
-          targetConfigured: data.alert_target_configured,
+          // 지금 설정된 상태.
+          targetConfigured: targetNow,
+          // 마지막 실행 시점의 상태. 둘이 다르면 설정이 바뀐 것이다.
+          targetConfiguredAtLastRun: data.alert_target_configured,
           undeliverableLastRun: data.alerts_undeliverable,
         };
       }
