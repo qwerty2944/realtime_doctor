@@ -215,11 +215,29 @@ async function run(): Promise<Response> {
   const failing: AlertCandidate[] = [];
   for (const r of results) {
     if (r.status === 'ok') continue;
+
+    // [HARD] 알림 채널이 없다는 사실을 알림 채널로 알리지 않는다.
+    //
+    // doctor-web 의 `alerting` 검사는 OPS_ALERT_WEBHOOK_URL 미설정을 보고한다.
+    // 그걸 알림 후보에 넣으면 구조가 순환한다: 보낼 곳이 없다는 알림을 보낼
+    // 곳이 없어서 못 보내고, 그 사실이 다시 알림 후보가 된다. 매 실행이
+    // 전달불가 1건을 만들어 내면서 정작 새로 알려주는 것은 없다.
+    //
+    // 이 상태를 감추는 것이 아니다. 같은 사실이 세 곳에 남는다:
+    // 실행 행의 `alert_target_configured=false`, `alert_error`, 그리고
+    // `/api/health` 의 `alerting` 검사 실패. 사람이 보는 경로에는 전부 있고,
+    // 없는 것은 순환하는 알림 한 건뿐이다.
+    if (r.issue === 'alerting') continue;
+
+    // 영향 문구는 표면 단위로 쓰여 있다. 감시 자체의 문제(alerting/prober)에
+    // 제품 영향 문구를 붙이면 "알림 URL 미설정" 이 "의사가 로그인할 수 없다"로
+    // 읽힌다 -- 사람을 잘못된 곳으로 보내는 알림이다.
+    const monitoringOnly = r.issue === 'prober' || r.issue === 'alerting';
     failing.push({
       surface: r.surface,
       issue: r.issue ?? 'unhealthy',
       severity: r.status === 'degraded' ? 'degraded' : 'down',
-      detail: `${r.detail} / 영향: ${r.impact}`,
+      detail: monitoringOnly ? r.detail : `${r.detail} / 영향: ${r.impact}`,
     });
   }
   if (missedPreviousRun) {
