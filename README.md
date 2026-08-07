@@ -472,7 +472,28 @@ PG 는 나이스페이·스마트로 어느 쪽이든 됩니다. 코드에 PG �
 `NEXT_PUBLIC_` 을 붙이지 말고, `electron.vite.config.ts` 의 `EMBEDDED_ENV_KEYS`
 에도 절대 추가하지 마세요(그 목록의 값은 빌드타임에 앱 번들로 인라인됩니다).
 
-Electron 쪽은 `BILLING_PORTAL_URL` 만 admin-web 의 `/billing` 주소로 맞추면 됩니다.
+배포 위치 (2026-08-07):
+
+| 대상 | 주소 |
+|---|---|
+| 의사 — 결제 | `https://entanglecare.com/righthand/billing` |
+| 운영자 — 사용량·비용·사용자·단가 | `https://realtime-doctor-admin.vercel.app/righthand/admin` |
+| 헬스체크 | `https://entanglecare.com/righthand/api/health` |
+| 포트원 웹훅 등록 주소 | `https://entanglecare.com/righthand/api/billing/webhook` |
+
+admin-web 은 `NEXT_PUBLIC_BASE_PATH=/righthand` 로 빌드되어 doctor-web 의 재작성을
+통해 브랜드 도메인에 얹힙니다(키오스크와 같은 방식, `doctor-web/next.config.ts`).
+운영자 화면은 **의도적으로 재작성하지 않아** 브랜드 도메인에서 404 이지만, 실제
+접근 통제는 그 사실이 아니라 서버측 `is_admin` 검사(`admin-web/lib/admin-gate.ts`)가
+합니다.
+
+Electron 쪽 `BILLING_PORTAL_URL` 은 위 결제 주소입니다. [HARD] `/righthand` 접두사를
+빼면 안 됩니다 — 접두사 없는 `/billing` 은 doctor-web 의 404 입니다.
+
+포트원 자격이 아직 없어도 배포됩니다. 그 상태에서는 `/billing` 이 "카드 등록은 아직
+준비 중입니다"를 표시하고 `/api/billing/*` 가 503 을 돌려주며 헬스체크가 `degraded`
+로 보고합니다. 자격 네 개를 Vercel 프로젝트 `realtime-doctor-admin` 에 넣고 재배포
+하면 코드 변경 없이 결제가 열립니다.
 
 ### Electron → 브라우저 자동 로그인
 

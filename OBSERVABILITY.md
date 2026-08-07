@@ -36,6 +36,12 @@ curl -s https://entanglecare.com/api/health | python3 -m json.tool
 `status: "degraded"`, 실패 검사는 `alerting` **하나뿐**. 이건 고장이 아니라
 "알림 채널이 아직 없다"의 표시다. `alerting` 말고 다른 검사가 실패하면 그건 진짜다.
 
+`admin-web` 표면(`https://entanglecare.com/righthand/api/health`)도 지금은 `degraded`
+이고, 실패 검사는 `portone` 과 `watchdog` 둘이다. 앞의 것은 포트원 자격이 아직
+없다는 사실이고, 뒤의 것은 그 때문에 감시 크론이 매 실행 중단된다는 사실이다.
+**둘 다 자격이 도착하면 함께 사라진다.** 그 전에 이 둘 말고 다른 검사가 실패하면
+그건 진짜다.
+
 `degraded` 를 `ok` 로 만들려면 §4 의 환경변수 하나를 채우면 된다. 알림이 아무 데도
 안 가는 동안 최상위 상태가 초록으로 보이는 것보다는, 초록이 아닌 편이 낫다고 판단했다 —
 이 기능이 없애려는 것이 바로 "초록인데 아무도 안 보고 있음"이기 때문이다.
@@ -50,6 +56,7 @@ curl -s https://entanglecare.com/api/health | python3 -m json.tool
 | 표면 | URL | 증명한다 | 증명하지 **않는다** |
 |---|---|---|---|
 | doctor-web | `/api/health` | Supabase 도달, `f_web_stats_*` 네 함수가 **실제 테이블 위에서 실행**됨, 감시자 생사, 알림 대상 유무 | 통계 **숫자가 옳은지**(합성 subject 라 집계는 항상 0), 의사 로그인·쿠키 갱신 경로 |
+| admin-web | `/righthand/api/health` | service_role 로 `subscriptions` 도달(=키가 **유효**함), 결제 자격 4종의 **존재**, 결제 주기 감시 크론(watchdog)의 마지막 실행 시각 | 포트원 자격이 **유효한지**, 카드 등록 흐름 전체, `is_admin` 게이트(세션 필요) |
 | kiosk | `/righthand/patient/api/health` | 담당 의사 매핑이 실재하는 계정을 가리킴, `redeem_visit_access_code()` 가 실제로 돎, 그 실행이 **아무것도 소모하지 않음** | 유효한 코드가 실제로 진료를 여는지, Gemini 키가 **유효한지** |
 | edge:entitlement | `…/functions/v1/entitlement?health=1` | `subscriptions`/`plans` 읽기, **ECDSA 개인키로 실제 서명 1회** | 특정 사용자 판정의 정확성, 앱의 공개키가 짝인지 |
 | edge:device | `…/device?health=1` | `devices`/`plans` 읽기 | 기기 수 제한이 옳게 세어지는지 |
@@ -82,10 +89,27 @@ curl -s "https://yhwvwojjwwlcrvpfxgag.supabase.co/functions/v1/entitlement?healt
 
 ### 왜 admin-web 이 아닌가
 
-기존 크론(`/api/billing/watchdog`)은 `admin-web/vercel.json` 에 있다. 관례대로라면
-프로버도 거기여야 하지만 **admin-web 은 아직 배포되지 않았다.** 배포되지 않은 앱의
-크론은 실행되지 않으므로, 거기 두면 프로버는 첫날부터 한 번도 돌지 않으면서
-"감시가 붙었다"는 인상만 남긴다.
+원래 이유는 "admin-web 이 배포되지 않아서"였다. 2026-08-07 에 배포됐으므로 그 이유는
+사라졌지만 **옮기지 않는다.** 감시자는 감시 대상 중 가장 확실히 살아 있는 곳에 두는
+편이 낫고, `entanglecare.com` 을 서비스하는 앱이 그곳이다. admin-web 은 이제 감시
+**대상**이다(§1 의 표).
+
+### 크론 두 개, 규칙 하나
+
+| 잡 | 위치 | 경로 | 인증 |
+|---|---|---|---|
+| ops 프로버 | `doctor-web/vercel.json` | `/api/ops/probe` | `Bearer $CRON_SECRET` |
+| 결제 감시 | `admin-web/vercel.json` | `/righthand/api/billing/watchdog` | `Bearer $CRON_SECRET` |
+
+[HARD] **이름은 반드시 `CRON_SECRET`.** Vercel Cron 은 정확히 그 이름의 환경변수가
+있을 때만 Bearer 를 붙인다. 값은 프로젝트마다 다르다(한쪽이 새도 다른 쪽이 열리지
+않게).
+
+[HARD] **admin-web 의 크론 경로에는 basePath 가 들어간다.** admin-web 은
+`NEXT_PUBLIC_BASE_PATH=/righthand` 로 빌드되므로 접두사 없는 `/api/billing/watchdog`
+은 404 다. 그리고 404 는 라우트에 닿기 전이라 `subscription_watchdog_runs` 에 아무것도
+남기지 않는다 — 시크릿 이름이 틀렸을 때와 **증상이 완전히 같다**(둘 다 "아무 일도
+안 일어남"). 둘 다 `admin-web/scripts/assert-cron-secret-name.mjs` 가 빌드에서 막는다.
 
 ### 왜 하루 1회뿐인가 — 설계가 아니라 요금제 제약
 
@@ -162,9 +186,10 @@ Vercel 런타임 로그에도 `[ops][전달불가]` 로 한 줄씩 남는다.
 
 ---
 
-## 5. 기록을 직접 읽기 (admin-web 배포 전까지)
+## 5. 기록을 직접 읽기 (상태 화면이 생기기 전까지)
 
-`admin-web` 이 배포되면 상태 화면이 생기지만, 그전까지는 아래 쿼리가 상태 페이지다.
+`admin-web` 은 배포됐지만 아직 관측 상태 화면을 갖고 있지 않다. 그전까지는 아래
+쿼리가 상태 페이지다.
 전부 **service_role 전용**이다(anon/authenticated 는 GRANT 도 정책도 없다).
 
 ### 한 줄 요약
@@ -265,5 +290,5 @@ revoke 한다). 0013 의 가드를 파일 끝에서 **다시 실행**해 살아 
   않는다. 이것이 지금 가장 큰 남은 구멍이다.
 - **감시 주기.** 하루 1회는 진료 중 제품에 부족하다(§2).
 - **외부 감시자.** Vercel 자체 장애는 현재 구성으로 볼 수 없다(§3).
-- **상태 화면.** `admin-web` 배포 후. 데이터는 이미 §5 형태로 준비돼 있다.
+- **상태 화면.** `admin-web` 은 배포됐지만 관측 화면은 아직 없다. 데이터는 §5 형태로 준비돼 있다.
 - **provider 키 유효성.** 유료 호출 없이는 확인할 수 없어 의도적으로 범위 밖이다.

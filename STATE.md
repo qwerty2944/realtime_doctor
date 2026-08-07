@@ -1157,3 +1157,127 @@ Gemini 응답)** / `gemini-2.5-pro` **400 `model_not_allowed`**. allowlist 가
 배포되는 순간부터 매 실행 401 을 받고 한 번도 성공하지 못한다 — 그리고 그 잡은 자기
 실행 기록을 401 이후에 쓰므로 `subscription_watchdog_runs` 도 비어 있어, 증상이
 "아무 일도 안 일어남"이다. admin-web 배포 전에 확인할 것.
+
+## admin-web 배포 (2026-08-07) — B1
+
+배경: `admin-web` 은 완성돼 있는데 어디에도 배포되지 않았다. 그래서 (a) 체험 연장·구독
+부여·사용량 확인·진료행위 정의 승인 같은 일상 운영이 **에이전트가 운영 DB 에 직접 SQL 을
+치는 것**으로만 가능했고 — 세션이 끝나면 사라지고, 사람이 안전하게 할 수 있는 일이 아니다 —
+(b) 포트원 결제 페이지가 그 안에 있으므로 **체험이 끝난 의사에게 결제할 방법이 없었다.**
+
+### 배포 결과
+
+- 프로젝트: `realtime-doctor-admin` (팀 `mole-bi-coms-projects`, root `admin-web`,
+  git 연결 `backup` = mole-bi-com/realtime-doctor, production branch `history/v0.6.0-split`).
+  **push 하면 배포된다** — doctor-web 과 같다.
+- 의사(결제): `https://entanglecare.com/righthand/billing`
+- 운영자(관리): `https://realtime-doctor-admin.vercel.app/righthand/admin`
+- 헬스체크: `https://entanglecare.com/righthand/api/health`
+
+### [HARD] 발견해서 고친 것 — 같은 모양의 침묵 두 개
+
+이전 세션이 "발견했지만 손대지 않은 것"으로 남긴 크론 시크릿 문제는 **실재했고**, 배포
+과정에서 **같은 모양의 두 번째 것**이 하나 더 나왔다. 둘 다 증상이 "아무 일도 안 일어남"
+이고, 그건 watchdog 이 탐지하려는 조용한 과금 중단과 DB 상에서 구분되지 않는다.
+
+1. **시크릿 이름.** watchdog 이 `BILLING_`+`CRON_SECRET` 을 기대했다. Vercel Cron 은
+   정확히 `CRON_SECRET` 인 환경변수에만 Bearer 를 붙인다 → 매 실행 401.
+2. **크론 경로.** basePath 를 켠 뒤 `vercel.json` 의 경로가 `/api/billing/watchdog` 이라
+   404 였다(라이브로 확인). 404 는 라우트 코드에 닿기 전이라 실행 기록조차 안 남는다.
+
+둘 다 라우트가 실행 기록을 **인증 이후에** 쓰기 때문에 `subscription_watchdog_runs` 가
+비어 있는 채로 남는다.
+
+되돌릴 수 없게 만든 장치 (넷, 층이 다르다):
+
+- **상수화** — 라우트가 리터럴이 아니라 `lib/env.ts` 의 `CRON_SECRET_ENV` 를 읽는다.
+- **빌드 가드** `admin-web/scripts/assert-cron-secret-name.mjs` (npm `prebuild`, Vercel
+  도 `npm run build` 를 부르므로 배포 경로에서 반드시 지나간다). 세 가지를 본다:
+  ① 옛 이름이 소스에 다시 나타나면 실패 ② watchdog 이 `CRON_SECRET_ENV` 를 참조하지
+  않으면 실패(인증을 통째로 지우는 변경은 ①을 통과한다) ③ 모든 cron path 가
+  `NEXT_PUBLIC_BASE_PATH` 로 시작하고 실제 라우트 파일로 해석되는지.
+  가드와 `lib/env.ts` 는 금지 문자열을 **조각으로 조립**해서 자기 자신을 잡지 않는다 —
+  예외 목록을 두지 않기 위해서다(예외 목록은 "일단 여기 추가"로 무력화된다).
+  **세 분기 전부 음성 테스트로 실제 실패시켜 확인했다.**
+- **부팅 거부** — 옛 이름이 환경변수에 설정돼 있으면 `assertBootEnv()` 가 던진다.
+- **관측** — `/api/health` 가 watchdog 의 마지막 실행 시각을 싣고, ops 프로버가 그것을
+  매일 읽는다. 인증이 어떤 이유로든 다시 깨지면 하루 안에 감시 보고서에 뜬다.
+  **침묵이 더는 침묵으로 남지 않는 지점이 여기다.**
+
+### URL 결정 — 왜 경로이고 왜 하위도메인이 아닌가
+
+`billing.entanglecare.com` 이 1순위였고 **불가능했다.** entanglecare.com 의 DNS 권한은
+Cloudflare 에 있고(NS: odin/roxy.ns.cloudflare.com) 거기에 와일드카드 레코드가 없다.
+Vercel DNS 패널의 `*` ALIAS 레코드는 권한이 없어 무의미하다(`dig billing.entanglecare.com`
+→ 빈 응답). 레포에서 만들 수 없는 주소를 고르는 것은 "배포했는데 아무도 못 여는" 상태다.
+
+그래서 **한 배포물 + 두 호스트**:
+
+- admin-web 을 `NEXT_PUBLIC_BASE_PATH=/righthand` 로 빌드하고, doctor-web 이
+  `/righthand/billing*`, `/righthand/api/billing/*`, `/righthand/api/health`,
+  `/righthand/_next/*` 를 재작성한다(키오스크와 같은 패턴).
+- `/righthand/admin*` 은 **재작성하지 않는다.** 브랜드 도메인에서 404 다(확인함).
+- [HARD] `_next` 재작성이 없으면 페이지는 HTML 만 뜨고 자바스크립트가 통째로 죽는다.
+  경로 기반 마운트에 basePath 가 필수인 이유가 이것이다.
+
+**운영자 화면을 지키는 것은 URL 이 아니라 `is_admin` 이다.** 재작성 목록에서 뺀 것은
+방어의 한 겹일 뿐이고, 실제 통제는 `lib/admin-gate.ts` 의 서버측 검사다.
+
+### 포트원 자격 없이 배포한 방법
+
+포트원 계정이 아직 없다. 예전에는 그 네 변수가 없으면 부팅이 죽어서 **운영자 화면과
+의사 본인 기록까지** 같이 못 떴다. 필수 환경변수를 두 단으로 갈랐다:
+
+- **코어**(Supabase 3종, `BILLING_HANDOFF_SECRET`, `CRON_SECRET`) — 없으면 부팅 실패.
+- **포트원 4종** — 없어도 뜬다. 대신 **숨기지 않는다**: 부팅 로그 / `/billing` 의
+  "카드 등록은 아직 준비 중입니다" 패널(버튼 자체를 렌더링하지 않는다) / `/api/billing/*`
+  의 503(이름만, 값 없음) / `/api/health` 의 `degraded` / watchdog 은 실행 기록을 남긴
+  뒤 503 으로 중단.
+
+**자리표시자 값은 넣지 않았다.** 넣으면 결제창이 열리고 PG 가 거절해서, 설정 누락이
+의사에게 "내 카드가 거절당했다"로 도착한다.
+
+### 라이브 검증
+
+- **`is_admin` 게이트** — 프로브 계정 2개를 실제로 만들고 실제로 로그인해서
+  (@supabase/ssr 의 쿠키 함수를 그대로 써서 세션 쿠키 생성) 배포에 요청:
+  비관리자 `/righthand/admin/users` → 307 `/righthand/admin`, `/admin/pricing` → 307.
+  관리자 → 둘 다 200. 비관리자도 `/righthand/billing` 은 200(자기 결제 화면이므로 맞다).
+  **프로브 계정 2개 삭제 완료, 잔여 profiles/subscriptions 0행.**
+- **watchdog 인증** — Vercel 프로젝트에 저장된 `CRON_SECRET` 을 복호화해 **크론이 보낼
+  것과 동일한 요청**을 배포에 보냈다: 무인증 401 / 잘못된 Bearer 401 / 올바른 Bearer는
+  통과해서 503(포트원 미설정으로 중단)이며 `runId` 를 반환 — 즉 실행 기록이 남는다.
+  배포에 등록된 크론 정의도 API 로 확인: `/righthand/api/billing/watchdog`, `0 18 * * *`.
+  증명이 끝난 뒤 `CRON_SECRET` 을 `sensitive`(되읽기 불가)로 승격했다(doctor-web 과 동일).
+- **경로** — entanglecare.com 의 `/`(200) `/righthand`(200) `/righthand/patient`(200,
+  키오스크) `/righthand/doctor/download`(307) `/api/health`(200) 전부 이전과 동일.
+  신규: `/righthand/billing`(307→billing/login) `/righthand/billing/login`(200)
+  `/righthand/api/health`(200). `/righthand/admin*` → 404.
+  `_next` 청크 5개를 브랜드 도메인 경유로 받아 전부 200 + `application/javascript` 확인.
+- **ops 프로버** — 수동 순회에서 표면 **7개**(기존 6 + admin-web), 5 ok / 2 degraded.
+  admin-web 은 `portone`·`watchdog` 두 검사로 degraded, `wouldHaveSent` 에 기록됨.
+
+### 정리하고 남긴 것
+
+- 삭제: 프로브 계정 2개(+cascade 로 profiles/subscriptions), `subscription_watchdog_runs`
+  프로브 4행. **테이블은 다시 0행이다.** 일부러 지웠다 — 남겨 두면 헬스체크가
+  "최근에 돌았다"로 읽혀 실제 크론이 처음 도는 KST 03:00 전까지 거짓 안심을 준다.
+  지금은 "한 번도 안 돎"이 사실이고 화면에도 그렇게 보인다.
+- 남김: `ops_probe_runs` 의 수동 순회 1행(정상적인 감시 기록이라 지우지 않는다).
+
+### [HARD] 키 로테이션 목록에 한 곳 추가됨
+
+`admin-web` 의 세션 재분석 기능(`lib/analyzer.ts`)이 **Gemini 를 프록시 없이 직접**
+부른다. 그래서 Vercel 프로젝트 `realtime-doctor-admin` 에 `GEMINI_API_KEY` 가 있다.
+위 "키 로테이션" 절의 목록에 이 항목을 더해야 한다(환경변수 변경 후 **재배포 필요**).
+근본 해결은 이 호출을 `ai-gemini` 프록시로 옮기는 것이고, 이번 범위 밖이다.
+
+### 남은 것
+
+- **포트원 자격.** 도착하면 `realtime-doctor-admin` 에 네 변수를 넣고 재배포하면 결제가
+  열린다. 코드 변경 없음. 웹훅 엔드포인트로 등록할 주소는
+  `https://entanglecare.com/righthand/api/billing/webhook`.
+- **데스크톱 앱 재빌드.** `BILLING_PORTAL_URL` 과 fallback 상수를 실제 주소로 바꿨지만,
+  이미 배포된 설치본은 여전히 죽은 `admin.realtime-doctor.app` 을 연다.
+- **관측 상태 화면** — admin-web 에 아직 없다(OBSERVABILITY.md §5 가 대신한다).
+- **알림 채널** `OPS_ALERT_WEBHOOK_URL` 미설정 — 여전히 가장 큰 구멍.
