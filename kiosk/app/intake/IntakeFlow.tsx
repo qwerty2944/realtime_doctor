@@ -25,9 +25,21 @@ import CompleteStep from './CompleteStep';
 import ConsentStep, { type ConsentState } from './ConsentStep';
 import InterviewStep, { type InterviewExchange } from './InterviewStep';
 import PatientInfoStep, { type PatientInfo } from './PatientInfoStep';
-import VisitCodeStep from './VisitCodeStep';
 
-type Step = 'code' | 'consent' | 'info' | 'interview' | 'complete';
+/**
+ * `code` 단계는 더 이상 라우팅되지 않는다 (0019).
+ *
+ * 코드 입력 화면(`VisitCodeStep.tsx`)은 **지우지 않고 남겨 뒀다** — 무코드
+ * 폴백이 실제 의원에서 어떻게 쓰이는지 보기 전이라 되돌릴 수 있어야 한다.
+ * 지금 환자가 만나는 문은 둘뿐이다:
+ *
+ *   - `?c=` 가 유효한 개인 링크 → 이름이 미리 채워진 채로 동의부터.
+ *   - 코드 없는 원내 QR → 그대로 동의부터. 자기 식별은 이름·생년월일이 한다.
+ *
+ * 어느 쪽도 환자에게 7자를 받아 적게 하지 않는다. 접수대 건너에서 코드를
+ * 불러주는 흐름이 실제로 실패하는 지점이 거기였다.
+ */
+type Step = 'consent' | 'info' | 'interview' | 'complete';
 
 interface DialogueTurn {
   role: 'agent' | 'patient';
@@ -73,6 +85,19 @@ export interface IntakeFlowProps {
    */
   prevalidatedCode: string | null;
   /**
+   * 코드에 묶여 미리 등록된 환자 이름 (0019). 이름 칸을 미리 채운다.
+   * 환자가 고칠 수 있다 — 접수 입력이 틀렸다면 본인이 더 정확하다.
+   */
+  prefilledName: string | null;
+  /**
+   * `?c=` 가 있었지만 쓸 수 없었을 때의 안내 문장.
+   *
+   * 조용히 무코드 경로로 흘려보내지 않기 위해 존재한다. 만료된 링크를 누른
+   * 환자는 자기가 무엇을 잘못했는지 알아야 하고, 그럼에도 문진은 이어갈 수
+   * 있어야 한다.
+   */
+  codeNotice: string | null;
+  /**
    * 이 태블릿의 키오스크 슬러그. 담당 의사 uuid 자체는 절대 클라이언트로
    * 내려오지 않는다 — 서버가 매번 다시 해석한다.
    */
@@ -84,11 +109,13 @@ export default function IntakeFlow({
   consentItems,
   disclosure,
   prevalidatedCode,
+  prefilledName,
+  codeNotice,
   kioskSlug,
   voiceEnabled
 }: IntakeFlowProps) {
-  const [step, setStep] = useState<Step>(prevalidatedCode ? 'consent' : 'code');
-  const [visitCode, setVisitCode] = useState<string | null>(prevalidatedCode);
+  const [step, setStep] = useState<Step>('consent');
+  const [visitCode] = useState<string | null>(prevalidatedCode);
   const [consents, setConsents] = useState<ConsentState | null>(null);
   const [encounterId, setEncounterId] = useState<string | null>(null);
   // 컴포넌트 상태에만 둔다: localStorage 나 URL 에 절대 쓰지 않으므로 탭보다
@@ -102,34 +129,6 @@ export default function IntakeFlow({
   const [serverError, setServerError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
 
-  /**
-   * 코드 확인. 아무것도 만들지 않고 소모하지도 않는다 —
-   * `/api/intake/code/check` 는 같은 DB 함수를 확인 모드로 부를 뿐이다.
-   * 오타를 여기서 잡는 이유: 이름·생년월일을 다 적은 뒤에 거절당하지 않게.
-   */
-  const handleCode = async (code: string) => {
-    setSubmitting(true);
-    setServerError(null);
-    try {
-      const response = await fetch(apiPath('/api/intake/code/check'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kiosk: kioskSlug, code })
-      });
-      if (!response.ok) {
-        setServerError(await readErrorMessage(response));
-        return;
-      }
-      setVisitCode(code);
-      setStep('consent');
-    } catch (error) {
-      console.error('[intake] Failed to check the visit code.', error);
-      setServerError(NETWORK_ERROR);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleAgree = (agreed: ConsentState) => {
     setConsents(agreed);
     setStep('info');
@@ -140,14 +139,6 @@ export default function IntakeFlow({
       setServerError('동의 정보가 없습니다. 처음부터 다시 시작해 주세요.');
       return;
     }
-    if (!visitCode) {
-      // 여기에 오면 상태 기계가 깨진 것이다. 코드 없이 start 를 부르면 서버가
-      // 어차피 거절하지만, 환자에게는 "코드를 입력해 주세요" 가 정확한 안내다.
-      setServerError('접수 코드가 없습니다. 처음부터 다시 시작해 주세요.');
-      setStep('code');
-      return;
-    }
-
     setSubmitting(true);
     setServerError(null);
 
@@ -157,6 +148,9 @@ export default function IntakeFlow({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kiosk: kioskSlug,
+          // [HARD] 코드가 없으면 무코드 경로임을 **명시**한다. 서버 스키마의
+          // 기본값은 'code' 라서, 이 필드를 빠뜨린 요청은 통과하지 못한다.
+          mode: visitCode ? 'code' : 'walk_in',
           code: visitCode,
           name: info.name,
           birthDate: info.birthDate,
@@ -233,15 +227,6 @@ export default function IntakeFlow({
 
   const renderStep = (): ReactNode => {
     switch (step) {
-      case 'code':
-        return (
-          <VisitCodeStep
-            disclosure={disclosure}
-            submitting={submitting}
-            serverError={serverError}
-            onSubmit={handleCode}
-          />
-        );
       case 'consent':
         return (
           <ConsentStep
@@ -253,6 +238,7 @@ export default function IntakeFlow({
       case 'info':
         return (
           <PatientInfoStep
+            initialName={prefilledName}
             submitting={submitting}
             serverError={serverError}
             onSubmit={handleStart}
@@ -265,6 +251,7 @@ export default function IntakeFlow({
         if (!encounterId || !token) {
           return (
             <PatientInfoStep
+              initialName={prefilledName}
               submitting={submitting}
               serverError={serverError}
               onSubmit={handleStart}
@@ -290,5 +277,17 @@ export default function IntakeFlow({
     }
   };
 
-  return <div className="mx-auto w-full max-w-2xl px-6 py-8">{renderStep()}</div>;
+  return (
+    <div className="mx-auto w-full max-w-2xl px-6 py-8">
+      {/* 못 쓰는 링크로 들어온 경우에만 뜬다. 문진을 막지는 않는다 —
+          여기서 막으면 환자는 접수대까지 되돌아가야 하고, 무코드 경로는
+          정확히 그 왕복을 없애려고 있는 것이다. */}
+      {codeNotice ? (
+        <p className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-lg leading-relaxed text-amber-900">
+          {codeNotice} 접수처에 말씀하시거나, 아래에서 그대로 진행하셔도 됩니다.
+        </p>
+      ) : null}
+      {renderStep()}
+    </div>
+  );
 }

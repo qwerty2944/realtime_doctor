@@ -2,7 +2,7 @@ import { buildConsentItems } from '@/lib/intake/consent';
 import { buildIntakeDisclosure } from '@/lib/intake/disclosure';
 import { resolveKiosk } from '@/lib/intake/kiosk';
 import { normalizeVisitCode } from '@/lib/intake/visitCode';
-import { redeemVisitCode } from '@/lib/intake/visitCodeServer';
+import { redeemVisitCode, visitCodeMessage } from '@/lib/intake/visitCodeServer';
 import { selectLlmProvider } from '@/lib/llm';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { isVoiceInputEnabled } from '@/lib/stt/clova';
@@ -62,6 +62,11 @@ export default async function IntakePage({
   // 판정이 같은 문장으로 돌아온다.
   const normalizedCode = normalizeVisitCode(rawCode ?? '');
   let prevalidatedCode: string | null = null;
+  let prefilledName: string | null = null;
+  // `?c=` 가 있었는데 못 쓰는 코드였을 때만 채운다. 코드 없이 들어온 원내 QR
+  // 접속(무코드 경로)에서는 null 이다 — 아무 잘못도 하지 않은 환자에게 경고를
+  // 보여주면 안 된다.
+  let codeNotice: string | null = null;
   if (normalizedCode !== '') {
     const verdict = await redeemVisitCode(createSupabaseAdminClient(), {
       clinicianId: resolution.clinicianId,
@@ -71,10 +76,14 @@ export default async function IntakePage({
     });
     if (verdict.ok) {
       prevalidatedCode = normalizedCode;
+      prefilledName = verdict.patientName;
     } else {
       console.warn(
         `[intake] Ignoring the code in the URL at kiosk=${resolution.slug}: ${verdict.reason}.`
       );
+      // 조용히 무코드 경로로 흘려보내지 않는다. 링크가 만료됐다는 사실을
+      // 말해주지 않으면 환자는 자기가 무엇을 잘못했는지 모른 채 진행한다.
+      codeNotice = visitCodeMessage(verdict.reason);
     }
   }
 
@@ -86,6 +95,8 @@ export default async function IntakePage({
         consentItems={consentItems}
         disclosure={buildIntakeDisclosure()}
         prevalidatedCode={prevalidatedCode}
+        prefilledName={prefilledName}
+        codeNotice={codeNotice}
         kioskSlug={resolution.slug}
         // CLOVA 자격증명이 없는 배포에서는 녹음 버튼을 아예 렌더링하지 않는다.
         // 눌렀더니 매번 실패하는 버튼은 없느니만 못하다.

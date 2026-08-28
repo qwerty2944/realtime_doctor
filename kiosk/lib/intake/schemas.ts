@@ -65,20 +65,36 @@ export const intakeCodeCheckRequestSchema = z.object({
 
 export type IntakeCodeCheckRequest = z.infer<typeof intakeCodeCheckRequestSchema>;
 
-export const intakeStartRequestSchema = z.object({
-  /** URL 의 `?k=` 값. 담당 의사 귀속의 출발점 (`lib/intake/kiosk.ts`). */
-  kiosk: z.string().trim().max(31).nullish(),
-  /**
-   * [HARD] 방문 코드. 슬러그만으로는 문진을 시작할 수 없다 — L1 의 전부가
-   * 이 한 줄이다. 검증은 DB 에 무엇을 쓰기 전에, 모델을 부르기 전에 끝난다.
-   */
-  code: visitCodeSchema,
-  name: z.string().trim().min(1, '이름을 입력해 주세요.').max(60),
-  birthDate: birthDateSchema,
-  /** 선택: 환자가 모를 수 있고, 접수처가 나중에 채운다. */
-  registrationNo: z.string().trim().max(40).nullish(),
-  consents: consentsSchema
-});
+export const intakeStartRequestSchema = z
+  .object({
+    /** URL 의 `?k=` 값. 담당 의사 귀속의 출발점 (`lib/intake/kiosk.ts`). */
+    kiosk: z.string().trim().max(31).nullish(),
+    /**
+     * 어느 문으로 들어왔는가 (0019).
+     *
+     * [HARD] 기본값은 `code` 다. 없는 필드가 통과하는 쪽이 코드가 필요한
+     * 경로여야 한다 — 반대로 두면 필드를 빠뜨린 요청이 조용히 무코드로 떨어지고,
+     * 접근 통제가 오타 하나로 사라진다.
+     */
+    mode: z.enum(['code', 'walk_in']).default('code'),
+    /**
+     * [HARD] 방문 코드. 슬러그만으로는 문진을 시작할 수 없다 — L1 의 전부가
+     * 이 한 줄이다. 검증은 DB 에 무엇을 쓰기 전에, 모델을 부르기 전에 끝난다.
+     *
+     * `mode: 'walk_in'` 일 때만 비어 있을 수 있고, 그 경로는 코드 대신
+     * 원내 QR + 서버측 속도 제한으로 막는다(0019).
+     */
+    code: visitCodeSchema.nullish(),
+    name: z.string().trim().min(1, '이름을 입력해 주세요.').max(60),
+    birthDate: birthDateSchema,
+    /** 선택: 환자가 모를 수 있고, 접수처가 나중에 채운다. */
+    registrationNo: z.string().trim().max(40).nullish(),
+    consents: consentsSchema
+  })
+  .refine((value) => value.mode === 'walk_in' || (value.code ?? '') !== '', {
+    message: '접수처에서 받은 코드를 입력해 주세요.',
+    path: ['code']
+  });
 
 export type IntakeStartRequest = z.infer<typeof intakeStartRequestSchema>;
 

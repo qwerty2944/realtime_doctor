@@ -19,6 +19,13 @@ export interface PatientInfo {
 }
 
 export interface PatientInfoStepProps {
+  /**
+   * 개인 링크에 묶여 미리 등록된 이름 (0019). 없으면 빈 칸에서 시작한다.
+   *
+   * 읽기 전용으로 두지 않는다: 접수 입력이 틀렸다면 본인이 더 정확하고,
+   * 고칠 수 없는 칸은 틀린 이름을 그대로 차트에 남긴다.
+   */
+  initialName?: string | null;
   submitting: boolean;
   /** /api/intake/start 의 서버측 실패. 이미 한국어다. */
   serverError: string | null;
@@ -26,11 +33,12 @@ export interface PatientInfoStepProps {
 }
 
 export default function PatientInfoStep({
+  initialName,
   submitting,
   serverError,
   onSubmit
 }: PatientInfoStepProps) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName?.trim() ?? '');
   // 숫자만("19540309"). 제출 시점에 ISO yyyy-mm-dd 로 바꾼다.
   const [birthDigits, setBirthDigits] = useState('');
   const [registrationNo, setRegistrationNo] = useState('');
@@ -72,6 +80,9 @@ export default function PatientInfoStep({
         <h1 className="text-3xl font-bold text-slate-900">환자 정보</h1>
         <p className="text-xl leading-relaxed text-slate-600">
           진료 기록을 연결하기 위해 필요합니다.
+          {initialName?.trim()
+            ? ' 접수처에서 등록한 이름이 미리 채워져 있습니다. 다르면 고쳐 주세요.'
+            : ''}
         </p>
       </header>
 

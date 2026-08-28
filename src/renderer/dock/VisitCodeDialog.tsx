@@ -83,6 +83,13 @@ function QrSvg({ value, size }: { value: string; size: number }) {
   );
 }
 
+/** 알림톡 발송 상태. 미설정은 실패와 다른 값이다 — 화면 문구가 다르다. */
+type SendState =
+  | { kind: 'idle' }
+  | { kind: 'sending' }
+  | { kind: 'sent' }
+  | { kind: 'error'; message: string };
+
 export function VisitCodeDialog({
   onPopoverOpenChange
 }: {
@@ -96,6 +103,10 @@ export function VisitCodeDialog({
   const [settings, setSettings] = useState<VisitCodeSettings | null>(null);
   const [urlDraft, setUrlDraft] = useState('');
   const [slugDraft, setSlugDraft] = useState('');
+  const [nameDraft, setNameDraft] = useState('');
+  const [phoneDraft, setPhoneDraft] = useState('');
+  const [send, setSend] = useState<SendState>({ kind: 'idle' });
+  const [copied, setCopied] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const mounted = useRef(true);
 
@@ -120,11 +131,32 @@ export function VisitCodeDialog({
           return t('visitCode.errorSignedOut');
         case 'too-many-live':
           return t('visitCode.errorTooMany');
+        case 'invalid-input':
+          return t('visitCode.errorInvalidInput');
         default:
           return t('visitCode.errorFailed');
       }
     },
     [t]
+  );
+
+  /**
+   * 발급 결과 하나를 화면에 반영한다. 익명 코드와 환자 등록형이 같은 상태를
+   * 쓰므로(같은 코드·같은 QR·같은 카운트다운) 반영 경로도 하나다.
+   */
+  const applyResult = useCallback(
+    (result: Awaited<ReturnType<typeof window.api.visitCode.issue>>) => {
+      if (result.ok) {
+        setIssued(result.issued);
+        setSend({ kind: 'idle' });
+        setCopied(false);
+        setNowMs(Date.now());
+      } else {
+        setIssued(null);
+        setError(errorText(result.error));
+      }
+    },
+    [errorText]
   );
 
   const issue = useCallback(async () => {
@@ -133,19 +165,77 @@ export function VisitCodeDialog({
     try {
       const result = await window.api.visitCode.issue();
       if (!mounted.current) return;
-      if (result.ok) {
-        setIssued(result.issued);
-        setNowMs(Date.now());
-      } else {
-        setIssued(null);
-        setError(errorText(result.error));
-      }
+      applyResult(result);
     } catch {
       if (mounted.current) setError(errorText('failed'));
     } finally {
       if (mounted.current) setBusy(false);
     }
-  }, [errorText]);
+  }, [applyResult, errorText]);
+
+  /** 환자 등록 + 그 환자의 링크 발급. 이름이 비어 있으면 서버까지 가지 않는다. */
+  const registerPatient = useCallback(async () => {
+    if (nameDraft.trim() === '') {
+      setError(errorText('invalid-input'));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.api.visitCode.issueForPatient({
+        name: nameDraft.trim(),
+        phone: phoneDraft.trim() === '' ? null : phoneDraft.trim()
+      });
+      if (!mounted.current) return;
+      applyResult(result);
+    } catch {
+      if (mounted.current) setError(errorText('failed'));
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }, [applyResult, errorText, nameDraft, phoneDraft]);
+
+  const alimtalkErrorText = useCallback(
+    (code: string) => {
+      switch (code) {
+        case 'not-configured':
+          return t('visitCode.alimtalkNotConfigured');
+        case 'no-phone':
+          return t('visitCode.alimtalkNoPhone');
+        case 'no-kiosk-url':
+          return t('visitCode.alimtalkNoKioskUrl');
+        case 'signed-out':
+          return t('visitCode.errorSignedOut');
+        default:
+          return t('visitCode.alimtalkFailed');
+      }
+    },
+    [t]
+  );
+
+  const sendAlimtalk = useCallback(async () => {
+    if (!issued?.url) return;
+    setSend({ kind: 'sending' });
+    try {
+      const result = await window.api.visitCode.sendAlimtalk(issued.id, issued.url);
+      if (!mounted.current) return;
+      if (result.ok) {
+        setSend({ kind: 'sent' });
+      } else {
+        // 서버가 한 문장을 돌려줬으면 그걸 그대로 보여준다. 우리가 다시 쓰면
+        // 실제 실패 사유가 화면에서 사라진다.
+        setSend({ kind: 'error', message: result.message ?? alimtalkErrorText(result.error) });
+      }
+    } catch {
+      if (mounted.current) setSend({ kind: 'error', message: alimtalkErrorText('failed') });
+    }
+  }, [alimtalkErrorText, issued]);
+
+  const copyLink = useCallback(() => {
+    if (!issued?.url) return;
+    void navigator.clipboard.writeText(issued.url);
+    setCopied(true);
+  }, [issued]);
 
   const saveSettings = useCallback(async () => {
     const next = await window.api.visitCode.setSettings({
@@ -169,6 +259,10 @@ export function VisitCodeDialog({
         if (next) {
           setIssued(null);
           setError(null);
+          setSend({ kind: 'idle' });
+          setCopied(false);
+          setNameDraft('');
+          setPhoneDraft('');
           void window.api.visitCode.getSettings().then((s) => {
             setSettings(s);
             setUrlDraft(s.kioskUrl);
@@ -192,12 +286,50 @@ export function VisitCodeDialog({
       </DialogTrigger>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{t('visitCode.title')}</DialogTitle>
-          <DialogDescription>{t('visitCode.desc')}</DialogDescription>
+          <DialogTitle>{t('visitCode.patientTitle')}</DialogTitle>
+          <DialogDescription>{t('visitCode.patientDesc')}</DialogDescription>
         </DialogHeader>
+
+        {/* 환자 등록. 기본 경로이므로 맨 위에 있고, 빠른 코드는 아래로 내렸다. */}
+        <div className="flex flex-col gap-2">
+          <label className="text-[11px] text-muted-foreground" htmlFor="visit-code-patient-name">
+            {t('visitCode.patientName')}
+          </label>
+          <Input
+            id="visit-code-patient-name"
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            maxLength={60}
+            className="h-9"
+          />
+          <label className="text-[11px] text-muted-foreground" htmlFor="visit-code-patient-phone">
+            {t('visitCode.patientPhone')}
+          </label>
+          <Input
+            id="visit-code-patient-phone"
+            value={phoneDraft}
+            onChange={(e) => setPhoneDraft(e.target.value)}
+            inputMode="tel"
+            placeholder="01012345678"
+            maxLength={20}
+            className="h-9"
+          />
+          <p className="text-[10px] leading-snug text-muted-foreground">
+            {t('visitCode.patientPhoneHint')}
+          </p>
+          <Button onClick={() => void registerPatient()} disabled={busy}>
+            {issued?.patientId ? t('visitCode.registerAgain') : t('visitCode.register')}
+          </Button>
+        </div>
 
         {issued && !expired && (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card/60 p-4">
+            {issued.patientName && (
+              <p className="text-sm font-medium">
+                {t('visitCode.issuedFor')}: {issued.patientName}
+              </p>
+            )}
+
             {/* 화면에서 가장 큰 글자. 책상 건너에서 읽혀야 한다. */}
             <p className="font-mono text-5xl font-bold tracking-[0.2em] tabular-nums">
               {issued.formatted}
@@ -212,6 +344,34 @@ export function VisitCodeDialog({
                 <p className="text-center text-[11px] leading-snug text-muted-foreground">
                   {t('visitCode.qrHint')}
                 </p>
+                <div className="flex w-full flex-wrap justify-center gap-2">
+                  <Button size="sm" variant="outline" onClick={copyLink}>
+                    {copied ? t('visitCode.copied') : t('visitCode.copyLink')}
+                  </Button>
+                  {/* 번호가 없으면 버튼 자체를 렌더링하지 않는다 — 누를 때마다
+                      실패하는 버튼은 없느니만 못하다. */}
+                  {issued.patientPhone && (
+                    <Button
+                      size="sm"
+                      onClick={() => void sendAlimtalk()}
+                      disabled={send.kind === 'sending'}
+                    >
+                      {send.kind === 'sending'
+                        ? t('visitCode.sending')
+                        : t('visitCode.sendAlimtalk')}
+                    </Button>
+                  )}
+                </div>
+                {send.kind === 'sent' && (
+                  <p className="text-center text-[11px] text-emerald-300">
+                    {t('visitCode.sent')}
+                  </p>
+                )}
+                {send.kind === 'error' && (
+                  <p className="text-center text-[11px] leading-snug text-amber-300">
+                    {send.message}
+                  </p>
+                )}
               </>
             ) : (
               <p className="text-center text-xs leading-snug text-amber-300">
@@ -229,9 +389,19 @@ export function VisitCodeDialog({
 
         {error && <p className="text-xs text-rose-300">{error}</p>}
 
-        <Button onClick={() => void issue()} disabled={busy}>
-          {issued ? t('visitCode.issueAgain') : t('visitCode.issue')}
-        </Button>
+        {/* 빠른 코드(환자 미지정). 남겨는 두되 기본 경로가 아니라는 것이
+            자리와 크기로 드러나야 한다. */}
+        <div className="flex flex-col gap-2 border-t border-border pt-3">
+          <p className="text-xs font-medium">{t('visitCode.quickTitle')}</p>
+          <p className="text-[10px] leading-snug text-muted-foreground">
+            {t('visitCode.quickHint')}
+          </p>
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" onClick={() => void issue()} disabled={busy}>
+              {t('visitCode.issue')}
+            </Button>
+          </div>
+        </div>
 
         <p className="text-[10px] leading-snug text-muted-foreground">
           {t('visitCode.note')}

@@ -44,6 +44,15 @@ export type VisitCodeRedemption =
       clinicianId: string;
       encounterId: string | null;
       redeemCount: number;
+      /**
+       * 접수처가 코드를 발급하면서 미리 등록한 환자 (0019). 익명 코드는 null.
+       *
+       * 값이 있으면 `/api/intake/start` 는 새 환자 행을 만들지 않고 이 행에
+       * 진료를 붙인다 — 만들면 같은 사람이 차트에 둘이 된다.
+       */
+      patientId: string | null;
+      /** 문진 화면의 이름 칸을 미리 채우는 데만 쓴다. 판정에는 쓰이지 않는다. */
+      patientName: string | null;
     }
   | { ok: false; reason: VisitCodeFailure };
 
@@ -55,6 +64,8 @@ interface RedeemRow {
   clinicianId?: string;
   encounterId?: string | null;
   redeemCount?: number;
+  patientId?: string | null;
+  patientName?: string | null;
 }
 
 const FAILURES: readonly VisitCodeFailure[] = [
@@ -116,7 +127,9 @@ export async function redeemVisitCode(
     codeId: typeof row.codeId === 'string' ? row.codeId : null,
     clinicianId: row.clinicianId,
     encounterId: typeof row.encounterId === 'string' ? row.encounterId : null,
-    redeemCount: typeof row.redeemCount === 'number' ? row.redeemCount : 0
+    redeemCount: typeof row.redeemCount === 'number' ? row.redeemCount : 0,
+    patientId: typeof row.patientId === 'string' ? row.patientId : null,
+    patientName: typeof row.patientName === 'string' ? row.patientName : null
   };
 }
 
