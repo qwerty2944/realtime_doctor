@@ -67,6 +67,15 @@ export const IPC = {
   WindowSnapsState: 'window-snaps:state',
   /** 이 창만 스냅 클러스터에서 빼낸다. */
   WindowSnapsDetach: 'window-snaps:detach',
+  /**
+   * 겹쳐 놓은 드랍의 붙이기 선택지 — main → 전 창 broadcast (payload: SnapChoicePrompt | null).
+   * null 은 "선택지 닫힘"이다.
+   */
+  WindowSnapChoiceShow: 'window-snap-choice:show',
+  /** 사용자가 고른 동작을 실행한다 (payload: SnapChoiceApply). */
+  WindowSnapChoiceApply: 'window-snap-choice:apply',
+  /** Esc / 바깥 클릭 — 아무것도 하지 않고 닫는다. */
+  WindowSnapChoiceCancel: 'window-snap-choice:cancel',
   DevicesList: 'devices:list',
   DevicesRevoke: 'devices:revoke',
   DeviceRevoked: 'devices:revoked-notice',
@@ -136,6 +145,21 @@ export const IPC = {
    * 이 응답에만 존재하고 어디에도 저장되지 않는다 — 다시 보려면 새로 발급한다.
    */
   VisitCodeIssue: 'visit-code:issue',
+  /**
+   * 환자 등록형 방문 코드 발급 (invoke).
+   *
+   * 이름(필수)·휴대폰(선택)을 받아 환자 행을 만들고 그 환자에게 묶인 코드를
+   * 발급한다. 익명 코드와 달리 링크를 미리 보낼 수 있고, 문진 화면의 이름이
+   * 미리 채워진다.
+   */
+  VisitCodeIssuePatient: 'visit-code:issue-patient',
+  /**
+   * 발급한 환자 링크를 알림톡으로 보낸다 (invoke).
+   *
+   * 발송 자체는 키오스크 서버가 한다 — Solapi 자격증명이 데스크톱 번들에
+   * 들어가면 A1 이 provider 키를 걷어낸 이유가 그대로 되살아난다.
+   */
+  VisitCodeSendAlimtalk: 'visit-code:send-alimtalk',
   /** 키오스크 주소·슬러그 설정 조회/저장 (L1, invoke). */
   VisitCodeSettingsGet: 'visit-code:settings-get',
   VisitCodeSettingsSet: 'visit-code:settings-set',
@@ -181,6 +205,29 @@ export interface WindowGroupInfo {
   id: string;
   tabs: OverlayKey[];
   active: OverlayKey;
+}
+
+/**
+ * 겹쳐 놓았을 때 물어보는 선택지.
+ *
+ * 방향은 **드래그한 창이 놓일 자리**다: 'top' = 대상 창 위쪽에 붙인다.
+ * 'merge' 는 기존 탭 그룹 머지와 같은 동작.
+ */
+export type SnapChoiceSide = 'top' | 'bottom' | 'left' | 'right';
+export type SnapChoiceAction = SnapChoiceSide | 'merge';
+
+/** 대상 창(target)의 렌더러가 이 선택지를 그린다. */
+export interface SnapChoicePrompt {
+  dragged: OverlayKey;
+  target: OverlayKey;
+  /** 둘 다 탭 그룹이 가능한 창일 때만 '합치기' 를 보여준다 (dock 은 불가). */
+  canMerge: boolean;
+}
+
+export interface SnapChoiceApply {
+  dragged: OverlayKey;
+  target: OverlayKey;
+  action: SnapChoiceAction;
 }
 
 export interface DeviceInfo {
@@ -706,6 +753,8 @@ export interface VisitCodeSettings {
 }
 
 export interface IssuedVisitCode {
+  /** 코드 행 id. 알림톡 발송이 "이 코드가 정말 내 것인가" 를 서버에서 다시 확인할 때 쓴다. */
+  id: string;
   /** 표준형(대문자, 하이픈 없음). 서버로 다시 보낼 일이 없고 화면 표기에만 쓴다. */
   code: string;
   /** 화면·구두 전달용 `A2CD-4EF`. */
@@ -714,12 +763,46 @@ export interface IssuedVisitCode {
   ttlSeconds: number;
   /** QR 에 넣을 URL. 키오스크 주소가 설정되지 않았으면 null. */
   url: string | null;
+  /** 환자 등록형 발급일 때만 채워진다. 익명 코드는 전부 null. */
+  patientId: string | null;
+  patientName: string | null;
+  patientPhone: string | null;
 }
+
+/** 환자 등록형 발급 입력. 이름은 필수, 휴대폰은 선택(화면 QR 로 건네도 된다). */
+export interface PatientVisitCodeInput {
+  name: string;
+  phone: string | null;
+}
+
+/**
+ * 알림톡 발송 결과.
+ *
+ * `not-configured` 를 실패로 뭉뚱그리지 않는다. 발송 자격증명이 없는 배포는
+ * 고장이 아니라 **아직 설정하지 않은 상태**이고, 화면은 "실패했다" 가 아니라
+ * "링크를 복사해서 보내세요" 를 말해야 한다.
+ */
+export type VisitCodeAlimtalkResult =
+  | { ok: true; sent: true }
+  | {
+      ok: false;
+      error:
+        | 'not-configured'
+        | 'signed-out'
+        | 'no-kiosk-url'
+        | 'no-phone'
+        | 'rejected'
+        | 'failed';
+      /** 서버가 돌려준 한 문장. 있으면 화면이 그대로 보여준다. */
+      message?: string;
+    };
 
 export type VisitCodeIssueError =
   | 'signed-out'
   /** 미사용 코드가 한도까지 쌓였다. 발급이 아니라 운영 문제라 문장이 다르다. */
   | 'too-many-live'
+  /** 이름이 비었거나 휴대폰 형식이 아니다. 네트워크 실패와 대응이 다르다. */
+  | 'invalid-input'
   | 'failed';
 
 export type IssueVisitCodeResult =

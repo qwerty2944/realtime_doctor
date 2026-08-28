@@ -364,13 +364,19 @@ console.log('\n=== 6) 로그인 전에도 스냅이 걸린다 (사용자가 보�
     i += 1;
   }
   placeAndSave(A, 'diagnosis', { x: 800, y: 300, width: 380, height: 460 });
-  // 흡착 거리 안쪽(왼쪽 18px 틈)에 두고 2px 만 밀어 붙인다.
-  placeAndSave(B, 'patients', { x: 800 - 380 - 18, y: 300, width: 380, height: 420 });
-  await B.userDrag(2, 0);
+  // 자동 흡착은 없다 — 대상 위에 겹쳐 놓고 방향을 골라야 붙는다.
+  placeAndSave(B, 'patients', { x: 800 - 8, y: 300 - 8, width: 380, height: 420 });
+  await B.userDrag(8, 8);
+  check(
+    '겹쳐 놓으면 선택지가 뜬다 (자동 흡착 없음)',
+    snap.getPendingSnapChoice()?.target === 'diagnosis',
+    JSON.stringify(snap.getPendingSnapChoice())
+  );
+  snap.applySnapChoice('patients', 'diagnosis', 'left');
 
   const rels = snap.getSnapRelations();
   check(
-    '드래그 한 번으로 스냅이 걸린다',
+    '방향을 고르면 스냅이 걸린다',
     rels.some(
       (r) =>
         (r.a === 'patients' && r.b === 'diagnosis') ||
@@ -379,7 +385,7 @@ console.log('\n=== 6) 로그인 전에도 스냅이 걸린다 (사용자가 보�
     JSON.stringify(rels)
   );
   check(
-    '맞닿은 좌표로 흡착됨',
+    '맞닿은 좌표로 붙는다',
     B.getBounds().x + B.getBounds().width === A.getBounds().x,
     `${fmt(B.getBounds())} | ${fmt(A.getBounds())}`
   );

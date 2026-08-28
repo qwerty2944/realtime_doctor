@@ -73,17 +73,35 @@ const rel = (x, y) =>
     .getSnapRelations()
     .some((r) => (r.a === x && r.b === y) || (r.a === y && r.b === x));
 
-/** 커서를 상대 창 안에 두고 드래그해서 탭 그룹을 만든다. */
+/**
+ * 겹쳐 놓고 '합치기' 를 골라 탭 그룹을 만든다.
+ *
+ * 드랍만으로는 그룹이 생기지 않는다 — 겹친 드랍은 선택지를 띄울 뿐이고,
+ * 실행되는 것은 사용자가 고른 하나뿐이다 (windowSnap.applySnapChoice).
+ */
 async function makeGroup(W, dragged, target) {
   const t = b(W.get(target));
   W.get(dragged).place({ x: t.x + 10, y: t.y + 10, ...SPECS[dragged] });
   setCursor(t.x + 40, t.y + 40);
   await W.get(dragged).userDrag(8, 8);
   setCursor(-10000, -10000);
+  snap.applySnapChoice(dragged, target, 'merge');
+}
+
+/**
+ * 붙이기는 선택지를 거쳐서만 일어난다 (자동 흡착 없음): 대상 위에 겹쳐 놓고
+ * 방향을 고른다. @param side 드래그한 창이 놓일 자리.
+ */
+async function attachTo(W, dragged, target, side) {
+  const t = b(W.get(target));
+  // 대상 위에 정확히 포개지도록 (옆으로 삐져나가면 이웃도 겹침 후보가 된다).
+  W.get(dragged).place({ x: t.x - 8, y: t.y - 8 });
+  await W.get(dragged).userDrag(8, 8);
+  snap.applySnapChoice(dragged, target, side);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== D1-a) 탭 그룹이 바깥 창에 흡착한다 ===');
+console.log('\n=== D1-a) 탭 그룹이 바깥 창에 붙는다 (선택지로) ===');
 {
   const W = freshWorld();
   const outside = W.get('patients'); // 380x420
@@ -100,13 +118,11 @@ console.log('\n=== D1-a) 탭 그룹이 바깥 창에 흡착한다 ===');
   const active = groups.getGroupsState()[0].active;
   const g = b(W.get(active));
   outside.place({ x: g.x - SPECS.patients.width - 200, y: g.y, ...SPECS.patients });
-  // 그룹을 바깥 창 오른쪽 변에서 18px 떨어진 자리로 옮긴 뒤 놓는다.
   const wantX = b(outside).x + SPECS.patients.width;
-  W.get(active).place({ x: wantX + 18 - 16, y: g.y, width: g.width, height: g.height });
-  await W.get(active).userDrag(16, 0);
+  await attachTo(W, active, 'patients', 'right');
 
   check(
-    '그룹이 바깥 창에 흡착 (간격 0)',
+    '그룹이 바깥 창 오른쪽에 붙는다 (간격 0)',
     b(W.get(active)).x === wantX,
     `got=${fmt(b(W.get(active)))} wantX=${wantX}`
   );
@@ -164,12 +180,10 @@ console.log('\n=== D1-b) 그룹이 다른 그룹에 흡착한다 ===');
   const leftActive = rightActive === g1.active ? g2.active : g1.active;
   const lb = b(W.get(leftActive));
   const wantX = lb.x + lb.width;
-  const rb = b(W.get(rightActive));
-  W.get(rightActive).place({ x: wantX + 20 - 16, y: lb.y, width: rb.width, height: rb.height });
-  await W.get(rightActive).userDrag(16, 0);
+  await attachTo(W, rightActive, leftActive, 'right');
 
   check(
-    '그룹 ↔ 그룹 흡착 (간격 0)',
+    '그룹 ↔ 그룹 붙이기 (간격 0)',
     b(W.get(rightActive)).x === wantX,
     `got=${fmt(b(W.get(rightActive)))} wantX=${wantX}`
   );
@@ -197,9 +211,8 @@ console.log('\n=== D1-c) 스냅된 그룹에서도 syncGroupBounds 가 동작한
   const hidden = groups.getGroupsState()[0].tabs.find((t) => t !== active);
   const g = b(W.get(active));
   const outside = W.get('patients');
-  outside.place({ x: g.x - SPECS.patients.width - 18, y: g.y, ...SPECS.patients });
-  await outside.userDrag(2, 0);
-  check('사전 조건: 그룹에 흡착', snap.getSnapRelations().length === 1, JSON.stringify(snap.getSnapRelations()));
+  await attachTo(W, 'patients', active, 'left');
+  check('사전 조건: 그룹에 붙음', snap.getSnapRelations().length === 1, JSON.stringify(snap.getSnapRelations()));
 
   const next = { ...b(W.get(active)), width: 420, height: 500 };
   const changed = groups.syncGroupBounds(active, next);
@@ -222,9 +235,8 @@ console.log('\n=== D1-d) 탭 분리: 그룹은 관계를 유지하고 분리된 
   const st = groups.getGroupsState()[0];
   const g = b(W.get(st.active));
   const outside = W.get('patients');
-  outside.place({ x: g.x - SPECS.patients.width - 18, y: g.y, ...SPECS.patients });
-  await outside.userDrag(2, 0);
-  check('사전 조건: 그룹-바깥창 흡착', snap.getSnapRelations().length === 1);
+  await attachTo(W, 'patients', st.active, 'left');
+  check('사전 조건: 그룹-바깥창 붙음', snap.getSnapRelations().length === 1);
 
   // 그룹 대표(tabs[0]) 를 떼어낸다 = 관계 키가 반드시 넘어가야 하는 경우.
   groups.detachTab(st.tabs[0]);
@@ -250,27 +262,24 @@ console.log('\n=== D2) 조각난 느린 드래그도 하나의 드래그다 ==='
   const mover = W.get('patients');
   target.place({ x: 900, y: 300 });
   const t = b(target);
-  const wantX = t.x - SPECS.patients.width;
-  // 목표 지점에서 18px 떨어진 곳까지, 6px 씩 세 조각으로 접근한다.
-  // 각 조각은 move 이벤트 2개 + 디바운스보다 긴 정지.
-  mover.place({ x: wantX - 18 - 18, y: t.y, ...SPECS.patients });
-  // 조각당 스텝 1개 = will-move + move 2개. 예전 기준(move 4개)에 못 미치는,
-  // 실제로 조준할 때 나오는 이벤트 수다.
+  // 겹친 자리에서 1px 씩 세 조각으로 움직인다. 조각 하나하나는 드래그 임계값
+  // (2px) 에 못 미치지만, 세션이 살아남아 누적되면 드래그로 인정돼야 한다.
+  // 관측 대상은 흡착이 아니라 **선택지** 다 (자동 흡착은 없다).
+  mover.place({ x: t.x + 40, y: t.y + 40, ...SPECS.patients });
+  const startedAt = b(mover);
   for (let i = 0; i < 3; i += 1) {
-    await mover.userDrag(6, 0, { steps: 1, settle: false });
+    await mover.userDrag(1, 0, { steps: 1, settle: false });
     await sleep(450); // DROP_SETTLE_MS(320) 보다 긴 정지 = 예전 코드는 여기서 드래그를 끊었다
   }
-  // 조각 중간에 흡착이 일어나면 그 뒤 조각은 "클러스터 통째 이동"이 되므로
-  // 절대 좌표가 아니라 **맞닿아 있는가** 로 확인한다 (설계된 동작).
   check(
-    '조각난 드래그가 하나의 드래그로 취급되어 흡착',
-    rel('patients', 'diagnosis'),
-    `x=${b(mover).x} rel=${JSON.stringify(snap.getSnapRelations())}`
+    '조각난 드래그가 하나의 드래그로 취급되어 선택지가 뜬다',
+    snap.getPendingSnapChoice()?.target === 'diagnosis',
+    JSON.stringify(snap.getPendingSnapChoice())
   );
   check(
-    '흡착 결과가 간격 0',
-    b(mover).x + SPECS.patients.width === b(target).x,
-    `mover=${fmt(b(mover))} target=${fmt(b(target))}`
+    '선택 전에는 창이 옮겨지지 않는다 (사용자가 끈 3px 만 이동)',
+    b(mover).x === startedAt.x + 3 && b(mover).y === startedAt.y,
+    `mover=${fmt(b(mover))}`
   );
 }
 
@@ -280,8 +289,7 @@ console.log('\n--- 조각난 드래그로도 클러스터가 통째로 따라온
   const A = W.get('diagnosis');
   const B = W.get('patients');
   A.place({ x: 800, y: 300 });
-  B.place({ x: 800 - 380 - 18, y: 300, ...SPECS.patients });
-  await B.userDrag(2, 0);
+  await attachTo(W, 'patients', 'diagnosis', 'left');
   check('사전 조건: 붙어 있음', rel('patients', 'diagnosis'));
   const before = { a: b(A), b: b(B) };
   for (let i = 0; i < 3; i += 1) {
@@ -305,11 +313,14 @@ console.log('\n--- 변위 없는 헛 이동 이벤트는 드래그가 아니다 
   mover.place({ x: t.x - SPECS.patients.width - 20, y: t.y, ...SPECS.patients });
   // show/focus 등이 만드는 "움직이지 않은 이동 이벤트" 20개.
   await mover.userDrag(0, 0, { steps: 20 });
-  check('변위 0 이면 흡착하지 않는다', !rel('patients', 'diagnosis'), `x=${b(mover).x}`);
+  check('변위 0 이면 아무 일도 없다', !rel('patients', 'diagnosis'), `x=${b(mover).x}`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== D3) 라이브 흡착이 진동하지 않는다 ===');
+// [예전 D3 는 라이브 흡착(드래그 중 자석)이 진동하지 않는지를 쟀다.] 자석 자체가
+// 제거됐으므로 이제 고정할 성질은 더 강하다: **붙지 않은 창을 끄는 동안 프로그램적
+// setBounds 가 0 이다.** 창은 손이 끄는 대로만 움직인다.
+console.log('\n=== D3) 붙지 않은 창의 드래그는 프로그램적 이동을 만들지 않는다 ===');
 {
   const W = freshWorld();
   const target = W.get('diagnosis');
@@ -317,31 +328,32 @@ console.log('\n=== D3) 라이브 흡착이 진동하지 않는다 ===');
   target.place({ x: 900, y: 300 });
   const t = b(target);
   const wantX = t.x - SPECS.patients.width;
-  // 흡착 밴드(48px) 안으로 들어간 뒤, 그 자리에서 계속 move 이벤트만 발생시킨다.
+
+  // 예전 흡착 밴드(48px) 안을 통과하도록 끈다 — 예전에는 여기서 끌어당겨졌다.
   mover.place({ x: wantX - 30 - 12, y: t.y, ...SPECS.patients });
-  const beforeApproach = snap.getSnapDiagnostics().appliedBoundsCount;
+  const before = snap.getSnapDiagnostics().appliedBoundsCount;
   await mover.userDrag(12, 0, { steps: 4, settle: false });
-  // 밴드에 들어오는 순간 드래그 도중에 한 번 끌어당긴다(래치). 이후 OS(여기서는
-  // 스텁의 드래그 궤적)가 창을 다시 커서 위치로 돌려놓아도 재적용하지 않는다 —
-  // 그게 진동을 원천 차단하는 지점이다.
-  const pull = snap.getSnapDiagnostics().appliedBoundsCount - beforeApproach;
-  check('밴드 진입 시 드래그 중에 끌어당김이 정확히 1회', pull === 1, `${pull}회`);
-  const beforeIdle = snap.getSnapDiagnostics().appliedBoundsCount;
-  // 커서가 밴드 안에 머무는 동안 40번의 이동 이벤트 — 되먹임이 있으면 여기서 폭주한다.
-  await mover.userDrag(0, 0, { steps: 40, settle: false });
-  const applied = snap.getSnapDiagnostics().appliedBoundsCount - beforeIdle;
   check(
-    `밴드 안에 머무는 동안 프로그램적 setBounds 가 유한 (${applied}회 ≤ 2)`,
-    applied <= 2,
-    `${applied}`
+    '밴드 안을 지나도 끌어당김이 0회',
+    snap.getSnapDiagnostics().appliedBoundsCount - before === 0,
+    `${snap.getSnapDiagnostics().appliedBoundsCount - before}회`
   );
+
+  // 그 자리에서 이동 이벤트 40개 — 어떤 되먹임도 없어야 한다.
+  await mover.userDrag(0, 0, { steps: 40, settle: false });
+  check(
+    '같은 자리에서 이동 이벤트 40개를 받아도 setBounds 0회',
+    snap.getSnapDiagnostics().appliedBoundsCount - before === 0,
+    `${snap.getSnapDiagnostics().appliedBoundsCount - before}회`
+  );
+
   await sleep(450);
   check(
-    '놓으면 정확히 맞닿는다',
-    b(mover).x === wantX && b(mover).y === t.y,
-    `got=${fmt(b(mover))} wantX=${wantX}`
+    '놓아도 붙지 않고 그 자리에 있다',
+    b(mover).x === wantX - 30 && b(mover).y === t.y,
+    `got=${fmt(b(mover))} want=${wantX - 30},${t.y}`
   );
-  check('관계 기록', rel('patients', 'diagnosis'));
+  check('관계도 없다', !rel('patients', 'diagnosis'));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -376,8 +388,7 @@ async function pairWorld() {
   const A = W.get('diagnosis');
   const B = W.get('patients');
   A.place({ x: 800, y: 300 });
-  B.place({ x: 800 - SPECS.patients.width - 18, y: 300, ...SPECS.patients });
-  await B.userDrag(2, 0);
+  await attachTo(W, 'patients', 'diagnosis', 'left');
   return { W, A, B };
 }
 
@@ -469,12 +480,9 @@ console.log('\n--- 3-unit 사슬(탭 그룹 포함)이 숨은 탭까지 따라�
 
   // patients 를 그룹 왼쪽에 붙이고, questions 를 patients 왼쪽에 붙인다.
   const P = W.get('patients');
-  P.place({ x: g.x - SPECS.patients.width - 18, y: g.y, ...SPECS.patients });
-  await P.userDrag(2, 0);
-  const pb = b(P);
+  await attachTo(W, 'patients', active, 'left');
   const Q = W.get('questions');
-  Q.place({ x: pb.x - SPECS.questions.width - 18, y: pb.y, ...SPECS.questions });
-  await Q.userDrag(2, 0);
+  await attachTo(W, 'questions', 'patients', 'left');
   check(
     '사전 조건: questions-patients-그룹 3-unit 사슬',
     snap.clusterOf('questions').length === 3,

@@ -449,7 +449,7 @@ export default function TranscriptApp() {
             : finishing
               ? lang === 'en'
                 ? `⌛ Finalizing… (${pendingCount} utterance${pendingCount === 1 ? '' : 's'} transcribing)`
-                : `⌛ 정리 중… (${pendingCount} 발화 전사 중)`
+                : `⌛ 정리 중… (${pendingCount} 발화 대화기록 중)`
               : lang === 'en'
                 ? '○ Stopped'
                 : '○ 정지'}

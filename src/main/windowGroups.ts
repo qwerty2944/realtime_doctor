@@ -129,11 +129,11 @@ function broadcastHover(target: WindowKey | null): void {
 }
 
 /**
- * 이 드래그가 드랍되면 탭 머지가 일어나는가 (드래그 상태 기준).
+ * 지금 이 창이 머지 후보 위에 떠 있는가 (드래그 상태 기준 — 호버 하이라이트용).
  *
- * 주의: 'moved' 핸들러 등록 순서상 windowGroups 의 finishDrag 가 먼저 돌면서
- * draggingKey/hoverTarget 을 이미 비운 뒤에 windowSnap 이 이걸 읽을 수 있다.
- * 그래서 이 함수만으로는 배타성을 보장하지 못한다 — mergeTargetAtCursor 를 함께 쓴다.
+ * 판정에는 쓰지 않는다: 'moved' 핸들러 등록 순서상 windowGroups 의 finishDrag 가
+ * 먼저 돌며 draggingKey/hoverTarget 을 비운 뒤에 읽힐 수 있어서 답이 흔들린다.
+ * 드랍 판정의 근거는 windowSnap 의 choiceTargets(rect 겹침 + mergeTargetAtCursor)다.
  */
 export function isMergePending(key: WindowKey): boolean {
   return draggingKey === key && hoverTarget !== null;
@@ -261,8 +261,20 @@ export function detachTab(key: WindowKey): void {
   broadcastState();
 }
 
-/** dragged 를 target 위에 드랍 — 머지해서 탭 그룹 구성. */
-function merge(dragged: WindowKey, target: WindowKey): void {
+/** 두 창을 탭 그룹으로 합칠 수 있는가 (dock 은 컨트롤 허브라 제외). */
+export function canMerge(a: WindowKey, b: WindowKey): boolean {
+  return a !== b && GROUPABLE.includes(a) && GROUPABLE.includes(b);
+}
+
+/**
+ * dragged 를 target 에 머지해서 탭 그룹을 구성한다.
+ *
+ * [드랍이 이걸 자동으로 부르지 않는다] 예전에는 finishDrag 가 "커서가 상대 창
+ * 안" 이라는 이유만으로 곧바로 불렀다. 겹쳐 놓기만 해도 창이 합쳐져 버려서
+ * 사용자가 되돌리는 비용을 계속 치렀다. 지금은 겹친 드랍이 선택지를 띄우고
+ * (windowSnap 의 pendingChoice), 사용자가 '합치기' 를 고른 경우에만 여기로 온다.
+ */
+export function mergeWindows(dragged: WindowKey, target: WindowKey): void {
   if (dragged === target) return;
   if (!GROUPABLE.includes(dragged) || !GROUPABLE.includes(target)) return;
   const targetWin = win(target);
@@ -336,17 +348,10 @@ function finishDrag(): void {
     clearTimeout(dropTimer);
     dropTimer = null;
   }
-  const dragged = draggingKey;
-  const target = hoverTarget;
-  const wasRealDrag = !!dragged && dragDistance(dragged) >= DRAG_DISTANCE_PX;
+  // 호버 하이라이트만 끈다 — **머지는 여기서 일어나지 않는다.** 겹친 드랍의
+  // 판정과 실행은 windowSnap 의 선택지(pendingChoice)가 단독으로 소유한다.
+  // 여기서 자동으로 합치면 선택지가 뜨기도 전에 창이 합쳐져 버린다.
   broadcastHover(null);
-  if (wasRealDrag && dragged && target) {
-    merge(dragged, target);
-    // 머지가 창을 옮겼으므로 이 드래그 세션은 여기서 끝이다.
-    draggingKey = null;
-    dragOrigin = null;
-    return;
-  }
   // [중요] 조건 미달이어도 세션을 버리지 않는다. 손이 잠깐 멈춘 것과 손을 뗀
   // 것은 창 이벤트만으로 구분할 수 없다. 세션을 남겨 두면 다음 조각이 같은
   // 시작점에서 거리를 계속 누적하므로, 끊어진 드래그가 하나로 이어진다.

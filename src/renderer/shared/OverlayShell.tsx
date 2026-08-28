@@ -13,6 +13,8 @@ import {
   SHORTCUT_DEFAULTS,
   type OverlayKey,
   type ShortcutId,
+  type SnapChoiceAction,
+  type SnapChoicePrompt,
   type WindowGroupInfo
 } from '../../shared/types';
 import { formatAccelerator } from './accelerator';
@@ -180,6 +182,91 @@ function TabStrip({ group }: { group: WindowGroupInfo }) {
   );
 }
 
+/**
+ * 겹쳐 놓은 드랍의 선택지 — 대상 창의 렌더러가 그린다.
+ *
+ * [왜 전용 창이 아니라 대상 창 안인가] 오버레이는 전부 OverlayShell 을 쓰므로
+ * 여기 한 곳에 그리면 7개 창 전부가 대상이 될 수 있다. 새 BrowserWindow 를 띄우면
+ * 엔트리·always-on-top 순서·위치 계산·수명주기가 통째로 따라오는데, 얻는 것은
+ * "창 밖 클릭으로 닫기" 하나뿐이다. 그 하나는 Esc 와 새 드래그로 대체된다.
+ *
+ * 포커스는 훔치지 않는다 — main 은 broadcast 만 하고 focus() 하지 않으므로
+ * 다른 곳에 타이핑하던 흐름이 끊기지 않는다.
+ */
+function useSnapChoice(): SnapChoicePrompt | null {
+  const [prompt, setPrompt] = React.useState<SnapChoicePrompt | null>(null);
+  React.useEffect(() => window.api.windowSnaps.choice.onPrompt(setPrompt), []);
+  // 선택지가 떠 있는 동안에는 **모든** 오버레이가 Esc 를 듣는다 — 포커스가 어느
+  // 창에 있든 취소할 수 있어야 하기 때문. (앱 밖에 포커스가 있으면 닿지 않는다.)
+  React.useEffect(() => {
+    if (!prompt) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') window.api.windowSnaps.choice.cancel();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [prompt]);
+  return prompt;
+}
+
+function SnapChoiceOverlay({ prompt }: { prompt: SnapChoicePrompt }) {
+  const t = useT();
+  const cancel = () => window.api.windowSnaps.choice.cancel();
+  const pick = (action: SnapChoiceAction) =>
+    window.api.windowSnaps.choice.apply({
+      dragged: prompt.dragged,
+      target: prompt.target,
+      action
+    });
+
+  const btn =
+    'rounded-md border border-white/15 bg-white/10 px-2 py-1 text-[11px] font-medium text-foreground/90 transition-colors hover:border-amber-300/70 hover:bg-amber-500/30';
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
+      // 패널 바깥(=이 창 안의 다른 곳) 클릭은 취소다.
+      onMouseDown={cancel}
+      data-no-drag
+    >
+      <div
+        className="flex flex-col items-center gap-2 rounded-xl border border-amber-300/60 bg-neutral-900/95 px-3 py-2.5 shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="text-[11px] font-semibold text-amber-100">
+          {t('snapChoice.title')}
+        </div>
+        <button type="button" className={btn} onClick={() => pick('top')}>
+          {t('snapChoice.top')}
+        </button>
+        <div className="flex items-center gap-1.5">
+          <button type="button" className={btn} onClick={() => pick('left')}>
+            {t('snapChoice.left')}
+          </button>
+          {prompt.canMerge && (
+            <button type="button" className={btn} onClick={() => pick('merge')}>
+              {t('snapChoice.merge')}
+            </button>
+          )}
+          <button type="button" className={btn} onClick={() => pick('right')}>
+            {t('snapChoice.right')}
+          </button>
+        </div>
+        <button type="button" className={btn} onClick={() => pick('bottom')}>
+          {t('snapChoice.bottom')}
+        </button>
+        <button
+          type="button"
+          className="mt-0.5 text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+          onClick={cancel}
+        >
+          {t('snapChoice.dismiss')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ShortcutHint({ shortcutId }: { shortcutId: ShortcutId }) {
   const [accel, setAccel] = React.useState<string>(SHORTCUT_DEFAULTS[shortcutId]);
   // 포커스된 창의 로컬 키 이벤트로 잡힌 상태와, 다른 창에서 메인을 통해 받은
@@ -251,6 +338,8 @@ export function OverlayShell({
   );
   const { myKey, group, mergeHover } = useWindowGroup();
   const snapped = useSnapped(myKey);
+  const snapChoice = useSnapChoice();
+  const myChoice = snapChoice && myKey && snapChoice.target === myKey ? snapChoice : null;
 
   React.useEffect(() => {
     const onFocus = () => setFocused(true);
@@ -340,6 +429,7 @@ export function OverlayShell({
         </div>
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
         {shortcutId && <ShortcutHint shortcutId={shortcutId} />}
+        {myChoice && <SnapChoiceOverlay prompt={myChoice} />}
       </div>
     </TooltipProvider>
   );

@@ -1,10 +1,12 @@
+// Must stay first: moves the 0.8.0 userData dir before electron-store opens it.
+import './migrateUserData.js';
 import './wsPolyfill.js';
 import { app, BrowserWindow, ipcMain, nativeImage, screen, shell } from 'electron';
 
-app.setName('Realtime Doctor');
+app.setName('RightHand');
 if (process.platform === 'darwin') {
   app.setAboutPanelOptions({
-    applicationName: 'Realtime Doctor',
+    applicationName: 'RightHand',
     applicationVersion: app.getVersion()
   });
 }
@@ -24,6 +26,7 @@ import {
   type Language,
   type LocalSaveSettings,
   type ShortcutId,
+  type SnapChoiceApply,
   type Speaker,
   type SummaryResult,
   type TranscriptChunk,
@@ -54,6 +57,7 @@ import {
 } from './layouts.js';
 import { openClovaStream, type ClovaStreamHandle } from './clovaStream.js';
 import { isPubmedUrl, lookupEvidence } from './evidence.js';
+import { installNavigationGuard } from './navigationGuard.js';
 import {
   backfillCareActivities,
   buildCareActivityDisplay,
@@ -128,7 +132,12 @@ import {
   store,
   type WindowKey
 } from './store.js';
-import { issueVisitCode, loadVisitCodeSettings } from './visitCodes.js';
+import {
+  issuePatientVisitCode,
+  issueVisitCode,
+  loadVisitCodeSettings,
+  sendVisitCodeAlimtalk
+} from './visitCodes.js';
 import { applyLanguage, preferredProviderFor } from './language.js';
 import {
   ensureEntitled,
@@ -152,7 +161,9 @@ import {
   syncGroupBounds
 } from './windowGroups.js';
 import {
+  applySnapChoice,
   attachSnapDragHandlers,
+  cancelSnapChoice,
   detachFromCluster,
   dissolveAllSnaps,
   getSnappedKeys,
@@ -172,7 +183,9 @@ import {
 import type {
   DictationTemplate,
   IssueVisitCodeResult,
+  PatientVisitCodeInput,
   TranscribeProviderId,
+  VisitCodeAlimtalkResult,
   VisitCodeSettings,
   WaitingEncounter
 } from '../shared/types.js';
@@ -666,7 +679,8 @@ function tempExpandEnter(win: BrowserWindow, targetW: number, targetH: number): 
   } else {
     const onUserBounds = () => {
       // 확장 중 사용자가 창을 직접 옮기거나 크기를 바꾼 경우.
-      // (프로그램적 setBounds 는 'moved'/'resized' 를 발생시키지 않는다.)
+      // (프로그램적 setBounds 도 macOS 에선 'move'/'resize' 를 발생시키지만,
+      //  조작 완료 이벤트인 'moved'/'resized' 는 사용자 조작에서만 온다.)
       const st = tempExpandStates.get(win.id);
       if (!st || win.isDestroyed()) return;
       const now = win.getBounds();
@@ -811,6 +825,15 @@ ipcMain.on(IPC.WindowGroupsDetach, (_event, key: WindowKey) => {
 ipcMain.handle(IPC.WindowSnapsGet, () => getSnappedKeys());
 ipcMain.on(IPC.WindowSnapsDetach, (_event, key: WindowKey) => {
   detachFromCluster(key);
+});
+// ── 겹쳐 놓은 드랍의 선택지 (자동 실행 없음) ────────────────────────────
+ipcMain.on(IPC.WindowSnapChoiceApply, (_event, payload: SnapChoiceApply) => {
+  if (!payload) return;
+  applySnapChoice(payload.dragged, payload.target, payload.action);
+  broadcastWindowState();
+});
+ipcMain.on(IPC.WindowSnapChoiceCancel, () => {
+  cancelSnapChoice();
 });
 
 // 렌더러가 자기 창 key 를 알 수 있게.
@@ -1068,6 +1091,47 @@ ipcMain.handle(IPC.VisitCodeIssue, async (): Promise<IssueVisitCodeResult> => {
   if (!gate.ok) return { ok: false, error: 'failed' };
   return issueVisitCode();
 });
+
+/**
+ * 환자 등록형 발급. 같은 게이트가 걸린다 — 환자 행과 진료를 여는 행위이고,
+ * 익명 코드보다 더 많은 것을 만든다.
+ */
+ipcMain.handle(
+  IPC.VisitCodeIssuePatient,
+  async (_event, input: PatientVisitCodeInput): Promise<IssueVisitCodeResult> => {
+    const gate = ensureEntitled('visit-code');
+    if (!gate.ok) return { ok: false, error: 'failed' };
+    if (typeof input?.name !== 'string') return { ok: false, error: 'invalid-input' };
+    return issuePatientVisitCode({
+      name: input.name,
+      phone: typeof input.phone === 'string' ? input.phone : null
+    });
+  }
+);
+
+/**
+ * 알림톡 발송. 게이트를 걸지 않는다 — 이미 발급된 코드를 전달하는 일이고,
+ * 발급 자체가 게이트 뒤에 있다. 여기서 한 번 더 막으면 코드를 손에 든 환자만
+ * 곤란해진다.
+ */
+ipcMain.handle(
+  IPC.VisitCodeSendAlimtalk,
+  async (
+    _event,
+    input: { codeId?: unknown; link?: unknown }
+  ): Promise<VisitCodeAlimtalkResult> => {
+    const codeId = input?.codeId;
+    const link = input?.link;
+    if (typeof codeId !== 'string' || codeId === '') {
+      return { ok: false, error: 'failed' };
+    }
+    // 링크가 없다는 것은 키오스크 주소가 설정되지 않았다는 뜻이다.
+    if (typeof link !== 'string' || link === '') {
+      return { ok: false, error: 'no-kiosk-url' };
+    }
+    return sendVisitCodeAlimtalk(codeId, link);
+  }
+);
 
 ipcMain.handle(IPC.VisitCodeSettingsGet, () => loadVisitCodeSettings());
 ipcMain.handle(IPC.VisitCodeSettingsSet, (_event, patch: Partial<VisitCodeSettings>) =>
@@ -1555,6 +1619,16 @@ function applyDockIcon(): void {
 app.whenReady().then(() => {
   loadEnvFiles();
 
+  // [S5-1] 어떤 창도 로드되기 전에 네비게이션 가드를 건다. 오버레이가 비신뢰
+  // 입력(전사·문진·PubMed 텍스트)을 렌더하므로, 원격 origin 이동을 막지 않으면
+  // 그 페이지가 preload 브리지(PHI/결제 IPC)를 상속받는다.
+  installNavigationGuard({
+    app,
+    shell,
+    isAllowedExternal: isPubmedUrl,
+    devOrigin: process.env['ELECTRON_RENDERER_URL'] ?? null
+  });
+
   // 최초 실행: 언어를 묻지 않고 기본값(한국어)을 그대로 저장하고 시작한다.
   // 이미 언어를 고른 기존 사용자는 그 선택이 그대로 유지된다.
   if (!hasStoredLanguage()) {
@@ -1588,7 +1662,9 @@ app.whenReady().then(() => {
   initWindowSnap({
     windows: windows as Map<WindowKey, BrowserWindow>,
     // 클러스터 소속이 바뀌면 각 창의 타이틀바 분리 버튼이 켜지고 꺼진다.
-    onSnapsChanged: () => broadcast(IPC.WindowSnapsState, getSnappedKeys())
+    onSnapsChanged: () => broadcast(IPC.WindowSnapsState, getSnappedKeys()),
+    // 겹친 드랍의 선택지는 대상 창의 렌더러가 그린다.
+    broadcast
   });
 
   for (const spec of OVERLAYS) {

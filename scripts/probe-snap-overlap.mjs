@@ -91,7 +91,11 @@ function cursorOnTitlebarOf(rect) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== R1) 이웃 안으로 12px 밀어 넣고 놓으면 딱 붙는다 (사용자 신고 케이스) ===');
+// [규칙이 바뀌었다] 예전 R1/R2 는 "얕게 파고들거나 가까이 놓으면 자석처럼
+// 붙는다" 를 고정하는 프로브였다. 자동 흡착이 통째로 제거되면서 그 계약은
+// 사라졌고, 지금 고정해야 하는 것은 그 반대다: **얕은 접촉은 아무 일도
+// 일으키지 않는다.** 깊게 겹쳤을 때만 선택지가 뜬다(R3).
+console.log('\n=== R1) 얕게 파고든 드랍은 아무 일도 일으키지 않는다 ===');
 {
   const W = freshWorld();
   const target = W.get('diagnosis'); // 380x460
@@ -107,19 +111,16 @@ console.log('\n=== R1) 이웃 안으로 12px 밀어 넣고 놓으면 딱 붙는�
 
   const got = b(mover);
   check(
-    '12px 겹치게 드랍 → 상대 왼쪽 변에 딱 붙는다',
-    got.x === t.x - SPECS.patients.width && got.y === t.y,
-    `got ${fmt(got)} / want ${t.x - SPECS.patients.width},${t.y}`
+    '12px 겹침 → 창이 놓은 자리에 그대로 (순간이동 없음)',
+    got.x === endX && got.y === t.y,
+    `got ${fmt(got)} / want ${endX},${t.y}`
   );
-  check('관계 기록', rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
-  check('탭 그룹은 생기지 않음', groups.getGroupsState().length === 0);
-  check(
-    '크기는 그대로',
-    got.width === SPECS.patients.width && got.height === SPECS.patients.height
-  );
+  check('12px 겹침 → 관계 없음', !rel('patients', 'diagnosis'), JSON.stringify(snap.getSnapRelations()));
+  check('12px 겹침 → 탭 그룹 없음', groups.getGroupsState().length === 0);
+  check('12px 겹침 → 선택지도 없음 (겹침이 얕다)', snap.getPendingSnapChoice() === null);
 }
 
-console.log('\n--- 위/아래 방향도 같은 사각지대였다 ---');
+console.log('\n--- 위/아래 방향도 같다 ---');
 {
   const W = freshWorld();
   const target = W.get('diagnosis');
@@ -133,15 +134,15 @@ console.log('\n--- 위/아래 방향도 같은 사각지대였다 ---');
   await mover.userDrag(0, 16);
   const got = b(mover);
   check(
-    '아래 변이 20px 파고든 드랍 → 위쪽에 딱 붙는다',
-    got.y === t.y - SPECS.patients.height && got.x === t.x,
-    `got ${fmt(got)} / want ${t.x},${t.y - SPECS.patients.height}`
+    '아래 변이 20px 파고든 드랍 → 그대로 (붙지 않는다)',
+    got.y === endY && got.x === t.x,
+    `got ${fmt(got)} / want ${t.x},${endY}`
   );
-  check('관계 기록', rel('patients', 'diagnosis'));
+  check('관계 없음', !rel('patients', 'diagnosis'));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== R2) 간격이 있는 드랍(기존 동작)도 그대로 붙는다 ===');
+console.log('\n=== R2) 간격이 있는 드랍도 아무 일 없음 (자석 제거) ===');
 {
   const W = freshWorld();
   const target = W.get('diagnosis');
@@ -153,14 +154,14 @@ console.log('\n=== R2) 간격이 있는 드랍(기존 동작)도 그대로 붙�
   cursorOnTitlebarOf({ x: endX, y: t.y, ...SPECS.patients });
   await mover.userDrag(16, 0);
   check(
-    '18px 간격 드랍 → 흡착',
-    b(mover).x === t.x - SPECS.patients.width && rel('patients', 'diagnosis'),
+    '18px 간격 드랍 → 붙지 않고 제자리',
+    b(mover).x === endX && !rel('patients', 'diagnosis'),
     `x=${b(mover).x}`
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n=== R3) 커서가 상대 rect 안이면 머지가 이긴다 (스냅은 절대 같이 발동 안 함) ===');
+console.log('\n=== R3) 커서가 상대 rect 안이면 선택지 — 자동 실행은 없다 ===');
 {
   const W = freshWorld();
   const target = W.get('diagnosis');
@@ -173,13 +174,20 @@ console.log('\n=== R3) 커서가 상대 rect 안이면 머지가 이긴다 (스�
   setCursor(t.x + 40, t.y + 40);
   await mover.userDrag(16, 0);
 
-  const gs = groups.getGroupsState();
-  check('탭 그룹 생성', gs.length === 1 && gs[0].tabs.length === 2, JSON.stringify(gs));
   check(
-    '스냅 관계는 생기지 않음 (둘이 동시에 발동하지 않는다)',
+    '선택지가 뜬다 (커서가 상대 창 안 = 포개겠다는 신호)',
+    snap.getPendingSnapChoice()?.target === 'diagnosis',
+    JSON.stringify(snap.getPendingSnapChoice())
+  );
+  check('선택 전에는 탭 그룹 없음', groups.getGroupsState().length === 0);
+  check(
+    '선택 전에는 스냅 관계도 없음 (둘 다 자동으로 발동하지 않는다)',
     snap.getSnapRelations().length === 0,
     JSON.stringify(snap.getSnapRelations())
   );
+  snap.applySnapChoice('patients', 'diagnosis', 'merge');
+  const gs = groups.getGroupsState();
+  check('합치기를 고르면 그때 탭 그룹', gs.length === 1 && gs[0].tabs.length === 2, JSON.stringify(gs));
 }
 
 console.log('\n--- 핸들러 등록 순서를 뒤집어도(스냅이 먼저) 결과는 같다 ---');
@@ -193,7 +201,11 @@ console.log('\n--- 핸들러 등록 순서를 뒤집어도(스냅이 먼저) 결
   mover.place({ x: endX - 16, y: t.y, ...SPECS.patients });
   setCursor(t.x + 40, t.y + 40);
   await mover.userDrag(16, 0);
-  check('스냅 핸들러가 먼저여도 머지가 이긴다', groups.getGroupsState().length === 1);
+  check(
+    '스냅 핸들러가 먼저여도 선택지가 뜬다 (등록 순서 무관)',
+    snap.getPendingSnapChoice()?.target === 'diagnosis',
+    JSON.stringify(snap.getPendingSnapChoice())
+  );
   check(
     '스냅 관계 없음 (등록 순서 무관)',
     snap.getSnapRelations().length === 0,

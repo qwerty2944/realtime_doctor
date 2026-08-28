@@ -11,7 +11,7 @@ const ko = {
   'common.stop': '정지',
 
   // window titles
-  'window.transcript': '전사',
+  'window.transcript': '대화기록',
   'window.diagnosis': '감별진단',
   'window.terms': '의학용어',
   'window.questions': '다음 질문',
@@ -43,7 +43,7 @@ const ko = {
   'dock.accountDescSignedOut': '로그인하면 진료 기록을 DB에 저장합니다.',
   'dock.cloudSyncTitle': '클라우드 동기화',
   'dock.cloudSyncDesc': '세션·분석·요약·받아쓰기를 DB에 저장합니다. 기본 켜짐.',
-  'dock.saveTranscriptsTitle': '전사 원문 저장',
+  'dock.saveTranscriptsTitle': '대화기록 원문 저장',
   'dock.saveTranscriptsDesc': '원본 대화가 DB에 저장됩니다. 환자 식별 정보(PHI) 포함 가능.',
   'dock.saveAudioTitle': '음성 파일 업로드',
   'dock.saveAudioDesc': '진료 중 녹음된 음성 원본이 Supabase Storage에 저장됩니다.',
@@ -66,7 +66,7 @@ const ko = {
     '내린 기기는 다음 확인 시점에 로그아웃됩니다. 저장된 진료 기록은 지워지지 않습니다.',
   'dock.deviceLimitFailed': '기기를 내리지 못했습니다. 잠시 후 다시 시도하세요.',
   'dock.localSaveTitle': '로컬 저장',
-  'dock.localSaveDesc': '세션·전사·분석·요약·받아쓰기를 이 컴퓨터에 저장합니다.',
+  'dock.localSaveDesc': '세션·대화기록·분석·요약·받아쓰기를 이 컴퓨터에 저장합니다.',
   'dock.localSaveAudioTitle': '음성 파일 로컬 저장',
   'dock.localSaveAudioDesc': '녹음된 음성 WAV 파일을 이 컴퓨터에 저장합니다.',
   'auth.deviceRevokedNotice': '이 기기의 접근이 차단되어 로그아웃되었습니다.',
@@ -104,6 +104,14 @@ const ko = {
   'snap.detach': '붙은 창에서 떼어내기',
   /** 타이틀바 분리 버튼의 라벨 — 좁은 창(최소 280px)에 들어가야 하므로 짧게. */
   'snap.detachAction': '분리',
+  /** 겹쳐 놓았을 때 뜨는 선택지 — 고른 것만 실행된다. */
+  'snapChoice.title': '어떻게 할까요?',
+  'snapChoice.top': '위로 붙이기',
+  'snapChoice.bottom': '아래로 붙이기',
+  'snapChoice.left': '왼쪽 붙이기',
+  'snapChoice.right': '오른쪽 붙이기',
+  'snapChoice.merge': '합치기',
+  'snapChoice.dismiss': '취소 (Esc)',
   'sessions.sourceLocal': '로컬',
   'sessions.sourceCloud': '클라우드',
   'sessions.sourceBoth': '로컬+클라우드',
@@ -125,7 +133,7 @@ const ko = {
 
   // transcript
   'transcript.empty': '아직 발화가 없습니다.',
-  'transcript.fallbackBanner': '실시간 전사가 일시적으로 실패해 청크 모드로 전환되었습니다.',
+  'transcript.fallbackBanner': '실시간 대화기록이 일시적으로 실패해 청크 모드로 전환되었습니다.',
   'transcript.recording': '녹음 중',
   'transcript.paused': '일시정지',
   'transcript.modeStream': '실시간',
@@ -162,12 +170,12 @@ const ko = {
 
   // 환자 근거 (E1) — 이 환자에게서 실제로 관찰된 것. 문헌근거와 다른 축이다.
   'findings.title': '환자 근거',
-  'findings.hint': '클릭하면 전사 창의 해당 발화로 이동합니다',
+  'findings.hint': '클릭하면 대화기록 창의 해당 발화로 이동합니다',
   'findings.unverifiedTitle': '근거 미확인',
   'findings.unverifiedNote':
-    '전사에서 근거를 확인하지 못해 목록에서 내렸습니다. 판단은 의사가 합니다.',
+    '대화기록에서 근거를 확인하지 못해 목록에서 내렸습니다. 판단은 의사가 합니다.',
   'findings.reasonNoFindings': '제시된 근거 없음',
-  'findings.reasonUnresolved': '전사에 없는 발화를 인용함',
+  'findings.reasonUnresolved': '대화기록에 없는 발화를 인용함',
   'findings.rejectedSources': '확인 실패한 참조',
 
   // evidence (문헌근거)
@@ -224,7 +232,7 @@ const ko = {
 
   // shortcut labels — 단축키 설정 다이얼로그가 SHORTCUT_IDS 를 그대로 순회한다.
   'shortcut.toggleAll': '전체 창 보이기/숨기기',
-  'shortcut.toggleTranscript': '전사 창',
+  'shortcut.toggleTranscript': '대화기록 창',
   'shortcut.toggleDiagnosis': '감별진단 창',
   'shortcut.toggleTerms': '의학용어 창',
   'shortcut.toggleQuestions': '다음 질문 창',
@@ -251,7 +259,7 @@ const ko = {
   // 권유하는 순간 탐지 도구가 권유가 되고, 그 책임은 의사가 진다.
   'care.title': '이번 진료에서 기록된 행위',
   'care.subtitle': '녹취에 남은 발화만 그대로 표시합니다. 판단은 의사가 합니다.',
-  'care.quoteHint': '누르면 전사 창에서 이 발화를 보여줍니다.',
+  'care.quoteHint': '누르면 대화기록 창에서 이 발화를 보여줍니다.',
   'care.durationMinutes': '분간',
   'care.durationSeconds': '초간',
   'care.ruleVersion': '규칙 v',
@@ -330,6 +338,31 @@ const ko = {
   'visitCode.settingsTitle': '키오스크 연결',
   'visitCode.kioskUrl': '키오스크 주소',
   'visitCode.kioskSlug': '키오스크 슬러그 (선택)',
+  'visitCode.patientTitle': '환자 등록',
+  'visitCode.patientDesc':
+    '환자 이름을 등록하면 그 환자 전용 문진 링크가 만들어집니다. 알림톡으로 보내거나 QR로 보여 주세요.',
+  'visitCode.patientName': '환자 이름',
+  'visitCode.patientPhone': '휴대폰 번호 (선택)',
+  'visitCode.patientPhoneHint':
+    '번호를 넣으면 알림톡으로 링크를 보낼 수 있습니다. 비워 두면 QR로만 전달됩니다.',
+  'visitCode.register': '등록하고 링크 만들기',
+  'visitCode.registerAgain': '다른 환자 등록',
+  'visitCode.issuedFor': '환자',
+  'visitCode.copyLink': '링크 복사',
+  'visitCode.copied': '복사했습니다',
+  'visitCode.sendAlimtalk': '알림톡 발송',
+  'visitCode.sending': '보내는 중…',
+  'visitCode.sent': '알림톡을 보냈습니다.',
+  'visitCode.alimtalkNotConfigured':
+    '알림톡이 아직 설정되지 않았습니다. 링크를 복사해서 보내 주세요. (설정 방법: kiosk/README.md)',
+  'visitCode.alimtalkNoPhone': '이 환자에게는 휴대폰 번호가 등록돼 있지 않습니다.',
+  'visitCode.alimtalkNoKioskUrl':
+    '키오스크 주소가 설정되지 않아 보낼 링크가 없습니다. 아래에서 주소를 먼저 입력하세요.',
+  'visitCode.alimtalkFailed': '알림톡을 보내지 못했습니다. 링크를 복사해서 보내 주세요.',
+  'visitCode.errorInvalidInput': '이름을 확인해 주세요. 휴대폰 번호는 숫자만 입력합니다.',
+  'visitCode.quickTitle': '빠른 코드 (환자 미지정)',
+  'visitCode.quickHint':
+    '환자를 등록하지 않고 30분짜리 코드만 발급합니다. 환자가 이미 접수대 앞에 서 있을 때 씁니다.',
   'visitCode.settingsHint':
     '문진 웹앱이 배포된 주소입니다. 기본값이 이미 채워져 있으니 별도 주소를 쓰는 의원만 바꾸면 됩니다. 두 칸 모두 비우고 저장하면 기본값으로 돌아갑니다.'
 } as const;

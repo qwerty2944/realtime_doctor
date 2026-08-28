@@ -104,6 +104,13 @@ const en: Record<keyof typeof ko, string> = {
   'tabs.detach': 'Detach window',
   'snap.detach': 'Unsnap from neighbours',
   'snap.detachAction': 'Detach',
+  'snapChoice.title': 'What should happen?',
+  'snapChoice.top': 'Attach above',
+  'snapChoice.bottom': 'Attach below',
+  'snapChoice.left': 'Attach left',
+  'snapChoice.right': 'Attach right',
+  'snapChoice.merge': 'Merge into one window',
+  'snapChoice.dismiss': 'Cancel (Esc)',
   'sessions.sourceLocal': 'Local',
   'sessions.sourceCloud': 'Cloud',
   'sessions.sourceBoth': 'Local + cloud',
@@ -319,6 +326,32 @@ const en: Record<keyof typeof ko, string> = {
   'visitCode.settingsTitle': 'Kiosk connection',
   'visitCode.kioskUrl': 'Kiosk address',
   'visitCode.kioskSlug': 'Kiosk slug (optional)',
+  'visitCode.patientTitle': 'Register a patient',
+  'visitCode.patientDesc':
+    "Registering a patient creates that patient's own intake link. Send it by KakaoTalk or show the QR.",
+  'visitCode.patientName': 'Patient name',
+  'visitCode.patientPhone': 'Mobile number (optional)',
+  'visitCode.patientPhoneHint':
+    'With a number, the link can be sent by KakaoTalk. Leave it empty to hand the QR over instead.',
+  'visitCode.register': 'Register and create link',
+  'visitCode.registerAgain': 'Register another patient',
+  'visitCode.issuedFor': 'Patient',
+  'visitCode.copyLink': 'Copy link',
+  'visitCode.copied': 'Copied',
+  'visitCode.sendAlimtalk': 'Send KakaoTalk message',
+  'visitCode.sending': 'Sending…',
+  'visitCode.sent': 'The message was sent.',
+  'visitCode.alimtalkNotConfigured':
+    'KakaoTalk sending is not configured yet. Copy the link and send it yourself. (Setup: kiosk/README.md)',
+  'visitCode.alimtalkNoPhone': 'No mobile number is registered for this patient.',
+  'visitCode.alimtalkNoKioskUrl':
+    'No kiosk address is configured, so there is no link to send. Enter the address below first.',
+  'visitCode.alimtalkFailed': 'Could not send the message. Copy the link and send it yourself.',
+  'visitCode.errorInvalidInput':
+    'Check the name. The mobile number must contain digits only.',
+  'visitCode.quickTitle': 'Quick code (no patient)',
+  'visitCode.quickHint':
+    'Issues a 30-minute code without registering a patient. Use it when the patient is already at the desk.',
   'visitCode.settingsHint':
     'Where the intake web app is deployed. The default is already filled in — change it only if this clinic runs its own address. Clearing a field and saving restores the default.'
 };

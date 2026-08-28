@@ -145,8 +145,10 @@ console.log('\n=== 3) 스냅 클러스터가 재시작을 살아서 넘어간다
     i += 1;
   }
   placeAndSave(A, 'diagnosis', { x: 800, y: 300, width: 380, height: 460 });
-  placeAndSave(B, 'patients', { x: 800 - 380 - 18, y: 300, width: 380, height: 420 });
-  await B.userDrag(2, 0);
+  // 자동 흡착은 없다 — 겹쳐 놓고 '왼쪽 붙이기' 를 고르는 경로로 관계를 만든다.
+  placeAndSave(B, 'patients', { x: 800 - 8, y: 300 - 8, width: 380, height: 420 });
+  await B.userDrag(8, 8);
+  snap.applySnapChoice('patients', 'diagnosis', 'left');
   const relOf = () =>
     snap.getSnapRelations().some(
       (r) =>

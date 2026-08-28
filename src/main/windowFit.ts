@@ -1,4 +1,5 @@
 import { screen, type BrowserWindow } from 'electron';
+import { withAppliedBounds } from './boundsGuard.js';
 import { saveBounds, type WindowKey } from './store.js';
 
 /**
@@ -58,7 +59,8 @@ export function forgetWindowFit(win: BrowserWindow): void {
  * - 사용자가 손으로 크기를 바꾼 적이 없으면 needed 에 정확히 맞춘다(늘리고 줄인다).
  * - 사용자가 바꾼 적이 있으면 **줄이지 않는다.** 내용이 잘릴 때만 키운다 —
  *   사용자의 선택을 덮어쓰지 않으면서 잘림(이 결함의 본체)은 막는다.
- * - 작업 영역을 넘지 않는다. 아래로 삐져나가면 위로 당긴다.
+ * - **커질 때만** 작업 영역을 넘지 않게 위로 당긴다. 줄어들 때는 y 를 그대로 둔다 —
+ *   줄어드는데도 바닥 정렬을 하면 창이 위로 튀어 오른다(사용자에겐 이유 없는 점프다).
  *
  * @returns 실제로 창 크기를 바꿨으면 true.
  */
@@ -98,11 +100,17 @@ export function fitWindowToContent(win: BrowserWindow, needed: number): boolean 
   if (cur.height === want) return false;
 
   let y = cur.y;
-  if (y + want > wa.y + wa.height) y = wa.y + wa.height - want;
-  if (y < wa.y) y = wa.y;
+  // 커질 때만 y 를 만진다. 줄어드는 경우엔 이미 작업 영역 안이므로 당길 이유가 없고,
+  // 당기면 dock 이 매 측정마다 위로 튀어 오른다.
+  if (want > cur.height && y + want > wa.y + wa.height) {
+    y = wa.y + wa.height - want;
+    if (y < wa.y) y = wa.y;
+  }
   const next = { x: cur.x, y, width: cur.width, height: want };
-  win.setBounds(next);
-  // 프로그램적 setBounds 는 'resized' 를 발생시키지 않으므로 직접 저장한다.
+  // 가드 필수: macOS 는 프로그램적 setBounds 에도 'move'/'resize' 를 발생시킨다.
+  // 감싸지 않으면 windowSnap 이 이걸 사용자 드래그로 오해해 가짜 드래그 세션을 연다.
+  withAppliedBounds(() => win.setBounds(next));
+  // 프로그램적 setBounds 는 'resized'(사용자 조작 완료) 를 발생시키지 않으므로 직접 저장한다.
   const key = deps?.windowKeyOf(win) ?? null;
   if (key) saveBounds(key, next);
   return true;

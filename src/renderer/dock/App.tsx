@@ -1219,7 +1219,7 @@ export default function DockApp() {
             <DialogHeader>
               <DialogTitle>Transcribe Provider</DialogTitle>
               <DialogDescription>
-                전사(STT) 공급자를 선택합니다. 변경은 다음 "시작"부터 적용됩니다.
+                대화기록(STT) 공급자를 선택합니다. 변경은 다음 "시작"부터 적용됩니다.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
@@ -1418,7 +1418,7 @@ export default function DockApp() {
               variant="ghost"
               className="h-9 w-9 shrink-0 text-destructive hover:bg-destructive/20 hover:text-destructive"
               onClick={() => {
-                if (confirm('Realtime Doctor를 종료할까요?\n진행 중인 전사·분석이 모두 사라집니다.')) {
+                if (confirm('RightHand를 종료할까요?\n진행 중인 대화기록·분석이 모두 사라집니다.')) {
                   window.api.quitApp();
                 }
               }}

@@ -148,6 +148,13 @@ export class FakeWindow extends EventEmitter {
     this.#minimized = false;
   }
   focus() {}
+  /**
+   * z-order 를 맨 위로. 실제 Electron 은 bounds 를 바꾸지 않고 포커스도 옮기지
+   * 않는다 — 여기서는 호출 사실만 세어 두어 프로브가 확인할 수 있게 한다.
+   */
+  moveTop() {
+    this.moveTopCount = (this.moveTopCount ?? 0) + 1;
+  }
   setAlwaysOnTop() {}
   getMinimumSize() {
     return [...this.#min];

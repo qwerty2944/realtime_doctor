@@ -19,6 +19,8 @@ import {
   type EvidenceStatus,
   type EvidenceUpdate,
   type IssueVisitCodeResult,
+  type PatientVisitCodeInput,
+  type VisitCodeAlimtalkResult,
   type VisitCodeSettings,
   type Language,
   type LoadedSessionPayload,
@@ -37,6 +39,8 @@ import {
   type TranscriptLabelEvent,
   type WaitingEncounter,
   type WaitingListUpdate,
+  type SnapChoiceApply,
+  type SnapChoicePrompt,
   type WindowGroupInfo
 } from '../shared/types.js';
 
@@ -421,6 +425,25 @@ const api = {
       const listener = (_e: unknown, payload: OverlayKey[]) => handler(payload);
       ipcRenderer.on(IPC.WindowSnapsState, listener);
       return () => ipcRenderer.removeListener(IPC.WindowSnapsState, listener);
+    },
+    /**
+     * 겹쳐 놓았을 때 뜨는 선택지 (상/하/좌/우 붙이기 · 합치기). 고른 것만 실행되고
+     * 취소하면 창은 놓인 자리에 그대로 남는다.
+     */
+    choice: {
+      onPrompt(handler: (prompt: SnapChoicePrompt | null) => void): () => void {
+        const listener = (_e: unknown, payload: SnapChoicePrompt | null) =>
+          handler(payload);
+        ipcRenderer.on(IPC.WindowSnapChoiceShow, listener);
+        return () =>
+          ipcRenderer.removeListener(IPC.WindowSnapChoiceShow, listener);
+      },
+      apply(payload: SnapChoiceApply): void {
+        ipcRenderer.send(IPC.WindowSnapChoiceApply, payload);
+      },
+      cancel(): void {
+        ipcRenderer.send(IPC.WindowSnapChoiceCancel);
+      }
     }
   },
   devices: {
@@ -580,6 +603,22 @@ const api = {
      */
     issue(): Promise<IssueVisitCodeResult> {
       return ipcRenderer.invoke(IPC.VisitCodeIssue);
+    },
+    /**
+     * 환자를 등록하고 그 환자의 링크를 발급한다 (0019).
+     *
+     * 익명 코드와 달리 환자 행이 이 시점에 생기고, 링크는 24시간 산다 —
+     * 진료 전날 보내는 것이 이 경로의 목적이기 때문이다.
+     */
+    issueForPatient(input: PatientVisitCodeInput): Promise<IssueVisitCodeResult> {
+      return ipcRenderer.invoke(IPC.VisitCodeIssuePatient, input);
+    },
+    /**
+     * 발급한 링크를 알림톡으로 보낸다. 발송은 키오스크 서버가 하고, 이 앱은
+     * 코드 행 id 만 넘긴다 — 전화번호도 본문도 서버가 DB 에서 읽는다.
+     */
+    sendAlimtalk(codeId: string, link: string): Promise<VisitCodeAlimtalkResult> {
+      return ipcRenderer.invoke(IPC.VisitCodeSendAlimtalk, { codeId, link });
     },
     /** 키오스크 주소·슬러그. 주소는 설정값이고 코드에 도메인을 박지 않는다. */
     getSettings(): Promise<VisitCodeSettings> {

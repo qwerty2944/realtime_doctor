@@ -225,7 +225,10 @@ export function createOverlayWindow(
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
-      sandbox: false,
+      // [S5-1] preload 는 contextBridge + ipcRenderer 만 쓰고 Node 내장 모듈을
+      // 직접 require 하지 않으므로 sandbox 를 켜도 깨지지 않는다. sandbox 는
+      // 렌더러가 뚫려도 OS 프로세스 권한을 최소화한다.
+      sandbox: true,
       nodeIntegration: false
     }
   });
