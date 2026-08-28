@@ -1,5 +1,38 @@
 # STATE
 
+## 2026-08-10 (오후) — 보안 전수감사 + HIGH 3건 수정
+- 7단계 full-read 감사(`.claude/skills/rd-security-audit/`) 실행, 리포트 `tasks/security-audit-2026-08-10.md`. 발견 22건(HIGH 3, MEDIUM 8, 나머지 LOW).
+- **HIGH 3건 수정 완료**(typecheck+빌드+새 프로브 2종 통과):
+  - S5-1: `src/main/navigationGuard.ts` 신규 — 전역 web-contents-created 가드(외부이동/새창 차단, PubMed allowlist만 shell.openExternal), `windows.ts` sandbox:true. 프로브 `probe-navigation-guard.mjs`.
+  - S2-1/S2-2: 엔타이틀먼트 공개키·URL을 packaged 빌드에서 user-writable dotenv로 못 덮게(`RD_BAKED_*` 정적 치환, isPackaged 분기), baked 없으면 fail-closed. 롤백 바닥값을 서명된 issuedAt과 max로. 프로브 `probe-entitlement-tamper.mjs`.
+  - S6-1/S6-2: CLOVA 3종을 EMBEDDED_ENV_KEYS에서 제거(번들에서 사라짐 확인) → 런타임 `~/.realtime-doctor.env` 프로비저닝. `dist`/`dist:universal`에 `ci-assert-embedded.mjs` 선행, CLOVA 값-부재 검사 추가.
+- **미해결(승인 대기)**: MEDIUM 8건(S1-1 usage_events DELETE, S1-2 evidence 캐시 오염, S3-1 OTP, S3-2 재예약 경합, S4-1/2 로그 PHI, S4-3 로컬 평문). CLOVA 서버-민트(진짜 백스톱)는 후속 SPEC.
+- 상위 `~/Desktop/project/CLAUDE.md` §19에 "보안 전수감사 규율"을 추가 — 하위 모든 프로젝트가 상속.
+
+## 2026-08-10 — 0.8.2 릴리스 배포 완료
+- 포함: dock 깜빡임 수정(windowFit 가드), 전사→대화기록 문구, 스냅 UX 전면 개편(자동 흡착 완전 삭제 — 깊은 겹침 시 5지선다만, 선택창 moveTop 으로 가려짐 방지), userData 마이그레이션.
+- 산출물: universal dmg 189,413,742 / d326e096… · arm64 dmg 106,565,942 / 74569d2b… · win exe 87,303,736 / 6a44fc05… (mac 공증+스테이플 확인, 시크릿 grep 0건).
+- `app-releases` 버킷 `mac|win/0.8.2/righthand-0.8.2-*` 업로드, catalog.ts 0.8.2 갱신, Vercel 프로덕션 배포 Ready.
+- CLOVA 결론: 스트리밍(gRPC, 도메인 entang) 정상 — 설치본 키 부재가 원인이었고 `~/.realtime-doctor.env` 생성으로 해결. CSR 키(f3ss3cqxy0)는 계정에 앱이 없어 죽어 있음(부차적).
+- 미해결: RETIRED_VERSIONS 에 0.8.0/0.8.1 미기록, catalog.ts 주석 구수치(184MB), en.ts "Transcript" 용어, openaiStream.ts 예외 메시지의 "전사" 5건. 실제 다운로드 클릭 1회 검증 권장.
+
+## 2026-08-09 (오후) — dock 깜빡임 수정 + 전사→대화기록 + 스냅 선택지 UX
+- **깜빡임/키 씹힘 원인**: `windowFit.ts`의 setBounds가 `withAppliedBounds` 가드 없이 나가 스냅 엔진이 사용자 드래그로 오인(가짜 드래그 세션 반복). 커밋 edf9de8(배너 높이 fit) + 9276744(라이브 추종)의 조합 회귀. 가드 적용 + y클램프를 "커질 때만"으로 제한.
+- 렌더러 사용자 노출 문구 "전사" → "대화기록" 14건 교체. 미처리: `src/main/openaiStream.ts`의 예외 메시지 5건, en.ts "Transcript"(지시 범위 밖).
+- **스냅 UX 개선**: 드랍 시 자동 흡착/머지 제거 → 겹침(24px+) 대상 1개일 때 대상 창 안에 5지선다(상/하/좌/우 붙이기+합치기, Esc/배경클릭 취소). 자동 머지 경로 삭제(`mergeWindows` 호출처는 `applySnapChoice` 유일). 프로브 4종 통과. **시각 확인 미수행** — dock(380x130)에서 5버튼 잘림 여부 실기 확인 필요.
+- CLOVA 전사 불능 별건: NCP API가 403(errorCode 230) — 키 로테이트/서비스 상태 확인 대기. 설치본용 `~/.realtime-doctor.env`도 부재.
+
+## 2026-08-09 — 0.8.1 릴리스 (RightHand, 전 플랫폼)
+
+- userData 이관 추가(`src/main/migrateUserData.ts`): 구 "Realtime Doctor" 프로필을 1회 복사, 마커로 재실행 차단. 버전 0.8.0 → 0.8.1.
+- 산출물(전부 시크릿 grep 통과, mac 은 공증+스테이플 확인):
+  - `RightHand-0.8.1-universal.dmg` 189,388,074 / sha256 17f23d8d…3fc928
+  - `RightHand-0.8.1-arm64.dmg` 106,578,602 / sha256 42d22eb4…467123
+  - `RightHand Setup 0.8.1.exe` 87,300,666 / sha256 2d77cbbe…327a89 (서명 없음 — Windows 인증서 미보유, 종전과 동일)
+- Developer ID Application 인증서 신규 발급(팀 88CR983RJZ, 만료 2031/08/10) — Apple Distribution 으로는 공증 거부됐음.
+- `app-releases` 버킷 업로드 완료: `mac/0.8.1/righthand-0.8.1-{universal,arm64}.dmg`, `win/0.8.1/righthand-0.8.1-setup.exe`. 0.8.0 객체는 롤백용 보존. 버킷이 MIME 화이트리스트 강제(dmg=application/x-apple-diskimage, exe=application/vnd.microsoft.portable-executable — octet-stream 거부).
+- doctor-web: catalog.ts 0.8.1 갱신, 다운로드 페이지 Gatekeeper 우회 안내 삭제(공증됐으므로), 브랜드 문구 교체. typecheck·build 통과. **Vercel 프로덕션 배포 미실행** — 배포돼야 사용자에게 0.8.1 이 보인다.
+
 ## 목표
 
 ### 완료: 환자 기능 이식 (M1~M6)
@@ -1382,3 +1415,63 @@ camelCase insert · 여섯 번째 철자 insert · 공백 `name_kr` · `analyses
   적용돼 있다(지문 diff 0줄이 그 증거). 이력표만 비어 있다.
 - `patientMode.recommendedTestsText` 도 `name_kr`/`nameKr`/`name`/`code` 를 더듬는다.
   `recommended_tests_json` 은 이번 범위 밖이라 두었다 — 같은 종류의 갈래다.
+
+## 2026-08-09 — RightHand 리브랜딩 + Developer ID 서명·공증
+- Electron 앱을 `RightHand` 로 리브랜딩 (productName/dmg 타이틀/아이콘 icns·ico 재생성, appId `dev.realtime.doctor` 유지). 아이콘 원본: `doctor-web/public/brand/righthand-icon.svg`.
+- Developer ID Application 인증서 신규 발급 (팀 88CR983RJZ, 만료 2031/08/10) — 기존 Apple Distribution 으로는 공증이 거부됐음. 개인키+CSR 은 CLI 생성, 포털 발급, 로그인 키체인에 등록.
+- `npm run dist` → 서명·공증·스테이플 완료. `spctl` = "Notarized Developer ID". 산출물: `release/RightHand-0.8.0-arm64.dmg`.
+- 주의: productName 변경으로 userData 가 `~/Library/Application Support/RightHand` 로 이동 — 기존 설치 사용자는 로컬 설정이 비어 보임(마이그레이션 미구현).
+
+## 사전문진 접수 흐름 개편 (2026-08-09) — 0019
+
+배경: 방문 코드(0009)는 접근 통제로는 옳았지만 **환자를 지목하지 못했다.** 접수처는
+특정 환자에게 특정 링크를 미리 줄 수 없었고, 실제 실패 지점은 접수대 건너에서 7자를
+불러주는 그 순간이었다.
+
+- **B) 환자 등록형 개인 링크 (기본 경로)** — `issue_patient_visit_code()` 가 `patients`
+  행과 코드를 한 트랜잭션에서 만든다. 수명 **24시간**(익명 코드는 30분): 전날 저녁에
+  보낸 링크가 아침에 죽어 있으면 환자는 자기 탓을 하고 다시 시도하지 않는다.
+  키오스크는 그 환자에 진료를 붙이고(새 행을 만들지 않는다) 이름 칸을 미리 채운다.
+  - **[HARD] 항상 새 환자 행을 만든다.** (이름, 전화) 일치로 기존 행을 재사용하면
+    동명이인이 한 차트로 합쳐지고, 잘못된 병합은 대기목록에서 보이지 않는다.
+    중복은 보이고 고칠 수 있다. 병합은 두 기록을 사람이 함께 보는 화면의 결정이다.
+- **A) 원내 고정 QR (walk-in 폴백)** — `?c=` 없는 접속은 코드 화면을 건너뛰고 바로
+  동의 → 이름·생년월일로 간다. 폴백이 아예 없으면 의원은 폴백이 아니라 **제품을 안 쓰는
+  쪽**으로 폴백한다. 코드가 사라진 자리를 셋이 대신한다: (1) DB 카운터 속도 제한
+  (`walk_in_intake_attempts`, 10분 창에 출처당 5·의원당 40, 주소는 HMAC 해시만 저장),
+  (2) `encounters.intake_source = 'invite' | 'walk_in'` — 보증된 문진과 아닌 문진이
+  같은 모습으로 대기목록에 앉으면 안 된다, (3) 담당 의사는 여전히 슬러그가 정한다.
+  속도 제한은 **insert 와 모델 호출보다 앞**이다(0009 의 순서를 그대로 지켰다).
+- **코드 입력 화면은 지우지 않고 라우팅에서만 뺐다**(`VisitCodeStep.tsx`). 무코드
+  폴백이 현장에서 어떻게 쓰이는지 보기 전까지 되돌릴 수 있어야 한다.
+  만료·오타 `?c=` 는 조용히 흘려보내지 않고 이유를 한 줄로 말한 뒤 무코드 경로로 잇는다.
+- **알림톡(Solapi)은 키오스크 서버가 보낸다** (`/api/notify/alimtalk`). 데스크톱이
+  보내면 자격증명이 설치본에 들어가고 A1 이 걷어낸 문제가 그대로 되살아난다.
+  데스크톱이 넘기는 것은 JWT·코드 id·링크뿐이고, 서버가 (1) `auth.getUser(jwt)` 로
+  사람을 확인, (2) 그 사람 소유 코드인지 DB 에서 확인, (3) 링크가 **자기 배포의
+  `/intake`** 인지 확인, (4) **번호는 DB 에서 읽는다**. 클라이언트 번호를 믿으면
+  (2)가 아무것도 지키지 못하고 이 라우트는 발신번호를 빌려주는 스팸 게이트가 된다.
+  - 링크만은 클라이언트가 준다 — 평문 코드는 어디에도 저장되지 않아(0009) 서버가
+    재구성할 수 없다. 그래서 호스트·경로 검증이 그 자리를 대신한다.
+  - **미설정은 실패가 아니다.** 환경변수가 하나라도 비면 `{ configured: false }` 를
+    200 으로 돌려주고 화면은 "링크를 복사해서 보내세요" 를 말한다. 자리표시자를 넣으면
+    설정 누락이 원장에게 "환자에게 안내가 갔다" 로 도착한다.
+- **잡은 결함 하나**: 전화번호 검증이 `regexp_replace` 후 빈 문자열을 "번호 없음" 으로
+  읽어서, 접수처가 엉뚱한 값을 넣어도 에러 없이 발송 버튼만 조용히 사라졌다.
+  "쓸 수 없는 값을 입력함" 과 "비워 둠" 을 구별하게 고쳤다.
+- 검증: 로컬 스택에 0019 적용(**두 번 적용해도 통과** — 멱등, 0013 가드 두 번 통과).
+  실제 함수 호출로 확인: 환자 등록형 발급이 patientId·24h TTL 반환 / 이름 공백·전화
+  형식 오류 거절 / `redeem` 이 `patientId`·`patientName` 반환 / walk-in 6번째 차단,
+  다른 출처는 통과 / anon·authenticated 는 `record_walk_in_intake_start` EXECUTE 없음.
+  빌드: 루트 typecheck + electron-vite build 통과, kiosk `tsc --noEmit` + `next build` 통과.
+- **0019 는 로컬 스택에만 적용했다.** 스테이징·운영에는 아직이다.
+
+### 남은 것 / 리스크
+
+- **육안 검증 미완료** — 개편된 발급 다이얼로그(환자 등록 폼·복사·알림톡 버튼)와
+  무코드 문진 첫 화면을 화면으로 보지 못했다(이 머신에 캡처 권한 없음).
+- **Solapi 라이브 호출 미검증.** 계정·채널·템플릿이 없어 서명 헤더와 응답 형태를
+  실제로 태워보지 못했다. 특히 `failedMessageList` 판정은 문서 기준이다.
+- **`intake_source` 를 읽는 화면이 없다.** 값은 쌓이지만 대기목록이 아직 구분해
+  보여주지 않는다 — 다음 작업.
+- 발급 이력 목록(최근 발급분·사용 상태)은 만들지 않았다. 다이얼로그가 이미 길다.
