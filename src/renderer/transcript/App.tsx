@@ -23,6 +23,11 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import type { DictationTemplate, SessionSummary, Speaker } from '../../shared/types';
 import { OverlayShell } from '../shared/OverlayShell';
+import {
+  patientHistoryFallback,
+  patientTranscript,
+  usePatientDetail
+} from '../shared/patientMode';
 import { useLang, useT } from '../shared/i18n';
 import { useRealtime } from './useRealtime';
 
@@ -87,7 +92,20 @@ export default function TranscriptApp() {
     swapAll
   } = useRealtime();
 
+  // 환자 모드: 키오스크가 저장한 문진 "대화" 를 실시간 발화와 같은 버블로 보여준다.
+  // 녹음 컨트롤은 그대로 둔다 — 이 환자를 보면서 녹음하는 것이 정상 흐름이고,
+  // 녹취는 main 에서 그 진료(encounter)에 연결된다.
+  const patient = usePatientDetail();
+  const intakeTurns = patient ? patientTranscript(patient) : [];
+  // 대화 기록이 없는 옛 레코드만 S 서술로 폴백한다. 환자가 말한 것처럼 보이면
+  // 안 되므로 버블이 아니라 경고색 패널로 그린다.
+  const historyFallback =
+    patient && intakeTurns.length === 0 ? patientHistoryFallback(patient) : [];
+
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  // 감별진단 근거를 눌렀을 때 강조할 발화 (E1). 실시간 발화와 문진 대화가
+  // 같은 id 공간을 쓰지 않으므로 어느 쪽이 떠 있든 id 하나로 찾을 수 있다.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const [loadOpen, setLoadOpen] = useState(false);
   const [sessionList, setSessionList] = useState<SessionSummary[] | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -132,13 +150,37 @@ export default function TranscriptApp() {
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
+    // 근거를 눌러 위쪽 발화를 보고 있는데 새 발화가 오면 아래로 끌려간다.
+    if (focusedId) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [utterances.length, partial]);
+  }, [utterances.length, partial, focusedId]);
+
+  /**
+   * 감별진단 근거 클릭 수신 (E1).
+   *
+   * main 이 이 창을 이미 앞으로 꺼낸 뒤 보낸다. 여기서는 해당 발화로 스크롤하고
+   * 강조만 한다. 강조는 자동으로 풀지 않는다 — 의사가 그 발화를 읽는 동안
+   * 사라지면 어느 줄이었는지 다시 찾아야 한다. 다음 근거를 누르면 옮겨간다.
+   */
+  useEffect(() => {
+    const off = window.api.onFocusUtterance((utteranceId) => {
+      setFocusedId(utteranceId);
+      // 렌더 후에 DOM 이 존재한다. rAF 로 한 프레임 미룬다.
+      requestAnimationFrame(() => {
+        const node = document.querySelector(
+          `[data-utterance-id="${CSS.escape(utteranceId)}"]`
+        );
+        node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+    return off;
+  }, []);
 
   return (
     <OverlayShell
       title={t('window.transcript')}
       shortcutId="toggleTranscript"
+      patientName={patient?.patient.name}
       actions={
         <div className="flex items-center gap-1" data-no-drag>
           <Button
@@ -275,6 +317,68 @@ export default function TranscriptApp() {
         <div className="px-3 pt-2 text-xs text-destructive">{error}</div>
       )}
 
+      {patient ? (
+        <ScrollArea className="flex-1">
+          <div className="space-y-2 px-3 py-2 text-sm leading-relaxed">
+            <p className="text-[10px] uppercase tracking-wide text-emerald-200/80">
+              {intakeTurns.length > 0
+                ? t('patient.intakeDialogue')
+                : t('patient.intakeSource')}
+            </p>
+            {intakeTurns.map((turn) => {
+              const style = speakerStyle(turn.speaker, t);
+              const { Icon } = style;
+              return (
+                <div
+                  key={turn.id}
+                  data-utterance-id={turn.id}
+                  className={cn(
+                    'rounded-md px-2 py-1.5 transition-shadow',
+                    style.bubble,
+                    focusedId === turn.id &&
+                      'ring-2 ring-amber-300 ring-offset-1 ring-offset-background'
+                  )}
+                >
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide',
+                        style.chip
+                      )}
+                    >
+                      <Icon className="h-2.5 w-2.5" />
+                      {t(turn.labelKey)}
+                    </span>
+                  </div>
+                  <div className="whitespace-pre-wrap">{turn.text}</div>
+                </div>
+              );
+            })}
+            {intakeTurns.length === 0 && historyFallback.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {patient.intakeResult ? t('patient.noData') : t('patient.noIntake')}
+              </p>
+            )}
+            {intakeTurns.length === 0 && historyFallback.length > 0 && (
+              <div className="space-y-2 rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-100">
+                  {t('patient.noDialogue')} · {t('patient.historyNotDialogue')}
+                </p>
+                {historyFallback.map((item) => (
+                  <div key={item.labelKey} className="space-y-1">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-200/80">
+                      {t(item.labelKey)}
+                    </div>
+                    <p className="whitespace-pre-wrap text-amber-50/90">
+                      {item.body}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      ) : (
       <ScrollArea className="flex-1" viewportRef={viewportRef}>
         <div className="space-y-2 px-3 py-2 text-sm leading-relaxed">
           {utterances.length === 0 && !partial && (
@@ -288,7 +392,13 @@ export default function TranscriptApp() {
             return (
               <div
                 key={u.id}
-                className={cn('rounded-md px-2 py-1.5', style.bubble)}
+                data-utterance-id={u.id}
+                className={cn(
+                  'rounded-md px-2 py-1.5 transition-shadow',
+                  style.bubble,
+                  focusedId === u.id &&
+                    'ring-2 ring-amber-300 ring-offset-1 ring-offset-background'
+                )}
               >
                 <div className="group mb-1 flex items-center gap-1.5">
                   <button
@@ -327,6 +437,7 @@ export default function TranscriptApp() {
           )}
         </div>
       </ScrollArea>
+      )}
 
       <Separator />
       <div className="flex items-center justify-between px-3 py-1.5 text-[10px] text-muted-foreground">
@@ -338,7 +449,7 @@ export default function TranscriptApp() {
             : finishing
               ? lang === 'en'
                 ? `⌛ Finalizing… (${pendingCount} utterance${pendingCount === 1 ? '' : 's'} transcribing)`
-                : `⌛ 정리 중… (${pendingCount} 발화 전사 중)`
+                : `⌛ 정리 중… (${pendingCount} 발화 대화기록 중)`
               : lang === 'en'
                 ? '○ Stopped'
                 : '○ 정지'}

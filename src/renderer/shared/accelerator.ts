@@ -7,7 +7,19 @@ export function formatAccelerator(accel: string | undefined | null): string {
   return parts.map(formatPart).join(IS_MAC ? ' ' : '+');
 }
 
+/** 화면 표시용 기호. Electron accelerator 이름 그대로 두면 "Equal" 처럼 보인다. */
+const DISPLAY_KEYS: Record<string, string> = {
+  Equal: '=',
+  Minus: '-',
+  Up: '↑',
+  Down: '↓',
+  Left: '←',
+  Right: '→'
+};
+
 function formatPart(p: string): string {
+  const display = DISPLAY_KEYS[p];
+  if (display) return display;
   if (IS_MAC) {
     switch (p) {
       case 'CommandOrControl':
@@ -65,6 +77,10 @@ function normalizeKey(key: string, code: string): string | null {
     ArrowDown: 'Down',
     ArrowLeft: 'Left',
     ArrowRight: 'Right',
+    // 글씨 크기 단축키가 =/- 를 쓰므로 재바인딩에서도 입력 가능해야 한다.
+    // Electron 이 받는 이름은 'Equal'/'Minus' 가 아니라 글자 그대로다.
+    '=': '=',
+    '-': '-',
     ' ': 'Space',
     Escape: 'Esc',
     Enter: 'Return',

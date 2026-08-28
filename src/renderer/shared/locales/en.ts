@@ -17,6 +17,7 @@ const en: Record<keyof typeof ko, string> = {
   'window.questions': 'Next questions',
   'window.summary': 'Summary',
   'window.dictation': 'Dictation',
+  'window.patients': 'Waiting list',
 
   'dock.account': 'Account',
   'dock.signIn': 'Sign in',
@@ -56,12 +57,60 @@ const en: Record<keyof typeof ko, string> = {
   'dock.deviceRevokeConfirm': 'Revoke this device? It will be signed out immediately.',
   'dock.deviceRevokeSelfConfirm': 'Revoking the device you are using will sign you out now. Continue?',
   'dock.devicesEmpty': 'No registered devices.',
+  // Device limit (S5). Nothing is released automatically -- the user chooses.
+  'dock.deviceLimitTitle': 'Device limit reached',
+  'dock.deviceLimitDesc': 'Release one of these to use this device. Devices allowed',
+  'dock.deviceRelease': 'Release',
+  'dock.deviceLimitHint':
+    'A released device is signed out at its next check. Saved records are not deleted.',
+  'dock.deviceLimitFailed': 'Could not release the device. Please try again.',
   'dock.localSaveTitle': 'Local save',
   'dock.localSaveDesc': 'Save sessions, transcripts, analyses, summaries, and dictations on this computer.',
   'dock.localSaveAudioTitle': 'Save audio locally',
   'dock.localSaveAudioDesc': 'Save recorded WAV audio files on this computer.',
   'auth.deviceRevokedNotice': 'This device has been revoked and was signed out.',
+
+  'sub.title': 'Subscription',
+  'sub.statusTrialing': 'Free trial',
+  'sub.statusActive': 'Active',
+  'sub.statusPastDue': 'Payment failed',
+  'sub.statusExpired': 'Expired',
+  'sub.statusCanceled': 'Canceled',
+  'sub.statusNone': 'No subscription',
+  'sub.statusSignedOut': 'Sign-in required',
+  'sub.statusUnknown': 'Needs checking',
+  'sub.daysLeftSuffix': ' days left',
+  'sub.lastDay': 'Ends today',
+  'sub.subscribe': 'Subscribe',
+  // Korean B2B convention: quote ex-VAT, charge the VAT-inclusive total.
+  'sub.price': 'KRW 70,000 / month (VAT excluded)',
+  'sub.priceCharged': 'KRW 77,000 charged',
+  'sub.bannerTrialEnding': 'Your free trial ends soon. Subscribe to keep going.',
+  'sub.bannerExpired':
+    'Your subscription has expired, so new consultations are blocked. Saved records stay readable.',
+  'sub.bannerPastDue': 'Payment failed. You can keep working during the grace period.',
+  'sub.bannerSignedOut': 'Sign in to check your subscription.',
+  'sub.bannerOffline': 'Subscription check is delayed. Check your internet connection.',
+  'sub.offlineNotice': 'Offline — using the cached subscription',
+  'sub.refresh': 'Refresh status',
+  'sub.periodEnd': 'Next charge',
+  'sub.trialEnd': 'Trial ends',
+  'sub.deviceLimit': 'Devices',
+  'sub.deviceLimitUnit': '',
+  'sub.blockedTitle': 'This feature needs a subscription',
+  'sub.readingAlwaysAllowed':
+    'Reading and exporting already-saved records is always available, regardless of the lock.',
+
   'tabs.detach': 'Detach window',
+  'snap.detach': 'Unsnap from neighbours',
+  'snap.detachAction': 'Detach',
+  'snapChoice.title': 'What should happen?',
+  'snapChoice.top': 'Attach above',
+  'snapChoice.bottom': 'Attach below',
+  'snapChoice.left': 'Attach left',
+  'snapChoice.right': 'Attach right',
+  'snapChoice.merge': 'Merge into one window',
+  'snapChoice.dismiss': 'Cancel (Esc)',
   'sessions.sourceLocal': 'Local',
   'sessions.sourceCloud': 'Cloud',
   'sessions.sourceBoth': 'Local + cloud',
@@ -111,14 +160,200 @@ const en: Record<keyof typeof ko, string> = {
   'dictation.templateNarrative': 'Narrative',
 
   'diagnosis.empty': 'No differentials yet.',
-  'diagnosis.confidence': 'Likelihood',
   'diagnosis.reasoning': 'Reasoning',
+
+  // Patient evidence (E1) — observed in THIS patient. A different axis from literature.
+  'findings.title': 'Patient evidence',
+  'findings.hint': 'Click to jump to that utterance in the transcript window',
+  'findings.unverifiedTitle': 'Unverified',
+  'findings.unverifiedNote':
+    'Removed from the list because no supporting utterance could be verified. The call is yours.',
+  'findings.reasonNoFindings': 'No supporting evidence offered',
+  'findings.reasonUnresolved': 'Cited an utterance that is not in the transcript',
+  'findings.rejectedSources': 'Unresolved citations',
+
+  // evidence
+  'evidence.title': 'Literature',
+  'evidence.load': 'Find literature',
+  'evidence.loading': 'Searching PubMed…',
+  'evidence.empty': 'No matching literature found.',
+  'evidence.error': 'Literature lookup failed.',
+  'evidence.rateLimited': 'PubMed is busy — try again shortly.',
+  'evidence.retry': 'Retry',
+  'evidence.cached': 'Cached',
+  'evidence.openHint': 'Opens in your browser',
 
   'terms.empty': 'No medical terms yet.',
   'terms.context': 'Quote',
 
   'questions.empty': 'No suggested questions yet.',
-  'questions.rationale': 'Rationale'
+  'questions.rationale': 'Rationale',
+
+  'patients.empty': 'No patients waiting.',
+  'patients.signedOut': 'Sign in to see the waiting list.',
+  'patients.refresh': 'Refresh',
+  'patients.waitingCount': 'Waiting',
+  'patients.redFlagCount': 'Red flag',
+  'patients.redFlag': 'Red flag',
+  'patients.redFlagFallback': 'Red flag detected',
+  'patients.inConsult': 'In consult',
+  'patients.registrationNo': 'Reg. no.',
+  'patients.registrationNoNone': 'none',
+  'patients.chiefComplaintNone': 'Chief complaint pending',
+  'patients.waitPrefix': 'Waiting',
+  'patients.waitJustNow': 'just now',
+  'patients.waitMinutes': 'm',
+  'patients.waitHours': 'h',
+  'patients.unit': '',
+
+  // patient mode (intake data injected into each window on selection)
+  'patient.modeBadge': 'Intake data',
+  'patient.noData': 'No such data for this patient',
+  'patient.noIntake': 'No intake result for this patient yet.',
+  'patient.intakeSource': 'Intake result',
+  'patient.pmh': 'Past medical history',
+  'patient.medications': 'Medications',
+  'patient.allergies': 'Allergies',
+  'patient.intake': 'Intake',
+  'patient.intakeDialogue': 'Intake conversation',
+  'patient.speakerIntakeAgent': 'Intake AI',
+  'patient.noDialogue': 'No conversation was recorded for this intake.',
+  'patient.historyNotDialogue': 'Summary - not spoken by the patient',
+  'patient.rankPrefix': 'Rank',
+
+  // shortcut labels
+  'shortcut.toggleAll': 'Show/hide all windows',
+  'shortcut.toggleTranscript': 'Transcript window',
+  'shortcut.toggleDiagnosis': 'Differential window',
+  'shortcut.toggleTerms': 'Medical terms window',
+  'shortcut.toggleQuestions': 'Suggested questions window',
+  'shortcut.toggleSummary': 'Summary window',
+  'shortcut.toggleDictation': 'Dictation window',
+  'shortcut.togglePatients': 'Waiting list window',
+  'shortcut.recordStartStop': 'Start/stop recording',
+  'shortcut.runAnalyze': 'Re-run differential analysis',
+  'shortcut.runSummary': 'Regenerate summary',
+  'shortcut.runDictation': 'Regenerate dictation',
+  'shortcut.fontIncrease': 'Increase font size',
+  'shortcut.fontDecrease': 'Decrease font size',
+  'shortcut.fontReset': 'Reset font size',
+  'shortcut.windowWiden': 'Widen window',
+  'shortcut.windowNarrow': 'Narrow window',
+  'shortcut.windowTaller': 'Taller window',
+  'shortcut.windowShorter': 'Shorter window',
+  'shortcut.windowSnapDetach': 'Unsnap from neighbours',
+
+  // Care activity records (B3/B4).
+  // [HARD] Wording is the liability boundary. Every string here stops at
+  // "there is a record of this". None of them tells the doctor to act on it.
+  'care.title': 'Care activity recorded in this consultation',
+  'care.subtitle':
+    'Only what the transcript actually contains, verbatim. The clinical judgement is the doctor’s.',
+  'care.quoteHint': 'Opens this utterance in the transcript window.',
+  'care.durationMinutes': 'min',
+  'care.durationSeconds': 'sec',
+  'care.ruleVersion': 'rule v',
+  'care.emptyTitle': 'Nothing reviewed to show',
+  'care.emptyNoneReviewed':
+    'A matching stretch was found in the transcript, but its definition has not been through clinical review, so it is not shown.',
+  'care.emptyNoEvidence': 'No stretch in this transcript met the criteria.',
+  'care.emptyNoSession': 'No recording yet. Anything found will appear here.',
+  'care.emptyIntake':
+    'Intake dialogue carries no timestamps, so no time range can be formed. This only appears for in-room recordings.',
+
+  'care.reportTitle': 'Monthly activity record',
+  'care.reportDesc': 'Counts of recorded activity per month. No amounts are calculated.',
+  'care.reportEmpty': 'No records for this month.',
+  'care.reportPrev': 'Previous month',
+  'care.reportNext': 'Next month',
+  'care.reportColActivity': 'Activity',
+  'care.reportColRule': 'Rule',
+  'care.reportColCount': 'Records',
+  'care.reportColSessions': 'Consultations',
+  'care.reportTotal': 'Total',
+  'care.reportCopyCsv': 'Copy CSV',
+  'care.reportCopied': 'Copied',
+  'care.reportNote':
+    'When a rule changes, an earlier month is not rewritten: the counts split into separate rows per rule version.',
+
+  // Clinical review (B5). Same wording discipline as care.*: this screen only
+  // asks whether this account will use a rule. It never tells anyone to act.
+  'review.title': 'Clinical review of detection rules',
+  'review.desc':
+    'Read the full rule and mark only the items this account will use as reviewed.',
+  'review.scopeNote':
+    'A review marked here applies to this account only and does not affect detection for any other user. When a rule changes the review lapses and the new rule has to be read again.',
+  'review.empty': 'No definitions to show.',
+  'review.mark': 'Mark as reviewed',
+  'review.unmark': 'Withdraw review',
+  'review.stateReviewed': 'Reviewed',
+  'review.stateUnreviewed': 'Not reviewed',
+  'review.stateStale': 'The rule changed after this review. The new rule has to be read again.',
+  'review.stateRevoked': 'Review withdrawn',
+  'review.none': 'none',
+  'review.ruleCues': 'Cue terms',
+  'review.ruleNegations': 'Negation terms',
+  'review.ruleSpeaker': 'Speaker',
+  'review.ruleMinCues': 'Min distinct cues',
+  'review.ruleMinUtterances': 'Min cue utterances',
+  'review.ruleMinDuration': 'Min elapsed time',
+  'review.ruleVersionLabel': 'Rule version',
+  'review.speakerDoctor': 'doctor only',
+  'review.speakerPatient': 'patient only',
+  'review.speakerAny': 'any',
+  'review.backfill': 'Rescan past consultations',
+  'review.backfillDesc':
+    'Right after a review there are no records for earlier consultations. This rescans the last three months. Running it again does not increase the counts.',
+  'review.backfillResult':
+    '{scanned} consultations · {inserted} new · {unchanged} unchanged',
+
+  // Visit access code (L1)
+  'visitCode.title': 'Issue visit code',
+  'visitCode.desc': 'Hand this code to the patient. Scanning the QR or typing the code starts the intake.',
+  'visitCode.issue': 'Issue code',
+  'visitCode.issueAgain': 'Issue a new code',
+  'visitCode.expiresIn': 'Expires in',
+  'visitCode.expired': 'This code has expired. Issue a new one.',
+  'visitCode.qrHint': "Scanning it with the patient's phone or the tablet camera opens the intake directly.",
+  'visitCode.noKioskUrl':
+    'No kiosk address is configured, so no QR can be generated. Enter the address below. You can still read the code out loud.',
+  'visitCode.note':
+    'A code is for one visit only and stops working once the intake is finished. Closing this dialog discards it -- issue a new one if you need it again.',
+  'visitCode.errorSignedOut': 'Sign in to issue a code.',
+  'visitCode.errorTooMany':
+    'Too many issued codes are still unused. Wait for them to expire before issuing more.',
+  'visitCode.errorFailed': 'Could not issue a code. Try again in a moment.',
+  'visitCode.settingsTitle': 'Kiosk connection',
+  'visitCode.kioskUrl': 'Kiosk address',
+  'visitCode.kioskSlug': 'Kiosk slug (optional)',
+  'visitCode.patientTitle': 'Register a patient',
+  'visitCode.patientDesc':
+    "Registering a patient creates that patient's own intake link. Send it by KakaoTalk or show the QR.",
+  'visitCode.patientName': 'Patient name',
+  'visitCode.patientPhone': 'Mobile number (optional)',
+  'visitCode.patientPhoneHint':
+    'With a number, the link can be sent by KakaoTalk. Leave it empty to hand the QR over instead.',
+  'visitCode.register': 'Register and create link',
+  'visitCode.registerAgain': 'Register another patient',
+  'visitCode.issuedFor': 'Patient',
+  'visitCode.copyLink': 'Copy link',
+  'visitCode.copied': 'Copied',
+  'visitCode.sendAlimtalk': 'Send KakaoTalk message',
+  'visitCode.sending': 'Sending…',
+  'visitCode.sent': 'The message was sent.',
+  'visitCode.alimtalkNotConfigured':
+    'KakaoTalk sending is not configured yet. Copy the link and send it yourself. (Setup: kiosk/README.md)',
+  'visitCode.alimtalkNoPhone': 'No mobile number is registered for this patient.',
+  'visitCode.alimtalkNoKioskUrl':
+    'No kiosk address is configured, so there is no link to send. Enter the address below first.',
+  'visitCode.alimtalkFailed': 'Could not send the message. Copy the link and send it yourself.',
+  'visitCode.errorInvalidInput':
+    'Check the name. The mobile number must contain digits only.',
+  'visitCode.quickTitle': 'Quick code (no patient)',
+  'visitCode.quickHint':
+    'Issues a 30-minute code without registering a patient. Use it when the patient is already at the desk.',
+  'visitCode.settingsHint':
+    'Where the intake web app is deployed. The default is already filled in — change it only if this clinic runs its own address. Clearing a field and saving restores the default.'
 };
 
 export default en;

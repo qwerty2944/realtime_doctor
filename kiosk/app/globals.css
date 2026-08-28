@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 환자는 대부분 고령이다. 루트 폰트를 18px 로 올려서 모든 rem 기반 크기가
+ * 함께 커지게 한다 — 화면마다 큰 글씨 클래스를 붙이는 것보다 빠뜨릴 여지가
+ * 적다. 태블릿 세로 모드를 기준으로 잡았다.
+ */
+:root {
+  font-size: 18px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+  /* 문진 중 실수로 확대/축소되지 않도록. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* 키보드 포커스는 항상 또렷하게. 접근성 요구이자, 태블릿에 물린 물리 키보드로
+   접수처 직원이 대신 입력하는 실제 사용 패턴을 지원한다. */
+:focus-visible {
+  @apply outline-none ring-4 ring-blue-500 ring-offset-2;
+}

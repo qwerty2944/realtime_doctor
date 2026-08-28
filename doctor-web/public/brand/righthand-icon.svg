@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="righthand.">
+  <!--
+    RightHand app icon — "Clinical Blue" brand mark.
+    Full-bleed square: iOS masks the corners itself, so no rounded corners are
+    baked in. Text is left as live <text>; PNG exports are rasterised through
+    Chromium so the system font resolves. If this SVG is ever rendered by a
+    tool without Avenir Next, the fallback chain degrades to Helvetica Neue.
+  -->
+  <rect width="1024" height="1024" fill="#f8f9fb"/>
+  <g font-family="'Avenir Next', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+     font-weight="700"
+     font-size="176"
+     letter-spacing="-3.52"
+     text-anchor="middle">
+    <!-- Baselines 200.64px apart (176 * 1.14 leading); block optically lifted
+         ~10px above true centre so it reads as centred. -->
+    <text x="514" y="470" fill="#181f30">right</text>
+    <text x="514" y="671" fill="#2456e6">hand<tspan fill="#181f30">.</tspan></text>
+  </g>
+</svg>

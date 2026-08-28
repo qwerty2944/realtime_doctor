@@ -88,7 +88,7 @@ export function useRealtime() {
       ...prev,
       {
         id,
-        text: '(전사 중…)',
+        text: '(대화기록 중…)',
         timestamp: Date.now(),
         speaker: 'unknown',
         pending: true
@@ -120,7 +120,7 @@ export function useRealtime() {
   const markFailed = useCallback((id: string) => {
     setUtterances((prev) =>
       prev.map((u) =>
-        u.id === id ? { ...u, text: '(전사 실패)', pending: false } : u
+        u.id === id ? { ...u, text: '(대화기록 실패)', pending: false } : u
       )
     );
   }, []);

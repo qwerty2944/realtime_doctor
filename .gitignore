@@ -4,10 +4,21 @@ dist
 release
 .env
 .env.*
+# .env.* 가 예시 파일까지 잡아먹는다. 이건 비밀이 아니라 문서이므로 되살린다.
+!.env.example
 .DS_Store
 *.log
 admin-web/.next
 admin-web/node_modules
 admin-web/tsconfig.tsbuildinfo
 admin-web/.vercel
+kiosk/.next
+kiosk/node_modules
+kiosk/tsconfig.tsbuildinfo
+kiosk/.vercel
+doctor-web/.next
+doctor-web/node_modules
+doctor-web/tsconfig.tsbuildinfo
+doctor-web/.vercel
 .vercel
+win-build/

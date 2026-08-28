@@ -1,21 +1,38 @@
-# Vercel은 Root Directory = admin-web 으로 설정됨.
-# 그러나 CLI는 repo root에서 호출되므로 외부 디렉토리/파일을 명시적으로 제외.
+# 이 파일은 **저장소 루트 하나뿐**이고, 이 모노레포의 모든 Vercel 프로젝트가
+# 공유한다 (admin-web / kiosk / doctor-web). Root Directory 가 무엇으로
+# 설정돼 있든, git 빌드는 저장소 루트의 이 파일을 먼저 적용한 뒤에야
+# Root Directory 로 들어간다.
+#
+# [HARD] 그래서 루트의 Electron 산출물을 지우려는 패턴은 **반드시 `/` 로
+# 앵커해야 한다.** .gitignore 문법에서 `src` 는 "어느 깊이든 src" 라는 뜻이라
+# `doctor-web/src` 와 `kiosk/scripts` 까지 함께 지운다.
+# 실제로 그렇게 됐다: doctor-web 의 첫 git 빌드가 `src` 패턴에 소스 트리를
+# 통째로 잃고 `/404` 한 장짜리 앱으로 배포됐다 (모든 경로 404, next.config 의
+# 리다이렉트만 살아 있어서 고장이 더 헷갈렸다). `package-lock.json` 도 같은
+# 이유로 사라져 하위 프로젝트가 락파일 없이 install 됐다.
+
+# --- 루트 전용 (Electron 앱). 앵커 필수 ---
+/out
+/dist
+/release
+/build
+/src
+/scripts
+/.mcp.json
+/package-lock.json
+
+# --- 어느 깊이에서든 제외 ---
 node_modules
-out
-dist
-release
-build
-src
-scripts
-.env
-.env.local
-.env.example
-.mcp.json
-package-lock.json
 *.log
 *.dmg
 *.tar.xz
 *.zip
+
+# 비밀은 깊이와 무관하게 절대 올리지 않는다. 값은 Vercel 환경변수가 공급하므로
+# 빌드에 .env 파일이 필요한 하위 프로젝트는 없다.
+.env
+.env.local
+.env.example
 
 # admin-web 내부의 빌드 산출물도 제외 (Vercel이 다시 install 함)
 admin-web/node_modules

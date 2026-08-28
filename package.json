@@ -1,24 +1,25 @@
 {
   "name": "realtime-doctor",
-  "version": "0.5.8",
+  "version": "0.8.2",
   "description": "Always-on-top medical differential-diagnosis overlay powered by OpenAI Realtime API",
   "private": true,
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "check:differentials": "node --import ./scripts/probe-findings-register.mjs scripts/probe-differentials-shape.mjs",
+    "build": "npm run check:differentials && electron-vite build",
     "start": "electron-vite preview",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
     "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "dist": "electron-vite build && electron-builder --mac --arm64",
-    "dist:universal": "electron-vite build && electron-builder --mac --universal",
-    "dist:win": "electron-vite build && electron-builder --win --x64"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run check:differentials",
+    "dist": "npm run check:differentials && electron-vite build && node scripts/ci-assert-embedded.mjs && electron-builder --mac --arm64",
+    "dist:universal": "npm run check:differentials && electron-vite build && node scripts/ci-assert-embedded.mjs && electron-builder --mac --universal",
+    "dist:win": "npm run check:differentials && electron-vite build && electron-builder --win --x64"
   },
   "build": {
     "appId": "dev.realtime.doctor",
-    "productName": "Realtime Doctor",
+    "productName": "RightHand",
     "asar": true,
     "directories": {
       "output": "release"
@@ -48,7 +49,7 @@
       }
     },
     "dmg": {
-      "title": "Realtime Doctor ${version}",
+      "title": "RightHand ${version}",
       "writeUpdateInfo": false
     },
     "win": {
@@ -91,6 +92,7 @@
     "dotenv": "^16.4.5",
     "electron-store": "^10.0.0",
     "lucide-react": "^0.460.0",
+    "qrcode-generator": "^1.4.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.5",

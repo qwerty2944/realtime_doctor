@@ -1,10 +1,12 @@
+// Must stay first: moves the 0.8.0 userData dir before electron-store opens it.
+import './migrateUserData.js';
 import './wsPolyfill.js';
-import { app, BrowserWindow, ipcMain, nativeImage, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, screen, shell } from 'electron';
 
-app.setName('Realtime Doctor');
+app.setName('RightHand');
 if (process.platform === 'darwin') {
   app.setAboutPanelOptions({
-    applicationName: 'Realtime Doctor',
+    applicationName: 'RightHand',
     applicationVersion: app.getVersion()
   });
 }
@@ -14,13 +16,17 @@ import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 
 import {
+  FONT_SCALE_DEFAULT,
+  FONT_SCALE_STEP,
   IPC,
   type AnalysisResult,
   type CloudSyncSettings,
   type DictationResult,
+  type EvidenceStatus,
   type Language,
   type LocalSaveSettings,
   type ShortcutId,
+  type SnapChoiceApply,
   type Speaker,
   type SummaryResult,
   type TranscriptChunk,
@@ -33,7 +39,12 @@ import {
 } from './shortcuts.js';
 import { analyzer } from './analyzer.js';
 import { getCurrentUser, setAuthCallbacks } from './auth.js';
-import { initDeviceAuth, listDevices, revokeDevice } from './device.js';
+import {
+  initDeviceAuth,
+  listDevices,
+  releaseAndRegister,
+  revokeDevice
+} from './device.js';
 import { classifySpeaker } from './diarizer.js';
 import { generateDictation } from './dictator.js';
 import {
@@ -45,6 +56,32 @@ import {
   setDefaultLayout
 } from './layouts.js';
 import { openClovaStream, type ClovaStreamHandle } from './clovaStream.js';
+import { isPubmedUrl, lookupEvidence } from './evidence.js';
+import { installNavigationGuard } from './navigationGuard.js';
+import {
+  backfillCareActivities,
+  buildCareActivityDisplay,
+  listCareActivityDefinitions,
+  loadMonthlyCareActivityReport,
+  setCareActivityReview
+} from './careActivities.js';
+import {
+  clearPatientState,
+  getActiveDetail,
+  listWaitingEncounters,
+  loadPatientDetail,
+  selectEncounter,
+  subscribeWaitingChanges,
+  type WaitingSubscription
+} from './patients.js';
+import {
+  recordDifferentialExpanded,
+  recordEvidenceRequested,
+  recordFindingSourceOpened,
+  recordInterpretationPresented,
+  recordPatientDetailOpened,
+  recordSummaryGenerated
+} from './decisionTrail.js';
 import {
   appendDictation,
   appendSummary,
@@ -52,6 +89,7 @@ import {
   endCurrentSession,
   getCurrentSessionId,
   deleteChunkRow,
+  linkSessionToEncounter,
   listMySessions,
   loadSession,
   logUsage,
@@ -68,25 +106,47 @@ import {
   transcribeAudio
 } from './transcribers.js';
 import {
+  DEFAULT_LANGUAGE,
   clearLanguage,
   getCloudSync,
+  getFontScale,
   getLanguage,
   getLastDictationTemplate,
   getLocalSave,
   getShortcuts,
   getTranscribeProvider,
+  getWindowVisibility,
+  hasStoredLanguage,
   markLaunched,
   resetShortcuts,
+  saveBounds,
   saveOpacity,
+  saveWindowVisibility,
   setCloudSync,
+  setFontScale,
   setLastDictationTemplate,
   setLocalSave,
   setShortcut,
   setTranscribeProvider,
+  setVisitCodeSettings,
   store,
   type WindowKey
 } from './store.js';
+import {
+  issuePatientVisitCode,
+  issueVisitCode,
+  loadVisitCodeSettings,
+  sendVisitCodeAlimtalk
+} from './visitCodes.js';
 import { applyLanguage, preferredProviderFor } from './language.js';
+import {
+  ensureEntitled,
+  getSubscriptionState,
+  initSubscription,
+  openBillingPage,
+  refreshEntitlement,
+  setSubscriptionUser
+} from './subscription.js';
 import { summarizeConversation } from './summarizer.js';
 import { getSupabase } from './supabaseClient.js';
 import {
@@ -97,12 +157,37 @@ import {
   getGroupsState,
   initWindowGroups,
   isHiddenGroupMember,
-  restoreGroups
+  restoreGroups,
+  syncGroupBounds
 } from './windowGroups.js';
-import { MAIN_WINDOW_KEYS, OVERLAYS, createOverlayWindow } from './windows.js';
+import {
+  applySnapChoice,
+  attachSnapDragHandlers,
+  cancelSnapChoice,
+  detachFromCluster,
+  dissolveAllSnaps,
+  getSnappedKeys,
+  initWindowSnap,
+  normalizeSnapUnits,
+  reassignSnapUnit,
+  restoreSnaps
+} from './windowSnap.js';
+import { fitWindowToContent, initWindowFit } from './windowFit.js';
+import {
+  MAIN_WINDOW_KEYS,
+  OVERLAYS,
+  createOverlayWindow,
+  hasSavedPlacement,
+  initiallyHiddenFor
+} from './windows.js';
 import type {
   DictationTemplate,
-  TranscribeProviderId
+  IssueVisitCodeResult,
+  PatientVisitCodeInput,
+  TranscribeProviderId,
+  VisitCodeAlimtalkResult,
+  VisitCodeSettings,
+  WaitingEncounter
 } from '../shared/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -140,13 +225,11 @@ function loadEnvFiles(): void {
   }
   if (loadedFrom.length === 0) loadDotenv();
 
-  const trackKeys = [
-    'GEMINI_API_KEY',
-    'OPENAI_API_KEY',
-    'CLOVA_API_KEY_ID',
-    'CLOVA_API_KEY',
-    'CLOVA_SPEECH_SECRET'
-  ];
+  // [A1] GEMINI_API_KEY / OPENAI_API_KEY 는 목록에서 빠졌다. 앱은 더 이상 그
+  // 키들을 읽지 않으므로 "있음/없음"을 보고해봐야 언제나 없음이고, 있는 것처럼
+  // 보이면 진단이 거짓말을 한다. 두 키는 Edge Function 시크릿에만 있다.
+  // (이름을 남겨두면 scripts/ci-assert-embedded.mjs 의 부재 검사에도 걸린다.)
+  const trackKeys = ['CLOVA_API_KEY_ID', 'CLOVA_API_KEY', 'CLOVA_SPEECH_SECRET'];
   const keysPresent: Record<string, boolean> = {};
   for (const k of trackKeys) keysPresent[k] = !!process.env[k];
   envDiagnostics = { candidates, loadedFrom, keysPresent };
@@ -175,6 +258,8 @@ ipcMain.handle(
   IPC.TranscribeAudio,
   async (_event, payload: { id: string; base64Wav: string }) => {
     if (!payload?.base64Wav) return '';
+    // [게이트] 새 진료 녹음 수신. 렌더러 버튼이 아니라 여기서 막아야 우회가 안 된다.
+    if (!ensureEntitled('record').ok) return '';
     const before = getTranscribeProvider();
     const text = await transcribeAudio(payload.base64Wav);
     const after = getTranscribeProvider();
@@ -217,6 +302,8 @@ ipcMain.handle(
 
 ipcMain.on(IPC.TranscriptChunk, async (_event, chunk: TranscriptChunk) => {
   if (!chunk?.text) return;
+  // [게이트] 스트림 모드가 만들어낸 발화도 결국 이 경로로 들어온다.
+  if (!ensureEntitled('record').ok) return;
   const initialSpeaker: Speaker = chunk.speaker ?? 'unknown';
   analyzer.push({ ...chunk, speaker: initialSpeaker });
   void saveTranscriptChunk({ ...chunk, speaker: initialSpeaker });
@@ -259,6 +346,13 @@ ipcMain.on(IPC.TranscriptReset, () => {
 });
 
 async function runDictationNow(template: DictationTemplate): Promise<{ state: string; result?: DictationResult; message?: string }> {
+  // [게이트] IPC 핸들러와 전역 단축키 두 경로가 모두 여기로 모인다.
+  const gate = ensureEntitled('dictation');
+  if (!gate.ok) {
+    const message = gate.error ?? '구독이 필요합니다.';
+    broadcast(IPC.DictationUpdate, { state: 'error', message });
+    return { state: 'error', message };
+  }
   const t: DictationTemplate = template ?? 'soap';
   setLastDictationTemplate(t);
   broadcast(IPC.DictationUpdate, { state: 'pending', template: t });
@@ -278,6 +372,13 @@ async function runDictationNow(template: DictationTemplate): Promise<{ state: st
 }
 
 async function runSummaryNow(): Promise<{ state: string; result?: SummaryResult; message?: string }> {
+  // [게이트] IPC 핸들러와 전역 단축키 두 경로가 모두 여기로 모인다.
+  const gate = ensureEntitled('summary');
+  if (!gate.ok) {
+    const message = gate.error ?? '구독이 필요합니다.';
+    broadcast(IPC.SummaryUpdate, { state: 'error', message });
+    return { state: 'error', message };
+  }
   broadcast(IPC.SummaryUpdate, { state: 'pending' });
   try {
     const result = await summarizeConversation(
@@ -285,6 +386,17 @@ async function runSummaryNow(): Promise<{ state: string; result?: SummaryResult;
     );
     broadcast(IPC.SummaryUpdate, { state: 'ready', result });
     void appendSummary(result);
+    // [6장] 환자가 선택돼 있을 때만 기록한다. 선택이 없으면 이 요약은 어떤
+    // 기계 해석 앞에서도 만들어진 것이 아니고, 진료를 지목하지 못한 이벤트는
+    // 감사 추적에 아무것도 답해주지 못한다.
+    const activeForSummary = getActiveDetail();
+    if (activeForSummary) {
+      recordSummaryGenerated({
+        encounterId: activeForSummary.encounter.id,
+        intakeResultId: activeForSummary.intakeResult?.id ?? null,
+        sessionId: getCurrentSessionId()
+      });
+    }
     return { state: 'ready', result };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -300,12 +412,82 @@ ipcMain.handle(IPC.DictationRequest, async (_event, template: DictationTemplate)
 ipcMain.handle('dictation:get-last-template', () => getLastDictationTemplate());
 
 ipcMain.handle(IPC.AnalysisRequest, () => {
+  // [게이트] 감별진단 실행.
+  const gate = ensureEntitled('analysis');
+  if (!gate.ok) return { ok: false, error: gate.error };
   broadcast(IPC.AnalysisPending, true);
   analyzer.runNow();
   return { ok: true };
 });
 
 ipcMain.handle(IPC.SummaryRequest, async () => runSummaryNow());
+
+// ── 전역 글씨 배율 ──────────────────────────────────────────────────────
+/** 저장 + 전 창 broadcast. 렌더러는 :root 의 --font-scale 만 갈아끼운다. */
+function applyFontScale(value: number): void {
+  broadcast(IPC.FontScaleChanged, setFontScale(value));
+}
+
+function stepFontScale(delta: number): void {
+  applyFontScale(getFontScale() + delta);
+}
+
+// 나중에 뜬 창이 현재 배율을 스스로 채우기 위한 getter (PatientsGetActive 와 동일 패턴).
+ipcMain.handle(IPC.FontScaleGet, () => getFontScale());
+
+// ── 창 크기 단축키 ──────────────────────────────────────────────────────
+const WINDOW_RESIZE_STEP = 40;
+
+/**
+ * 포커스된 오버레이 창의 크기를 한 스텝 조절한다. 포커스된 오버레이가 없으면
+ * 아무것도 하지 않는다 (엉뚱한 창을 건드리지 않기 위해).
+ */
+function resizeFocusedWindow(deltaW: number, deltaH: number): void {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win || win.isDestroyed()) return;
+  const key = windowKeyOf(win);
+  if (!key) return;
+
+  const prev = win.getBounds();
+  const [minW, minH] = win.getMinimumSize();
+  const wa = screen.getDisplayMatching(prev).workArea;
+
+  const width = Math.min(Math.max(prev.width + deltaW, minW), wa.width);
+  const height = Math.min(Math.max(prev.height + deltaH, minH), wa.height);
+  if (width === prev.width && height === prev.height) return;
+
+  // 커진 쪽이 작업영역 밖으로 밀려나면 안쪽으로 당긴다.
+  let x = prev.x;
+  let y = prev.y;
+  if (x + width > wa.x + wa.width) x = wa.x + wa.width - width;
+  if (y + height > wa.y + wa.height) y = wa.y + wa.height - height;
+  if (x < wa.x) x = wa.x;
+  if (y < wa.y) y = wa.y;
+
+  const next = { x, y, width, height };
+  win.setBounds(next);
+  // 프로그램적 setBounds 는 'resized'(사용자 조작) 이벤트를 발생시키지 않으므로
+  // windows.ts 의 persist 핸들러에 기대지 않고 직접 저장한다.
+  saveBounds(key, next);
+  // 임시 확장(팝오버/언어 선택기) 중이었다면, 이 단축키는 사용자가 의도적으로
+  // 정한 크기이므로 확장 해제 시 되돌리지 않도록 알린다.
+  noteDeliberateResize(win, next);
+  // 탭 그룹은 같은 bounds 를 공유한다 — 숨은 멤버까지 맞춰 desync 를 막는다.
+  for (const member of syncGroupBounds(key, next)) saveBounds(member, next);
+  broadcastWindowState();
+}
+
+/**
+ * 포커스된 오버레이만 가장자리 스냅 클러스터에서 빼낸다.
+ * 포커스된 오버레이가 없거나 붙어 있지 않으면 아무 일도 하지 않는다.
+ */
+function detachFocusedFromCluster(): void {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win || win.isDestroyed()) return;
+  const key = windowKeyOf(win);
+  if (!key) return;
+  detachFromCluster(key);
+}
 
 function dispatchShortcut(id: ShortcutId): void {
   switch (id) {
@@ -330,6 +512,9 @@ function dispatchShortcut(id: ShortcutId): void {
     case 'toggleDictation':
       toggleOneWindow('dictation');
       return;
+    case 'togglePatients':
+      toggleOneWindow('patients');
+      return;
     case 'recordStartStop': {
       const tr = windows.get('transcript');
       if (tr && !tr.isDestroyed()) {
@@ -342,6 +527,8 @@ function dispatchShortcut(id: ShortcutId): void {
       return;
     }
     case 'runAnalyze':
+      // [게이트] 단축키도 IPC 와 같은 판정을 받는다.
+      if (!ensureEntitled('analysis').ok) return;
       analyzer.runNow();
       return;
     case 'runSummary':
@@ -349,6 +536,30 @@ function dispatchShortcut(id: ShortcutId): void {
       return;
     case 'runDictation':
       void runDictationNow(getLastDictationTemplate());
+      return;
+    case 'fontIncrease':
+      stepFontScale(FONT_SCALE_STEP);
+      return;
+    case 'fontDecrease':
+      stepFontScale(-FONT_SCALE_STEP);
+      return;
+    case 'fontReset':
+      applyFontScale(FONT_SCALE_DEFAULT);
+      return;
+    case 'windowWiden':
+      resizeFocusedWindow(WINDOW_RESIZE_STEP, 0);
+      return;
+    case 'windowNarrow':
+      resizeFocusedWindow(-WINDOW_RESIZE_STEP, 0);
+      return;
+    case 'windowTaller':
+      resizeFocusedWindow(0, WINDOW_RESIZE_STEP);
+      return;
+    case 'windowShorter':
+      resizeFocusedWindow(0, -WINDOW_RESIZE_STEP);
+      return;
+    case 'windowSnapDetach':
+      detachFocusedFromCluster();
       return;
   }
 }
@@ -437,41 +648,153 @@ ipcMain.on('window:minimize', (event) => {
   win?.minimize();
 });
 
-// 팝오버(dropdown/dialog) 가 열릴 때 창이 작아서 잘리지 않도록 일시적으로
-// 창 크기를 확장. 닫히면 원래 크기로 복귀. 같은 창에서 여러 팝오버가 중첩
-// 되어도 안전하게 동작하도록 마지막 enter 의 원래 bounds 를 기억한다.
-const popoverPreBounds = new Map<number, Electron.Rectangle>();
+// 팝오버(dropdown/dialog) 나 전체화면 성격의 화면(언어 선택기) 이 열릴 때 창이
+// 작아서 잘리지 않도록 일시적으로 창 크기를 확장하고, 닫히면 원래 크기로 복귀한다.
+// 같은 창에서 여러 개가 중첩되어도 안전하도록 depth 를 센다.
+interface TempExpandState {
+  /** 확장 전 bounds — leave 시 여기로 되돌린다. */
+  prev: Electron.Rectangle;
+  /** 우리가 마지막으로 적용한 bounds — 사용자 조작 감지 기준선. */
+  applied: Electron.Rectangle;
+  /** 중첩 확장 깊이. 0 이 되는 순간에만 복귀. */
+  depth: number;
+  /** 확장 중 사용자가 직접 크기를 바꿨으면 복귀하지 않는다. */
+  userResized: boolean;
+  /** 확장 중 사용자 이동/리사이즈를 추적하는 리스너 (leave 시 해제). */
+  onUserBounds: () => void;
+}
+const tempExpandStates = new Map<number, TempExpandState>();
 const POPOVER_MIN_W = 520;
 const POPOVER_MIN_H = 560;
-ipcMain.on('window:popover-enter', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win || win.isDestroyed()) return;
-  if (popoverPreBounds.has(win.id)) return; // 이미 확장됨
-  const prev = win.getBounds();
-  popoverPreBounds.set(win.id, prev);
-  const display = screen.getDisplayMatching(prev);
-  const wa = display.workArea;
-  const targetW = Math.min(POPOVER_MIN_W, wa.width - 32);
-  const targetH = Math.min(POPOVER_MIN_H, wa.height - 32);
-  if (prev.width >= targetW && prev.height >= targetH) return;
-  const nextW = Math.max(prev.width, targetW);
-  const nextH = Math.max(prev.height, targetH);
+
+/**
+ * 창을 최소 targetW x targetH 이상으로 (줄이지 않고) 키운다. depth 를 올리며,
+ * 최초 확장 시점의 bounds 를 기억해 둔다.
+ */
+function tempExpandEnter(win: BrowserWindow, targetW: number, targetH: number): void {
+  const cur = win.getBounds();
+  const existing = tempExpandStates.get(win.id);
+  if (existing) {
+    existing.depth += 1;
+  } else {
+    const onUserBounds = () => {
+      // 확장 중 사용자가 창을 직접 옮기거나 크기를 바꾼 경우.
+      // (프로그램적 setBounds 도 macOS 에선 'move'/'resize' 를 발생시키지만,
+      //  조작 완료 이벤트인 'moved'/'resized' 는 사용자 조작에서만 온다.)
+      const st = tempExpandStates.get(win.id);
+      if (!st || win.isDestroyed()) return;
+      const now = win.getBounds();
+      if (now.width !== st.applied.width || now.height !== st.applied.height) {
+        // 사용자가 의도적으로 정한 크기 — 복귀로 덮어쓰지 않는다.
+        st.userResized = true;
+        st.prev = { ...now };
+      } else {
+        // 이동만 했으면 복귀 위치도 같은 만큼 따라간다.
+        st.prev = {
+          ...st.prev,
+          x: st.prev.x + (now.x - st.applied.x),
+          y: st.prev.y + (now.y - st.applied.y)
+        };
+      }
+      st.applied = now;
+      // windows.ts 의 persist 가 확장된 bounds 를 저장했을 수 있으므로,
+      // 실제로 복귀될 bounds 로 덮어써 확장 상태가 영구화되는 것을 막는다.
+      const key = windowKeyOf(win);
+      if (key) saveBounds(key, st.prev);
+    };
+    tempExpandStates.set(win.id, {
+      prev: { ...cur },
+      applied: { ...cur },
+      depth: 1,
+      userResized: false,
+      onUserBounds
+    });
+    win.on('moved', onUserBounds);
+    win.on('resized', onUserBounds);
+  }
+
+  const wa = screen.getDisplayMatching(cur).workArea;
+  const wantW = Math.min(targetW, wa.width - 32);
+  const wantH = Math.min(targetH, wa.height - 32);
+  if (cur.width >= wantW && cur.height >= wantH) return;
+  const nextW = Math.max(cur.width, wantW);
+  const nextH = Math.max(cur.height, wantH);
   // 화면 밖으로 나가지 않게 클램프.
-  let nextX = prev.x;
-  let nextY = prev.y;
+  let nextX = cur.x;
+  let nextY = cur.y;
   if (nextX + nextW > wa.x + wa.width) nextX = wa.x + wa.width - nextW - 8;
   if (nextY + nextH > wa.y + wa.height) nextY = wa.y + wa.height - nextH - 8;
   if (nextX < wa.x) nextX = wa.x + 8;
   if (nextY < wa.y) nextY = wa.y + 8;
-  win.setBounds({ x: nextX, y: nextY, width: nextW, height: nextH });
+  const next = { x: nextX, y: nextY, width: nextW, height: nextH };
+  win.setBounds(next);
+  const st = tempExpandStates.get(win.id);
+  if (st) st.applied = { ...next };
+}
+
+/**
+ * 임시 확장 중에 다른 코드(창 크기 단축키 등)가 프로그램적으로 크기를 바꾼 경우,
+ * 그 값을 사용자가 의도한 크기로 채택한다. 확장 해제가 이를 되돌리면 안 된다.
+ */
+function noteDeliberateResize(win: BrowserWindow, next: Electron.Rectangle): void {
+  const st = tempExpandStates.get(win.id);
+  if (!st) return;
+  st.userResized = true;
+  st.prev = { ...next };
+  st.applied = { ...next };
+}
+
+/** depth 를 내리고, 0 이 되면 확장 전 bounds 로 복귀. */
+function tempExpandLeave(win: BrowserWindow): void {
+  const st = tempExpandStates.get(win.id);
+  if (!st) return;
+  st.depth -= 1;
+  if (st.depth > 0) return;
+  tempExpandStates.delete(win.id);
+  win.off('moved', st.onUserBounds);
+  win.off('resized', st.onUserBounds);
+  if (st.userResized) return; // 사용자가 정한 크기 유지
+  win.setBounds(st.prev);
+}
+
+// ── 내용에 맞춘 창 높이 (content fit) ──────────────────────────────────────
+// 판정 본체는 windowFit.ts 에 있다. 여기서는 팝오버 임시 확장(tempExpand)과
+// 서로를 존중하도록 두 경로를 이어 준다.
+initWindowFit({
+  isTempExpanded: (win) => tempExpandStates.has(win.id),
+  noteNaturalHeightWhileExpanded: (win, height) => {
+    const st = tempExpandStates.get(win.id);
+    // 확장 중 사용자가 직접 크기를 정했으면 그 선택이 이긴다.
+    if (!st || st.userResized) return;
+    st.prev = { ...st.prev, height };
+  },
+  windowKeyOf: (win) => windowKeyOf(win)
 });
+
+ipcMain.on('window:fit-content', (event, height: number) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  fitWindowToContent(win, height);
+});
+
+ipcMain.on(
+  'window:popover-enter',
+  (event, size?: { width?: number; height?: number }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    // size 가 오면 렌더러가 실제 레이아웃에서 잰 값이므로 그걸 쓰고,
+    // 없으면 팝오버 기본치를 쓴다.
+    tempExpandEnter(
+      win,
+      Math.round(size?.width ?? POPOVER_MIN_W),
+      Math.round(size?.height ?? POPOVER_MIN_H)
+    );
+  }
+);
 ipcMain.on('window:popover-leave', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win || win.isDestroyed()) return;
-  const prev = popoverPreBounds.get(win.id);
-  if (!prev) return;
-  popoverPreBounds.delete(win.id);
-  win.setBounds(prev);
+  tempExpandLeave(win);
 });
 
 ipcMain.on('window:set-opacity', (event, value: number) => {
@@ -498,6 +821,21 @@ ipcMain.on(IPC.WindowGroupsDetach, (_event, key: WindowKey) => {
   detachTab(key);
   broadcastWindowState();
 });
+// ── 창 가장자리 스냅 ────────────────────────────────────────────────────
+ipcMain.handle(IPC.WindowSnapsGet, () => getSnappedKeys());
+ipcMain.on(IPC.WindowSnapsDetach, (_event, key: WindowKey) => {
+  detachFromCluster(key);
+});
+// ── 겹쳐 놓은 드랍의 선택지 (자동 실행 없음) ────────────────────────────
+ipcMain.on(IPC.WindowSnapChoiceApply, (_event, payload: SnapChoiceApply) => {
+  if (!payload) return;
+  applySnapChoice(payload.dragged, payload.target, payload.action);
+  broadcastWindowState();
+});
+ipcMain.on(IPC.WindowSnapChoiceCancel, () => {
+  cancelSnapChoice();
+});
+
 // 렌더러가 자기 창 key 를 알 수 있게.
 ipcMain.handle('window:get-key', (event) =>
   windowKeyOf(BrowserWindow.fromWebContents(event.sender))
@@ -514,6 +852,294 @@ ipcMain.handle(IPC.DevicesRevoke, async (_event, rowId: string) => {
   if (!user) return { ok: false, error: '로그인이 필요합니다.' };
   return revokeDevice(user.id, rowId);
 });
+// 기기 한도 초과 대화상자에서 "이 기기 내리기"를 눌렀을 때. 해지와 재등록이
+// 한 호출로 묶여 있어야 한다 -- 사이가 벌어지면 그 틈에 다른 기기가 들어와
+// 다시 한도에 걸리고, 의사는 왜 안 되는지 알 수 없다 (S5).
+ipcMain.handle(IPC.DevicesReleaseAndRegister, async (_event, rowId: string) => {
+  const user = getCurrentUser();
+  if (!user) return { ok: false, error: '로그인이 필요합니다.' };
+  return releaseAndRegister(rowId);
+});
+
+// ── 구독 ────────────────────────────────────────────────────────────────
+// 조회·갱신·결제 페이지 열기. 이 세 개는 잠긴 상태에서도 당연히 열려 있어야
+// 한다 (잠금을 푸는 경로 자체를 잠그면 안 된다).
+ipcMain.handle(IPC.SubscriptionGet, () => getSubscriptionState());
+ipcMain.handle(IPC.SubscriptionRefresh, () => refreshEntitlement('manual'));
+ipcMain.handle(IPC.SubscriptionOpenBilling, () => openBillingPage());
+
+// ── 환자 대기목록 ───────────────────────────────────────────────────────
+let waitingSub: WaitingSubscription | null = null;
+/** 마지막으로 성공한 목록. 채널 에러 때 목록을 비우지 않기 위해 들고 있는다. */
+let lastWaiting: WaitingEncounter[] = [];
+
+/** 대기목록 구독 시작/재시작. 로그인 직후에만 의미가 있다. */
+function startWaitingSubscription(): void {
+  waitingSub?.stop();
+  waitingSub = subscribeWaitingChanges(
+    (items) => {
+      lastWaiting = items;
+      broadcast(IPC.PatientsWaitingChanged, { items, error: null });
+    },
+    (message) =>
+      broadcast(IPC.PatientsWaitingChanged, { items: lastWaiting, error: message })
+  );
+}
+
+ipcMain.handle(IPC.PatientsListWaiting, () => listWaitingEncounters());
+ipcMain.handle(IPC.PatientsLoadDetail, (_event, encounterId: string) =>
+  loadPatientDetail(encounterId)
+);
+/**
+ * 환자 선택/해제.
+ *
+ * 선택 결과를 모든 창에 broadcast 해서 트랜스크립트/감별진단/용어/질문/요약 창이
+ * 문진 데이터를 보여주게 한다. 동시에 진행 중인 녹취 세션을 그 진료에 연결한다
+ * (선택을 자동 해제하지 않는다 — 환자를 보면서 녹음하는 것이 정상 흐름이다).
+ */
+ipcMain.handle(IPC.PatientsSelect, async (_event, encounterId: string | null) => {
+  // [게이트] 환자를 선택하는 것 = 그 환자의 문진 데이터를 받아 새 진료를
+  // 시작하는 것. 해제(null)는 막지 않는다 — 잠긴 상태에서 선택을 못 풀면
+  // 화면에 남의 PHI 가 붙박이가 된다.
+  if (encounterId !== null && !ensureEntitled('patient-intake').ok) return null;
+  const detail = await selectEncounter(encounterId);
+  linkSessionToEncounter(detail?.encounter.id ?? null);
+  broadcast(IPC.PatientsActiveChanged, detail);
+  // [6장] 인계 지점. 여기가 기계의 해석이 임상의에게 넘어가는 순간이고,
+  // 코드에서 그 순간은 이 한 줄이다. broadcast 뒤에 둔 이유는 기록이
+  // 화면 전환을 한 틱도 늦추면 안 되기 때문 — 둘 다 fire-and-forget 이다.
+  if (detail) {
+    recordPatientDetailOpened(detail);
+    recordInterpretationPresented(detail);
+  }
+  return detail;
+});
+ipcMain.handle(IPC.PatientsGetActive, () => getActiveDetail());
+
+/**
+ * 감별진단 카드를 펼쳤다 (6장).
+ *
+ * 환자가 선택돼 있을 때만 기록한다. 실시간 녹취 모드의 감별진단은 아직
+ * 인계 지점이 없다 — 그 화면의 해석은 임상의가 보는 앞에서 만들어지므로
+ * "기계가 먼저 판단하고 사람이 나중에 본다" 는 구조가 아니다.
+ */
+ipcMain.on(IPC.DiagnosisCardExpanded, (_event, diagnosisName: string) => {
+  if (typeof diagnosisName !== 'string' || diagnosisName.length === 0) return;
+  const active = getActiveDetail();
+  if (!active) return;
+  recordDifferentialExpanded({
+    encounterId: active.encounter.id,
+    intakeResultId: active.intakeResult?.id ?? null,
+    diagnosis: diagnosisName
+  });
+});
+
+// ── 문헌근거 (PubMed) ───────────────────────────────────────────────────
+/**
+ * 진단명 하나의 근거 조회.
+ *
+ * 결과를 invoke 응답으로 돌려주는 동시에 broadcast 한다. 같은 진단을 띄운 다른
+ * 창(예: 탭 그룹으로 떠 있는 감별진단 사본)이 다시 조회하지 않게 하기 위함이다.
+ * lookupEvidence 는 던지지 않지만, 여기서도 방어적으로 error 상태로 환원한다.
+ */
+ipcMain.handle(
+  IPC.EvidenceRequest,
+  async (_event, payload: { diagnosis: string; diagnosisEn?: string | null }) => {
+    const diagnosis = payload?.diagnosis ?? '';
+    // [6장] 임상의가 그 진단에 독립적인 확인을 구했다. 조회 성공 여부와
+    // 무관하게 기록한다 — 기록하는 것은 확인을 구했다는 행위이지 PubMed 가
+    // 무엇을 돌려줬는지가 아니다.
+    const activeForEvidence = getActiveDetail();
+    if (activeForEvidence && diagnosis) {
+      recordEvidenceRequested({
+        encounterId: activeForEvidence.encounter.id,
+        intakeResultId: activeForEvidence.intakeResult?.id ?? null,
+        diagnosis
+      });
+    }
+    let status: EvidenceStatus;
+    try {
+      status = await lookupEvidence(diagnosis, payload?.diagnosisEn ?? null);
+    } catch (err) {
+      status = {
+        state: 'error',
+        message: err instanceof Error ? err.message : 'lookup failed'
+      };
+    }
+    broadcast(IPC.EvidenceUpdated, { diagnosis, status });
+    return status;
+  }
+);
+
+/**
+ * 감별진단 근거 클릭 → 전사 창의 해당 발화로 (E1).
+ *
+ * main 이 창을 꺼내는 이유: 전사 창이 탭 그룹에 합쳐져 있거나 최소화돼 있을 수
+ * 있고, 그 상태는 렌더러가 모른다. 창을 앞으로 낸 뒤 broadcast 하면 전사 창이
+ * 해당 발화를 강조·스크롤한다. 발화 id 는 검증기가 원문에서 채운 값이라
+ * 렌더러가 지어낼 수 없다.
+ */
+ipcMain.on(IPC.TranscriptFocusUtterance, (_event, utteranceId: string) => {
+  if (typeof utteranceId !== 'string' || utteranceId.length === 0) return;
+  // [6장] 기계가 인용한 발화를 원문과 대조했다.
+  const activeForFinding = getActiveDetail();
+  if (activeForFinding) {
+    recordFindingSourceOpened({
+      encounterId: activeForFinding.encounter.id,
+      intakeResultId: activeForFinding.intakeResult?.id ?? null,
+      utteranceId
+    });
+  }
+  const win = windows.get('transcript');
+  if (win && !win.isDestroyed()) {
+    // 탭 그룹에 묶여 있으면 창을 올리는 것만으로는 뒤에 가려진 채로 남는다.
+    activateTab('transcript');
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.show();
+    win.focus();
+    broadcastWindowState();
+  }
+  broadcast(IPC.TranscriptFocusUtterance, utteranceId);
+});
+
+/** 참고문헌 열기. PubMed 주소가 아니면 조용히 무시하지 않고 false 를 돌려준다. */
+ipcMain.handle(IPC.EvidenceOpen, async (_event, url: string) => {
+  if (typeof url !== 'string' || !isPubmedUrl(url)) {
+    console.warn('[evidence] 허용되지 않은 외부 링크 요청을 차단했습니다.');
+    return false;
+  }
+  await shell.openExternal(url);
+  return true;
+});
+
+// ── 진료행위 기록 (B3/B4) ───────────────────────────────────────────────
+/**
+ * 이번 진료에서 기록된 행위 (B3).
+ *
+ * 게이트를 걸지 않는다. 이것은 이미 저장된 자기 진료 기록을 읽는 동작이고,
+ * S2 에서 정한 대로 **기록 열람은 결제 상태와 무관하게 항상 가능해야 한다**
+ * (`sessions:load`, `patients:load-detail` 과 같은 부류다).
+ *
+ * 요청 시점에 계산한다 — 요약 창이 열려 있을 때만 필요하고, 진료 중에
+ * 스스로 튀어나와 흐름을 끊어서는 안 된다.
+ */
+ipcMain.handle(IPC.CareActivitiesScan, async () => {
+  const encounterId = getActiveDetail()?.encounter.id ?? null;
+  return buildCareActivityDisplay({
+    sessionId: getCurrentSessionId(),
+    encounterId
+  });
+});
+
+/** 월 단위 집계 (B4). 'YYYY-MM'. 금액은 계산하지 않는다. */
+ipcMain.handle(IPC.CareActivitiesReport, async (_event, month: string) =>
+  loadMonthlyCareActivityReport(typeof month === 'string' ? month : '')
+);
+
+/**
+ * 검토 화면 (B5).
+ *
+ * 게이트를 걸지 않는다. 검토는 이 계정의 설정 행위이고, 잠긴 동안 검토를
+ * 막으면 결제가 끊긴 사이 정의가 조용히 낡아간다. 실제 탐지가 붙는 지점
+ * (녹취·분석)은 이미 S2 에서 게이트돼 있다.
+ */
+ipcMain.handle(IPC.CareActivitiesDefs, async () => listCareActivityDefinitions());
+
+ipcMain.handle(
+  IPC.CareActivitiesSetReview,
+  async (
+    _event,
+    input: {
+      activityCode: string;
+      ruleVersion: number;
+      reviewed: boolean;
+      note?: string | null;
+    }
+  ) =>
+    setCareActivityReview({
+      activityCode: String(input?.activityCode ?? ''),
+      ruleVersion: Number(input?.ruleVersion ?? 0),
+      reviewed: Boolean(input?.reviewed),
+      note: typeof input?.note === 'string' ? input.note : null
+    })
+);
+
+/**
+ * 지난 진료 재스캔 (B5).
+ *
+ * 검토를 막 마친 사람이 누른다 — 그 순간 이전 진료에는 후보가 하나도 없다.
+ * 자동으로 돌리지 않는 이유는, 진료 수백 건을 훑는 일을 사용자가 모르는 채로
+ * 시작하지 않게 하기 위해서다. 여러 번 눌러도 0007 의 대체 규칙 때문에
+ * 숫자가 늘지 않는다.
+ */
+ipcMain.handle(IPC.CareActivitiesBackfill, async (_event, months: number) =>
+  backfillCareActivities({ months: typeof months === 'number' ? months : 3 })
+);
+
+// ── 방문 코드 (L1) ─────────────────────────────────────────────────────
+/**
+ * 방문 코드 발급.
+ *
+ * **게이트를 건다.** 이건 기록 열람이 아니라 새 진료를 여는 행위이고, 잠긴
+ * 계정이 키오스크 문진을 계속 만들 수 있으면 S2 의 `record`/`analysis` 게이트가
+ * 무의미해진다 — 문진은 게이트 뒤에 있는 기능(감별진단·요약)의 입력을 만든다.
+ * 실패는 던지지 않고 값으로 돌려준다: 환자가 접수대 앞에 서 있는 순간이라
+ * 화면이 이유를 한 문장으로 말할 수 있어야 한다.
+ */
+ipcMain.handle(IPC.VisitCodeIssue, async (): Promise<IssueVisitCodeResult> => {
+  const gate = ensureEntitled('visit-code');
+  if (!gate.ok) return { ok: false, error: 'failed' };
+  return issueVisitCode();
+});
+
+/**
+ * 환자 등록형 발급. 같은 게이트가 걸린다 — 환자 행과 진료를 여는 행위이고,
+ * 익명 코드보다 더 많은 것을 만든다.
+ */
+ipcMain.handle(
+  IPC.VisitCodeIssuePatient,
+  async (_event, input: PatientVisitCodeInput): Promise<IssueVisitCodeResult> => {
+    const gate = ensureEntitled('visit-code');
+    if (!gate.ok) return { ok: false, error: 'failed' };
+    if (typeof input?.name !== 'string') return { ok: false, error: 'invalid-input' };
+    return issuePatientVisitCode({
+      name: input.name,
+      phone: typeof input.phone === 'string' ? input.phone : null
+    });
+  }
+);
+
+/**
+ * 알림톡 발송. 게이트를 걸지 않는다 — 이미 발급된 코드를 전달하는 일이고,
+ * 발급 자체가 게이트 뒤에 있다. 여기서 한 번 더 막으면 코드를 손에 든 환자만
+ * 곤란해진다.
+ */
+ipcMain.handle(
+  IPC.VisitCodeSendAlimtalk,
+  async (
+    _event,
+    input: { codeId?: unknown; link?: unknown }
+  ): Promise<VisitCodeAlimtalkResult> => {
+    const codeId = input?.codeId;
+    const link = input?.link;
+    if (typeof codeId !== 'string' || codeId === '') {
+      return { ok: false, error: 'failed' };
+    }
+    // 링크가 없다는 것은 키오스크 주소가 설정되지 않았다는 뜻이다.
+    if (typeof link !== 'string' || link === '') {
+      return { ok: false, error: 'no-kiosk-url' };
+    }
+    return sendVisitCodeAlimtalk(codeId, link);
+  }
+);
+
+ipcMain.handle(IPC.VisitCodeSettingsGet, () => loadVisitCodeSettings());
+ipcMain.handle(IPC.VisitCodeSettingsSet, (_event, patch: Partial<VisitCodeSettings>) =>
+  setVisitCodeSettings({
+    kioskUrl: typeof patch?.kioskUrl === 'string' ? patch.kioskUrl : undefined,
+    kioskSlug: typeof patch?.kioskSlug === 'string' ? patch.kioskSlug : patch?.kioskSlug === null ? null : undefined
+  })
+);
 
 // ── 로컬 저장 설정 ──────────────────────────────────────────────────────
 ipcMain.handle(IPC.LocalSaveGet, () => getLocalSave());
@@ -524,8 +1150,10 @@ ipcMain.handle(IPC.LocalSaveSet, (_event, patch: Partial<LocalSaveSettings>) =>
 ipcMain.handle('layout:list', () => listLayouts());
 
 ipcMain.handle('layout:apply', (_event, name: string) => {
-  // 레이아웃은 모든 창을 개별 위치로 재배치하므로 탭 그룹과 양립 불가 — 해체.
+  // 레이아웃은 모든 창을 개별 위치로 재배치하므로 탭 그룹/가장자리 스냅과
+  // 양립 불가 — 둘 다 해체한다. 프리셋이 정한 위치가 최종이다.
   dissolveAllGroups();
+  dissolveAllSnaps();
   return applyLayout(name, windows as Map<WindowKey, BrowserWindow>);
 });
 
@@ -555,19 +1183,22 @@ ipcMain.handle(IPC.ProviderSet, (_event, id: TranscribeProviderId) => {
   return current;
 });
 
-ipcMain.handle(IPC.LanguageGet, () => getLanguage() ?? null);
+// 언어는 항상 값이 있다 — "미선택" 상태는 더 이상 존재하지 않는다.
+ipcMain.handle(IPC.LanguageGet, () => getLanguage());
 ipcMain.handle(IPC.LanguageSet, (_event, lang: Language) => {
-  const prev = getLanguage();
   const provider = applyLanguage(lang);
-  if (!prev) markLaunched();
+  markLaunched();
   broadcast(IPC.LanguageChanged, lang);
   broadcast(IPC.ProviderChanged, provider);
   return { ok: true, language: lang, provider };
 });
+// 언어 초기화 = 기본값(한국어) 복귀. 언어 선택 화면으로 되돌아가지 않는다.
 ipcMain.handle(IPC.LanguageClear, () => {
   clearLanguage();
-  // LanguagePicker 로 돌아가도록 null 브로드캐스트.
-  broadcast(IPC.LanguageChanged, null);
+  const lang = getLanguage();
+  const provider = applyLanguage(lang);
+  broadcast(IPC.LanguageChanged, lang);
+  broadcast(IPC.ProviderChanged, provider);
   return { ok: true };
 });
 
@@ -608,10 +1239,23 @@ ipcMain.handle(IPC.SessionsLoad, async (_event, sessionId: string) => {
   return payload;
 });
 let openaiSessionStartedAt: number | null = null;
+/**
+ * [A1] 발급 응답에 실려 온 모델 이름.
+ *
+ * 예전에는 종료 계량에서 `process.env.OPENAI_TRANSCRIBE_MODEL` 을 읽었다. 그
+ * 값은 이제 앱에 없다 -- 모델은 서버가 정한다. 없는 값을 있는 척 기본값으로
+ * 채우면 실제로 쓴 모델과 다른 이름이 원가 집계에 들어간다.
+ */
+let openaiSessionModel = 'unknown';
 ipcMain.handle(IPC.StreamMint, async () => {
+  // [게이트] 실시간 전사 세션 발급 = 녹음 시작. provider fallback 보다 먼저 막는다
+  // (여기서 throw 하면 렌더러가 fallback 을 시도하지만 그 경로도 게이트에 걸린다).
+  const gate = ensureEntitled('record');
+  if (!gate.ok) throw new Error(gate.error ?? '구독이 필요합니다.');
   try {
     const result = await mintStreamSession();
     openaiSessionStartedAt = Date.now();
+    openaiSessionModel = result.model;
     return result;
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -634,7 +1278,10 @@ ipcMain.on(IPC.RealtimeSessionEnd, () => {
   void logUsage({
     provider: 'openai-realtime',
     task: 'realtime-session',
-    model: process.env.OPENAI_TRANSCRIBE_MODEL ?? 'gpt-4o-transcribe',
+    // [A1] 이 행은 source='client' 다. 오디오는 렌더러와 OpenAI 사이에서 직접
+    // 흐르므로 서버는 세션 **길이**를 볼 수 없다 -- 서버가 셀 수 있는 것은
+    // 발급 횟수(task='mint')뿐이고, 그건 ai-realtime 이 이미 기록한다.
+    model: openaiSessionModel,
     duration_ms
   });
 });
@@ -694,6 +1341,11 @@ function newClovaItemId(): string {
 }
 
 ipcMain.handle(IPC.ClovaStreamOpen, async (event) => {
+  // [게이트] CLOVA 스트림 열기 = 녹음 시작.
+  {
+    const gate = ensureEntitled('record');
+    if (!gate.ok) throw new Error(gate.error ?? '구독이 필요합니다.');
+  }
   if (clovaStreamSession) {
     clovaStreamSession.stop();
     clovaStreamSession = null;
@@ -834,8 +1486,10 @@ function toggleOneWindow(key: WindowKey): void {
     if (win.isMinimized()) win.restore();
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
+    saveWindowVisibility(key, true);
   } else {
     win.minimize();
+    saveWindowVisibility(key, false);
   }
 }
 
@@ -845,8 +1499,13 @@ function toggleAllMainWindows(): void {
   );
   const anyShown = mains.some((w) => w.isVisible() && !w.isMinimized());
   if (anyShown) {
-    for (const w of mains) {
+    for (const key of MAIN_WINDOW_KEYS) {
+      const w = windows.get(key);
+      if (!w || w.isDestroyed()) continue;
       if (w.isVisible() && !w.isMinimized()) w.hide();
+      // 사용자가 의도한 숨김이므로 다음 실행에도 이어진다. (로그아웃 시의
+      // hideOverlaysAndClearPHI 는 여기와 달리 저장하지 않는다 — 아래 참조.)
+      saveWindowVisibility(key, false);
     }
   } else {
     for (const key of MAIN_WINDOW_KEYS) {
@@ -857,6 +1516,7 @@ function toggleAllMainWindows(): void {
       if (w.isMinimized()) w.restore();
       if (!w.isVisible()) w.show();
       w.setAlwaysOnTop(true, 'screen-saver');
+      saveWindowVisibility(key, true);
     }
   }
   broadcastWindowState();
@@ -888,17 +1548,33 @@ ipcMain.on(IPC.ModifierHoldSet, (_event, held: boolean) => {
   broadcast(IPC.ModifierHoldChanged, next);
 });
 
-function revealOverlays(): void {
+/**
+ * 저장된 창 표시 상태를 그대로 되살린다.
+ *
+ * 예전에는 로그인 시 **모든** 창을 무조건 show 했다. 그러면 사용자가 일부러
+ * 닫아 둔 창까지 매번 되살아난다. 창 표시 여부는 인증과 무관한 사용자 취향이므로
+ * 저장된 값(store 의 windowsVisibility, 기본값 = 표시)만 따른다.
+ * 시작 시점의 복원은 createOverlayWindow 의 initiallyHidden 이 같은 판정으로 한다.
+ */
+function restoreOverlayVisibility(): void {
   for (const key of MAIN_WINDOW_KEYS) {
     const win = windows.get(key);
     if (!win || win.isDestroyed()) continue;
     if (isHiddenGroupMember(key)) continue;
+    if (!getWindowVisibility(key)) continue;
     win.show();
     win.setAlwaysOnTop(true, 'screen-saver');
   }
   broadcastWindowState();
 }
 
+/**
+ * 로그아웃 시 화면에서 PHI 를 걷어낸다.
+ *
+ * [중요] 여기서는 saveWindowVisibility 를 부르지 않는다. 이 숨김은 사용자의
+ * "이 창 안 볼래" 가 아니라 보안 조치이므로, 저장된 취향을 덮어쓰면 다시
+ * 로그인하거나 앱을 재시작했을 때 아무 창도 없는 빈 화면이 된다.
+ */
 function hideOverlaysAndClearPHI(): void {
   for (const key of MAIN_WINDOW_KEYS) {
     const win = windows.get(key);
@@ -906,6 +1582,14 @@ function hideOverlaysAndClearPHI(): void {
     if (win.isVisible()) win.hide();
   }
   analyzer.reset();
+  // 환자 정보도 PHI — 구독을 끊고 캐시된 목록까지 비운다.
+  clearPatientState();
+  lastWaiting = [];
+  waitingSub = null;
+  linkSessionToEncounter(null);
+  broadcast(IPC.PatientsWaitingChanged, { items: [], error: null });
+  // 선택된 환자 상세도 PHI — 각 창의 캐시를 비우도록 null 을 방송한다.
+  broadcast(IPC.PatientsActiveChanged, null);
   void flushStreamSessionAudio().finally(() => {
     void endCurrentSession().finally(() => {
       clearSessionCache();
@@ -935,10 +1619,27 @@ function applyDockIcon(): void {
 app.whenReady().then(() => {
   loadEnvFiles();
 
-  // 저장된 language 가 있는데 저장된 provider 가 .env 변경 등으로 더 이상
-  // available 하지 않으면 preferredProviderFor 로 자동 보정.
+  // [S5-1] 어떤 창도 로드되기 전에 네비게이션 가드를 건다. 오버레이가 비신뢰
+  // 입력(전사·문진·PubMed 텍스트)을 렌더하므로, 원격 origin 이동을 막지 않으면
+  // 그 페이지가 preload 브리지(PHI/결제 IPC)를 상속받는다.
+  installNavigationGuard({
+    app,
+    shell,
+    isAllowedExternal: isPubmedUrl,
+    devOrigin: process.env['ELECTRON_RENDERER_URL'] ?? null
+  });
+
+  // 최초 실행: 언어를 묻지 않고 기본값(한국어)을 그대로 저장하고 시작한다.
+  // 이미 언어를 고른 기존 사용자는 그 선택이 그대로 유지된다.
+  if (!hasStoredLanguage()) {
+    applyLanguage(DEFAULT_LANGUAGE);
+    markLaunched();
+  }
+
+  // 저장된 provider 가 .env 변경 등으로 더 이상 available 하지 않으면
+  // preferredProviderFor 로 자동 보정.
   const savedLang = getLanguage();
-  if (savedLang) {
+  {
     const cur = getTranscribeProvider();
     const stillAvail = listProviders().find((p) => p.id === cur)?.available;
     if (!stillAvail) setTranscribeProvider(preferredProviderFor(savedLang));
@@ -952,14 +1653,30 @@ app.whenReady().then(() => {
   initWindowGroups({
     windows: windows as Map<WindowKey, BrowserWindow>,
     broadcast,
-    onGroupsChanged: () => broadcastWindowState()
+    onGroupsChanged: () => broadcastWindowState(),
+    // 탭 그룹은 rect 하나를 공유하는 스냅 단위(unit)다 — 구성이 바뀌면 관계를
+    // 대표 키 기준으로 다시 정규화한다 (끊는 게 아니라 옮긴다).
+    onGroupChangedMembers: (keys) => normalizeSnapUnits(keys),
+    onSnapUnitReassign: (from, to) => reassignSnapUnit(from, to)
+  });
+  initWindowSnap({
+    windows: windows as Map<WindowKey, BrowserWindow>,
+    // 클러스터 소속이 바뀌면 각 창의 타이틀바 분리 버튼이 켜지고 꺼진다.
+    onSnapsChanged: () => broadcast(IPC.WindowSnapsState, getSnappedKeys()),
+    // 겹친 드랍의 선택지는 대상 창의 렌더러가 그린다.
+    broadcast
   });
 
   for (const spec of OVERLAYS) {
-    const initiallyHidden = spec.key !== 'dock';
-    const win = createOverlayWindow(spec, { initiallyHidden });
+    // 시작 시 표시 여부는 저장된 사용자 취향이 정한다 (windows.ts 참조).
+    const win = createOverlayWindow(spec, {
+      initiallyHidden: initiallyHiddenFor(spec.key)
+    });
     windows.set(spec.key, win);
     attachGroupDragHandlers(win, spec.key);
+    // 스냅 핸들러는 그룹 핸들러 뒤에 붙인다 — 같은 'moved' 에서 머지 판정이
+    // 먼저 끝나야 스냅이 머지된 상태를 보고 물러설 수 있다.
+    attachSnapDragHandlers(win, spec.key);
     win.on('minimize', () => broadcastWindowState());
     win.on('restore', () => broadcastWindowState());
     win.on('show', () => broadcastWindowState());
@@ -976,19 +1693,39 @@ app.whenReady().then(() => {
     });
   }
 
-  // 기본 레이아웃 — 사용자가 명시한 defaultLayout 이 있으면 그것을, 없으면
-  // 'wide-grid' (2×3 격자 + Dock 중앙 하단) 를 적용. 격자 + dock 을 함께
-  // 재배치하므로 시작 화면이 일관됨.
-  const explicitDefault = store.get('defaultLayout');
-  applyLayout(
-    explicitDefault ?? 'wide-grid',
-    windows as Map<WindowKey, BrowserWindow>
-  );
+  // 시작 배치: **되살릴 것이 있으면 되살린다.**
+  //
+  // 예전에는 매 실행마다 레이아웃 프리셋을 무조건 적용했다. 그러면 창을 옮기고
+  // 크기를 맞추고 서로 붙여 놓은 결과(windows.ts 의 bounds 저장, 단축키 리사이즈,
+  // 스냅 관계)가 다음 실행에서 전부 지워진다 — 저장하는 코드가 있는데 아무도
+  // 그 값을 쓰지 않는 상태였다. 저장된 위치가 하나도 없을 때(최초 실행)만
+  // 프리셋으로 첫 화면을 만든다. 창 자체는 createOverlayWindow 가 이미 저장된
+  // bounds 로 열었으므로, 여기서 할 일은 "덮어쓰지 않는 것" 뿐이다.
+  //
+  // 사용자가 UI 에서 레이아웃을 고르는 경로('layout:apply')는 그대로다.
+  if (!hasSavedPlacement()) {
+    const explicitDefault = store.get('defaultLayout');
+    applyLayout(
+      explicitDefault ?? 'wide-grid',
+      windows as Map<WindowKey, BrowserWindow>
+    );
+  }
 
-  // 레이아웃 적용 뒤 저장된 탭 그룹 복원 (활성 탭 위치 기준으로 멤버 숨김).
+  // 저장된 탭 그룹 복원 (활성 탭 위치 기준으로 멤버 숨김).
   restoreGroups();
+  // 스냅 관계 복원. 복원된 위치가 실제로 아직 맞닿아 있는지는 restoreSnaps 가
+  // 다시 확인한다 — 화면 밖 보정 등으로 어긋났으면 스스로 폐기한다.
+  restoreSnaps();
 
   setShortcutDispatch(dispatchShortcut);
+  // 단축키는 로그인과 무관하게 **시작 시점에 전부** 등록한다.
+  //
+  // 예전에는 onSignedIn 에서만 등록해서, 로그인 전에는 Cmd+0~7(창 토글), 글씨
+  // 배율, 창 크기, 스냅 분리까지 아무 키도 동작하지 않았다. 그 중 어느 것도
+  // 유료 기능이 아니다. 유료 기능(녹음/분석/요약/구술)은 main 의 IPC 게이트
+  // (ensureEntitled) 가 이미 막고 잠금 안내를 방송하므로, 여기서 키를 빼면
+  // "눌러도 아무 일도 안 일어남" 이라는 최악의 피드백만 남는다.
+  registerAllShortcuts();
 
   initDeviceAuth({
     broadcast,
@@ -997,25 +1734,48 @@ app.whenReady().then(() => {
     }
   });
 
+  initSubscription({ broadcast });
+
   setAuthCallbacks({
     broadcast,
     onSignedIn: () => {
-      revealOverlays();
-      registerAllShortcuts();
+      restoreOverlayVisibility();
       broadcastShortcuts();
+      startWaitingSubscription();
+      // 로그인 직후 갱신. 여기서 실패해도 잠그지 않는다 — refreshEntitlement 가
+      // 네트워크 장애와 미구독을 구분해 캐시로 버틴다.
+      const user = getCurrentUser();
+      setSubscriptionUser(user?.id ?? null);
+      void refreshEntitlement('signin');
     },
     onSignedOut: () => {
       hideOverlaysAndClearPHI();
-      unregisterAllShortcuts();
+      // 단축키는 해제하지 않는다 — 창 토글/크기 조절은 로그아웃 상태에서도
+      // 필요하고, 유료 동작은 ensureEntitled 가 개별로 막는다.
       broadcastShortcuts();
+      setSubscriptionUser(null);
     }
   });
+
+  // 앱 시작 시 갱신. setAuthCallbacks 가 저장된 세션을 복원하면 onSignedIn 이
+  // 다시 한 번 호출되지만, refreshEntitlement 의 in-flight 병합이 중복을 막는다.
+  {
+    const user = getCurrentUser();
+    if (user) {
+      setSubscriptionUser(user.id);
+      void refreshEntitlement('startup');
+    }
+  }
 
   app.on('activate', () => {
     if (windows.size === 0) {
       for (const spec of OVERLAYS) {
-        const initiallyHidden = spec.key !== 'dock';
-        windows.set(spec.key, createOverlayWindow(spec, { initiallyHidden }));
+        windows.set(
+          spec.key,
+          createOverlayWindow(spec, {
+            initiallyHidden: initiallyHiddenFor(spec.key)
+          })
+        );
       }
     }
   });

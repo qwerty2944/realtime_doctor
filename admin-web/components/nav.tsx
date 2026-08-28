@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { withBasePath } from '@/lib/base-path';
 
 export function Nav({
   email,
@@ -52,7 +53,7 @@ export function Nav({
           })}
         </div>
         <span className="text-xs text-foreground/50">{email ?? ''}</span>
-        <form action="/api/auth/signout" method="post">
+        <form action={withBasePath('/api/auth/signout')} method="post">
           <button
             type="submit"
             className="rounded-md border border-border px-3 py-1 text-xs text-foreground/70 hover:bg-muted hover:text-foreground"

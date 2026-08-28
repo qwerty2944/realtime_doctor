@@ -8,7 +8,9 @@ import type {
   SummaryResult,
   TranscriptChunk
 } from '../shared/types.js';
+import { parseProvenance } from '../shared/provenance.js';
 import { getCurrentUser } from './auth.js';
+import { recordCareActivitiesForSession } from './careActivities.js';
 import {
   listLocalSessions,
   loadLocalSession,
@@ -54,6 +56,13 @@ export interface UsageEventInput {
 let currentSessionId: string | null = null;
 /** 클라우드 sessions row 생성/확인 promise. null 이면 아직 시도 전. */
 let cloudReady: Promise<boolean> | null = null;
+/**
+ * 현재 녹취를 붙일 진료(encounter) id.
+ *
+ * 환자를 선택한 채로 녹음을 시작하면 그 녹취는 그 진료의 기록이다 — 선택을
+ * 자동 해제하지 않고 `sessions.encounter_id` 로 연결한다.
+ */
+let sessionEncounterId: string | null = null;
 
 function warn(scope: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
@@ -95,7 +104,8 @@ async function ensureCloudSession(): Promise<string | null> {
           {
             id,
             user_id: user.id,
-            transcribe_provider: getTranscribeProvider()
+            transcribe_provider: getTranscribeProvider(),
+            encounter_id: sessionEncounterId
           },
           { onConflict: 'id', ignoreDuplicates: true }
         );
@@ -122,6 +132,34 @@ export function getCurrentSessionId(): string | null {
 export function setCurrentSessionId(id: string | null): void {
   currentSessionId = id;
   cloudReady = null;
+}
+
+/**
+ * 녹취-진료 연결. 환자 선택/해제 때 호출한다.
+ *
+ * 이미 만들어진 세션 row 가 있으면 그 row 도 즉시 갱신한다 (upsert 는
+ * ignoreDuplicates 라 기존 row 를 건드리지 않으므로 여기서 따로 update).
+ * 실패해도 녹취 자체는 계속돼야 하므로 경고만 남긴다.
+ */
+export function linkSessionToEncounter(encounterId: string | null): void {
+  sessionEncounterId = encounterId;
+  const id = currentSessionId;
+  if (!id || !canPersist()) return;
+  const supabase = getSupabase();
+  const user = getCurrentUser();
+  if (!supabase || !user) return;
+  void (async () => {
+    try {
+      const { error } = await supabase
+        .from('sessions')
+        .update({ encounter_id: encounterId })
+        .eq('id', id)
+        .eq('user_id', user.id);
+      if (error) warn('linkSessionToEncounter', error.message);
+    } catch (err) {
+      warn('linkSessionToEncounter', err);
+    }
+  })();
 }
 
 export interface LoadedSession {
@@ -264,7 +302,9 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
         supabase
           .from('analyses')
           .select(
-            'differential_diagnoses, medical_terms, suggested_questions, red_flags, updated_at'
+            'differential_diagnoses, medical_terms, suggested_questions, red_flags, updated_at, ' +
+              // [E3] 이 분석을 만든 모델·프롬프트.
+              'interpretation_provenance'
           )
           .eq('session_id', sessionId)
           .maybeSingle(),
@@ -309,6 +349,7 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
           suggested_questions: unknown;
           red_flags: unknown;
           updated_at: string;
+          interpretation_provenance?: unknown;
         }
       | null;
     const analysis: AnalysisResult | null = a
@@ -317,6 +358,8 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
           medicalTerms: (a.medical_terms as never[]) ?? [],
           suggestedQuestions: (a.suggested_questions as never[]) ?? [],
           redFlags: (a.red_flags as string[]) ?? [],
+          // [E3] 0011 이전에 저장된 분석은 "출처 미기록" 으로 온다.
+          provenance: parseProvenance(a.interpretation_provenance),
           updatedAt: new Date(a.updated_at).getTime()
         }
       : null;
@@ -367,6 +410,7 @@ export async function loadSession(sessionId: string): Promise<LoadedSession | nu
 
 export async function endCurrentSession(): Promise<void> {
   const id = currentSessionId;
+  const encounterId = sessionEncounterId;
   currentSessionId = null;
   cloudReady = null;
   if (!id) return;
@@ -382,6 +426,39 @@ export async function endCurrentSession(): Promise<void> {
   } catch (err) {
     warn('endCurrentSession', err);
   }
+  scanCareActivitiesInBackground(id, encounterId);
+}
+
+/**
+ * 진료가 끝나면 행위 기록을 스캔해서 **저장만** 한다 (B5).
+ *
+ * 왜 여기인가: 별도의 생명주기를 만들지 않는다. 진료가 끝나는 지점은 이미
+ * 여기 하나뿐이고, 두 벌이 되면 한쪽만 도는 날 리포트가 조용히 적게 센다 —
+ * 그것이 애초에 이 훅을 붙인 이유다.
+ *
+ * 지키는 것 셋:
+ *   1. **막지 않는다.** await 하지 않는다. 세션 종료는 이미 끝났고 이 작업은
+ *      뒤에서 돈다.
+ *   2. **던지지 않는다.** 실패는 경고 한 줄로 끝난다. 이 산출물은 파생물이고
+ *      환자 기록이 아니다. 다음에 요약 창을 열거나 재스캔을 돌리면 같은
+ *      결과가 다시 만들어진다 — 저장 실패가 영구 손실이 아닌 이유다.
+ *   3. **아무것도 띄우지 않는다.** 창도 알림도 없다. 저장은 끼어드는 일이
+ *      아니지만 표시는 끼어드는 일이다.
+ *
+ * 멱등성은 0007 의 RPC 가 맡는다. 나중에 요약 창을 열어 같은 진료를 다시
+ * 스캔해도 결과가 같으면 행이 늘지 않는다.
+ */
+function scanCareActivitiesInBackground(
+  sessionId: string,
+  encounterId: string | null
+): void {
+  void (async () => {
+    try {
+      await recordCareActivitiesForSession(sessionId, { encounterId });
+    } catch (err) {
+      warn('scanCareActivities', err);
+    }
+  })();
 }
 
 export function clearSessionCache(): void {
@@ -546,6 +623,11 @@ export async function upsertAnalysis(result: AnalysisResult): Promise<void> {
           medical_terms: result.medicalTerms,
           suggested_questions: result.suggestedQuestions,
           red_flags: result.redFlags,
+          // [E3] 이 세션에 지금 저장돼 있는 해석이 어느 모델·프롬프트에서
+          // 나왔는지. 진료가 진행되는 동안 같은 세션의 분석은 제자리에서
+          // 갱신되므로(upsert), 출처도 같이 갱신돼야 실제로 저장된 값과
+          // 출처가 어긋나지 않는다.
+          interpretation_provenance: result.provenance ?? {},
           updated_at: new Date(result.updatedAt).toISOString()
         },
         { onConflict: 'session_id' }
@@ -585,6 +667,43 @@ export async function appendSummary(result: SummaryResult): Promise<void> {
   }
 }
 
+/**
+ * 클라우드에 실재가 확인된 현재 세션 id. 없으면 null.
+ *
+ * A1 에서 노출했다. AI 프록시 요청에 `x-rd-session-id` 로 실어 보내면 서버가
+ * 기록하는 usage_events 행이 세션에 붙는다. 서버는 이 값을 그대로 믿지 않고
+ * **호출자 소유인지 확인한 뒤에만** 쓴다 (_shared/gate.ts recordUsage).
+ */
+export async function currentCloudSessionId(): Promise<string | null> {
+  if (!currentSessionId || !cloudReady) return null;
+  return (await cloudReady) ? currentSessionId : null;
+}
+
+/**
+ * 클라이언트 자진 신고 사용량.
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * [HARD] 이 행들은 과금 근거가 아니다
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * A1 이후 Gemini 와 OpenAI realtime **발급**은 서버가 기록한다
+ * (`usage_events.source = 'server'`). 여기서 쓰는 행은 전부 `source='client'`
+ * 이고(0016 의 기본값), 그건 "클라이언트가 그렇다고 말했다"는 뜻 이상이 아니다 --
+ * 수정한 빌드는 이 함수를 아예 부르지 않으면 그만이다.
+ *
+ * 그런데도 남겨둔 이유는, 아직 서버를 거치지 않는 호출이 있고 그것들에 대해서는
+ * 이 행이 존재하는 유일한 신호이기 때문이다:
+ *
+ *   * clova-csr / clova-stream -- A1 범위 밖. CSR 은 프록시 가능하지만
+ *     스트리밍(gRPC)은 아니라서 반쪽만 옮기지 않았다.
+ *   * openai-realtime 의 `realtime-session` **길이** -- 오디오는 렌더러와
+ *     OpenAI 사이에서 직접 흐르므로 서버가 볼 수 없다. 서버는 "몇 번
+ *     발급했는가"(task='mint')만 셀 수 있고, "얼마나 오래 썼는가"는 앱만 안다.
+ *
+ * 지우지 않고 `source` 로 구분만 한 것은 그래서다. 지우면 CLOVA 사용량이 통째로
+ * 보이지 않게 되고, 구분하지 않으면 믿을 수 있는 행이 믿을 수 없는 행의 신뢰도를
+ * 물려받는다.
+ */
 export async function logUsage(input: UsageEventInput): Promise<void> {
   if (!canPersist()) return;
   const user = getCurrentUser();
@@ -609,7 +728,10 @@ export async function logUsage(input: UsageEventInput): Promise<void> {
       chars: input.chars,
       duration_ms: input.duration_ms,
       app_version: app.getVersion(),
-      platform: process.platform
+      platform: process.platform,
+      // [HARD] 명시적으로 적는다. 0016 의 기본값과 같지만, RESTRICTIVE 정책이
+      // 이 값 외에는 거부한다는 사실을 호출 지점에서 보이게 하려는 것이다.
+      source: 'client'
     });
     if (error) warn('logUsage', error.message);
   } catch (err) {

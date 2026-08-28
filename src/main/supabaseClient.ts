@@ -39,9 +39,20 @@ void AUTH_STORAGE_KEY_PREFIX;
 
 let cached: SupabaseClient | null | undefined;
 
+/**
+ * 이 앱이 붙는 Supabase 프로젝트 주소.
+ *
+ * A1 에서 노출했다. Edge Function 주소를 유도하는 곳(device.ts, subscription.ts,
+ * aiProxy.ts)이 저마다 `process.env.SUPABASE_URL ?? '어떤 fallback'` 을 다시
+ * 쓰면, fallback 이 갈라지는 날 일부 기능만 다른 프로젝트를 바라보게 된다.
+ */
+export function supabaseUrl(): string {
+  return process.env.SUPABASE_URL ?? FALLBACK_SUPABASE_URL;
+}
+
 export function getSupabase(): SupabaseClient | null {
   if (cached !== undefined) return cached;
-  const url = process.env.SUPABASE_URL ?? FALLBACK_SUPABASE_URL;
+  const url = supabaseUrl();
   const key = process.env.SUPABASE_PUBLISHABLE_KEY ?? FALLBACK_SUPABASE_KEY;
   if (!url || !key) {
     console.warn('[db] URL or KEY missing — auth disabled');

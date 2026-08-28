@@ -11,12 +11,13 @@ const ko = {
   'common.stop': '정지',
 
   // window titles
-  'window.transcript': '전사',
+  'window.transcript': '대화기록',
   'window.diagnosis': '감별진단',
   'window.terms': '의학용어',
   'window.questions': '다음 질문',
   'window.summary': '요약',
   'window.dictation': '받아쓰기',
+  'window.patients': '대기목록',
 
   // dock
   'dock.account': '계정',
@@ -42,7 +43,7 @@ const ko = {
   'dock.accountDescSignedOut': '로그인하면 진료 기록을 DB에 저장합니다.',
   'dock.cloudSyncTitle': '클라우드 동기화',
   'dock.cloudSyncDesc': '세션·분석·요약·받아쓰기를 DB에 저장합니다. 기본 켜짐.',
-  'dock.saveTranscriptsTitle': '전사 원문 저장',
+  'dock.saveTranscriptsTitle': '대화기록 원문 저장',
   'dock.saveTranscriptsDesc': '원본 대화가 DB에 저장됩니다. 환자 식별 정보(PHI) 포함 가능.',
   'dock.saveAudioTitle': '음성 파일 업로드',
   'dock.saveAudioDesc': '진료 중 녹음된 음성 원본이 Supabase Storage에 저장됩니다.',
@@ -57,12 +58,60 @@ const ko = {
   'dock.deviceRevokeConfirm': '이 기기를 차단할까요? 해당 기기는 즉시 로그아웃됩니다.',
   'dock.deviceRevokeSelfConfirm': '지금 사용 중인 기기를 차단하면 바로 로그아웃됩니다. 계속할까요?',
   'dock.devicesEmpty': '등록된 기기가 없습니다.',
+  // 기기 수 한도 (S5). 자동 해제하지 않고 사용자가 직접 고른다.
+  'dock.deviceLimitTitle': '등록할 수 있는 기기 수를 초과했습니다',
+  'dock.deviceLimitDesc': '이 기기를 쓰려면 아래에서 하나를 먼저 내려주세요. 플랜 기기 수',
+  'dock.deviceRelease': '내리기',
+  'dock.deviceLimitHint':
+    '내린 기기는 다음 확인 시점에 로그아웃됩니다. 저장된 진료 기록은 지워지지 않습니다.',
+  'dock.deviceLimitFailed': '기기를 내리지 못했습니다. 잠시 후 다시 시도하세요.',
   'dock.localSaveTitle': '로컬 저장',
-  'dock.localSaveDesc': '세션·전사·분석·요약·받아쓰기를 이 컴퓨터에 저장합니다.',
+  'dock.localSaveDesc': '세션·대화기록·분석·요약·받아쓰기를 이 컴퓨터에 저장합니다.',
   'dock.localSaveAudioTitle': '음성 파일 로컬 저장',
   'dock.localSaveAudioDesc': '녹음된 음성 WAV 파일을 이 컴퓨터에 저장합니다.',
   'auth.deviceRevokedNotice': '이 기기의 접근이 차단되어 로그아웃되었습니다.',
+
+  // subscription (구독)
+  'sub.title': '구독',
+  'sub.statusTrialing': '무료 체험 중',
+  'sub.statusActive': '구독 중',
+  'sub.statusPastDue': '결제 실패',
+  'sub.statusExpired': '만료됨',
+  'sub.statusCanceled': '해지됨',
+  'sub.statusNone': '구독 없음',
+  'sub.statusSignedOut': '로그인 필요',
+  'sub.statusUnknown': '확인 필요',
+  'sub.daysLeftSuffix': '일 남음',
+  'sub.lastDay': '오늘 만료',
+  'sub.subscribe': '구독하기',
+  // [HARD] 계획서 확정 표기 — 표시는 VAT 별도, 실제 청구는 총액.
+  'sub.price': '월 70,000원 (VAT 별도)',
+  'sub.priceCharged': '실제 청구 77,000원',
+  'sub.bannerTrialEnding': '무료 체험이 곧 끝납니다. 계속 쓰려면 구독하세요.',
+  'sub.bannerExpired': '구독이 만료되어 새 진료를 시작할 수 없습니다. 저장된 기록 열람은 그대로 가능합니다.',
+  'sub.bannerPastDue': '결제에 실패했습니다. 유예 기간 동안은 계속 사용할 수 있습니다.',
+  'sub.bannerSignedOut': '로그인하면 구독 상태를 확인합니다.',
+  'sub.bannerOffline': '구독 확인이 지연되고 있습니다. 인터넷 연결을 확인하세요.',
+  'sub.offlineNotice': '오프라인 — 저장된 구독 정보로 동작 중',
+  'sub.refresh': '상태 새로고침',
+  'sub.periodEnd': '다음 결제일',
+  'sub.trialEnd': '체험 종료일',
+  'sub.deviceLimit': '기기 수',
+  'sub.deviceLimitUnit': '대',
+  'sub.blockedTitle': '구독이 필요한 기능입니다',
+  'sub.readingAlwaysAllowed': '이미 저장된 진료 기록의 열람과 내보내기는 잠금과 무관하게 항상 가능합니다.',
   'tabs.detach': '창 분리',
+  'snap.detach': '붙은 창에서 떼어내기',
+  /** 타이틀바 분리 버튼의 라벨 — 좁은 창(최소 280px)에 들어가야 하므로 짧게. */
+  'snap.detachAction': '분리',
+  /** 겹쳐 놓았을 때 뜨는 선택지 — 고른 것만 실행된다. */
+  'snapChoice.title': '어떻게 할까요?',
+  'snapChoice.top': '위로 붙이기',
+  'snapChoice.bottom': '아래로 붙이기',
+  'snapChoice.left': '왼쪽 붙이기',
+  'snapChoice.right': '오른쪽 붙이기',
+  'snapChoice.merge': '합치기',
+  'snapChoice.dismiss': '취소 (Esc)',
   'sessions.sourceLocal': '로컬',
   'sessions.sourceCloud': '클라우드',
   'sessions.sourceBoth': '로컬+클라우드',
@@ -84,7 +133,7 @@ const ko = {
 
   // transcript
   'transcript.empty': '아직 발화가 없습니다.',
-  'transcript.fallbackBanner': '실시간 전사가 일시적으로 실패해 청크 모드로 전환되었습니다.',
+  'transcript.fallbackBanner': '실시간 대화기록이 일시적으로 실패해 청크 모드로 전환되었습니다.',
   'transcript.recording': '녹음 중',
   'transcript.paused': '일시정지',
   'transcript.modeStream': '실시간',
@@ -117,8 +166,28 @@ const ko = {
 
   // diagnosis
   'diagnosis.empty': '아직 감별진단이 없습니다.',
-  'diagnosis.confidence': '가능성',
   'diagnosis.reasoning': '근거',
+
+  // 환자 근거 (E1) — 이 환자에게서 실제로 관찰된 것. 문헌근거와 다른 축이다.
+  'findings.title': '환자 근거',
+  'findings.hint': '클릭하면 대화기록 창의 해당 발화로 이동합니다',
+  'findings.unverifiedTitle': '근거 미확인',
+  'findings.unverifiedNote':
+    '대화기록에서 근거를 확인하지 못해 목록에서 내렸습니다. 판단은 의사가 합니다.',
+  'findings.reasonNoFindings': '제시된 근거 없음',
+  'findings.reasonUnresolved': '대화기록에 없는 발화를 인용함',
+  'findings.rejectedSources': '확인 실패한 참조',
+
+  // evidence (문헌근거)
+  'evidence.title': '문헌근거',
+  'evidence.load': '문헌근거 찾기',
+  'evidence.loading': 'PubMed 조회 중…',
+  'evidence.empty': '관련 문헌을 찾지 못했습니다.',
+  'evidence.error': '문헌 조회에 실패했습니다.',
+  'evidence.rateLimited': 'PubMed 요청이 많아 잠시 후 다시 시도하세요.',
+  'evidence.retry': '다시 시도',
+  'evidence.cached': '저장된 결과',
+  'evidence.openHint': '클릭하면 브라우저에서 열립니다',
 
   // terms
   'terms.empty': '아직 의학용어가 없습니다.',
@@ -126,7 +195,176 @@ const ko = {
 
   // questions
   'questions.empty': '아직 추천 질문이 없습니다.',
-  'questions.rationale': '근거'
+  'questions.rationale': '근거',
+
+  // patients (대기목록)
+  'patients.empty': '대기 중인 환자가 없습니다.',
+  'patients.signedOut': '로그인하면 대기목록이 표시됩니다.',
+  'patients.refresh': '새로고침',
+  'patients.waitingCount': '대기',
+  'patients.redFlagCount': '응급 의심',
+  'patients.redFlag': '응급 의심',
+  'patients.redFlagFallback': '레드플래그 감지',
+  'patients.inConsult': '진료 중',
+  'patients.registrationNo': '등록번호',
+  'patients.registrationNoNone': '미등록',
+  'patients.chiefComplaintNone': '주소증 정리 중',
+  'patients.waitPrefix': '대기',
+  'patients.waitJustNow': '방금',
+  'patients.waitMinutes': '분',
+  'patients.waitHours': '시간',
+  'patients.unit': '명',
+
+  // patient mode (환자 선택 시 각 창에 주입되는 문진 데이터)
+  'patient.modeBadge': '문진 데이터',
+  'patient.noData': '이 환자에는 해당 데이터가 없음',
+  'patient.noIntake': '이 환자의 문진 결과가 아직 없습니다.',
+  'patient.intakeSource': '문진 결과',
+  'patient.pmh': '과거력',
+  'patient.medications': '복용약',
+  'patient.allergies': '알레르기',
+  'patient.intake': '문진 내용',
+  'patient.intakeDialogue': '문진 대화',
+  'patient.speakerIntakeAgent': '문진 AI',
+  'patient.noDialogue': '이 문진에는 대화 기록이 없습니다.',
+  'patient.historyNotDialogue': '요약 · 환자 발언 아님',
+  'patient.rankPrefix': '순위',
+
+  // shortcut labels — 단축키 설정 다이얼로그가 SHORTCUT_IDS 를 그대로 순회한다.
+  'shortcut.toggleAll': '전체 창 보이기/숨기기',
+  'shortcut.toggleTranscript': '대화기록 창',
+  'shortcut.toggleDiagnosis': '감별진단 창',
+  'shortcut.toggleTerms': '의학용어 창',
+  'shortcut.toggleQuestions': '다음 질문 창',
+  'shortcut.toggleSummary': '요약 창',
+  'shortcut.toggleDictation': '받아쓰기 창',
+  'shortcut.togglePatients': '대기목록 창',
+  'shortcut.recordStartStop': '녹음 시작/정지',
+  'shortcut.runAnalyze': '감별 분석 새로 실행',
+  'shortcut.runSummary': '요약 새로 생성',
+  'shortcut.runDictation': '받아쓰기 새로 생성',
+  'shortcut.fontIncrease': '글씨 크게',
+  'shortcut.fontDecrease': '글씨 작게',
+  'shortcut.fontReset': '글씨 크기 초기화',
+  'shortcut.windowWiden': '창 너비 늘리기',
+  'shortcut.windowNarrow': '창 너비 줄이기',
+  'shortcut.windowTaller': '창 높이 늘리기',
+  'shortcut.windowShorter': '창 높이 줄이기',
+  'shortcut.windowSnapDetach': '붙은 창에서 떼어내기',
+
+  // 진료행위 기록 (B3/B4)
+  //
+  // [HARD] 문구가 곧 책임 경계다. 여기 있는 모든 문장은 "이런 기록이
+  // 있습니다"까지만 말한다. 무엇을 어떻게 하라는 말은 한 줄도 없다 —
+  // 권유하는 순간 탐지 도구가 권유가 되고, 그 책임은 의사가 진다.
+  'care.title': '이번 진료에서 기록된 행위',
+  'care.subtitle': '녹취에 남은 발화만 그대로 표시합니다. 판단은 의사가 합니다.',
+  'care.quoteHint': '누르면 대화기록 창에서 이 발화를 보여줍니다.',
+  'care.durationMinutes': '분간',
+  'care.durationSeconds': '초간',
+  'care.ruleVersion': '규칙 v',
+  // 비어 있음은 고장이 아니다. 씨드된 정의가 전부 임상 검토 전이라 아무것도
+  // 뜨지 않는 것이 현재의 올바른 동작이고, 화면은 그 사실을 그대로 말한다.
+  'care.emptyTitle': '검토된 항목 없음',
+  'care.emptyNoneReviewed':
+    '녹취에서 해당하는 구간을 찾았지만, 그 정의가 아직 임상 검토를 거치지 않아 표시하지 않았습니다.',
+  'care.emptyNoEvidence': '이번 진료의 녹취에서는 표시할 구간을 찾지 못했습니다.',
+  'care.emptyNoSession': '아직 녹취가 없습니다. 대화가 기록되면 여기에 나타납니다.',
+  'care.emptyIntake':
+    '문진 대화에는 시각 정보가 없어 구간을 만들 수 없습니다. 진료실 녹취에서만 나타납니다.',
+
+  'care.reportTitle': '월간 행위 기록',
+  'care.reportDesc': '월별로 기록된 행위 건수입니다. 금액은 계산하지 않습니다.',
+  'care.reportEmpty': '이 달에 기록된 항목이 없습니다.',
+  'care.reportPrev': '이전 달',
+  'care.reportNext': '다음 달',
+  'care.reportColActivity': '행위',
+  'care.reportColRule': '규칙',
+  'care.reportColCount': '기록 건수',
+  'care.reportColSessions': '진료 건수',
+  'care.reportTotal': '합계',
+  'care.reportCopyCsv': 'CSV 복사',
+  'care.reportCopied': '복사됨',
+  'care.reportNote':
+    '규칙이 바뀌면 지난달 숫자를 고쳐 쓰지 않고 규칙 버전별로 줄이 나뉩니다.',
+
+  // 임상 검토 (B5)
+  //
+  // [HARD] 문구 규칙은 care.* 와 같다. 이 화면은 "이 규칙을 이 계정에서 쓸
+  // 것인가"만 묻는다. 무엇을 어떻게 하라는 말은 한 줄도 없다.
+  'review.title': '탐지 규칙 임상 검토',
+  'review.desc': '규칙 전문을 읽고, 이 계정에서 쓸 항목만 검토 완료로 표시합니다.',
+  'review.scopeNote':
+    '여기서 표시한 검토는 이 계정에만 적용됩니다. 다른 사용자의 탐지에는 영향을 주지 않습니다. 규칙이 바뀌면 검토는 자동으로 풀리며, 새 규칙을 다시 읽어야 합니다.',
+  'review.empty': '표시할 정의가 없습니다.',
+  'review.mark': '검토 완료로 표시',
+  'review.unmark': '검토 철회',
+  'review.stateReviewed': '검토 완료',
+  'review.stateUnreviewed': '검토 전',
+  'review.stateStale': '검토 이후 규칙이 바뀌었습니다. 새 규칙을 다시 읽어야 합니다.',
+  'review.stateRevoked': '검토 철회됨',
+  'review.none': '없음',
+  'review.ruleCues': '단서어',
+  'review.ruleNegations': '부정어',
+  'review.ruleSpeaker': '화자 조건',
+  'review.ruleMinCues': '서로 다른 단서 최소',
+  'review.ruleMinUtterances': '단서 발화 최소',
+  'review.ruleMinDuration': '최소 경과 시간',
+  'review.ruleVersionLabel': '규칙 버전',
+  'review.speakerDoctor': '의사 발화만',
+  'review.speakerPatient': '환자 발화만',
+  'review.speakerAny': '제한 없음',
+  'review.backfill': '지난 진료 다시 스캔',
+  'review.backfillDesc':
+    '검토를 마친 직후에는 지난 진료에 기록이 없습니다. 최근 3개월치를 다시 스캔해 채웁니다. 여러 번 눌러도 건수는 늘지 않습니다.',
+  'review.backfillResult': '진료 {scanned}건 · 새 기록 {inserted}건 · 그대로 {unchanged}건',
+
+  // 방문 코드 (L1)
+  //
+  // 접수처가 환자 한 명의 이번 방문에 대해 발급하는 단기 코드. 이 코드가
+  // 있어야 키오스크 문진이 시작된다 (배포구조 문서 4장).
+  'visitCode.title': '방문 코드 발급',
+  'visitCode.desc': '환자에게 전달할 코드입니다. QR을 찍거나 코드를 입력하면 문진이 시작됩니다.',
+  'visitCode.issue': '코드 발급',
+  'visitCode.issueAgain': '새 코드 발급',
+  'visitCode.expiresIn': '남은 시간',
+  'visitCode.expired': '코드 사용 시간이 지났습니다. 새로 발급하세요.',
+  'visitCode.qrHint': '환자 휴대폰이나 태블릿 카메라로 찍으면 문진 화면이 바로 열립니다.',
+  'visitCode.noKioskUrl': '키오스크 주소가 설정되지 않아 QR을 만들 수 없습니다. 아래에서 주소를 먼저 입력하세요. 코드는 직접 불러주셔도 됩니다.',
+  'visitCode.note': '코드는 한 번의 방문에만 쓰이고, 문진이 끝나면 다시 쓸 수 없습니다. 이 화면을 닫으면 코드는 다시 볼 수 없으니 필요하면 새로 발급하세요.',
+  'visitCode.errorSignedOut': '로그인 후에 발급할 수 있습니다.',
+  'visitCode.errorTooMany': '아직 사용하지 않은 코드가 너무 많습니다. 기존 코드가 만료된 뒤에 다시 발급하세요.',
+  'visitCode.errorFailed': '코드를 발급하지 못했습니다. 잠시 후 다시 시도하세요.',
+  'visitCode.settingsTitle': '키오스크 연결',
+  'visitCode.kioskUrl': '키오스크 주소',
+  'visitCode.kioskSlug': '키오스크 슬러그 (선택)',
+  'visitCode.patientTitle': '환자 등록',
+  'visitCode.patientDesc':
+    '환자 이름을 등록하면 그 환자 전용 문진 링크가 만들어집니다. 알림톡으로 보내거나 QR로 보여 주세요.',
+  'visitCode.patientName': '환자 이름',
+  'visitCode.patientPhone': '휴대폰 번호 (선택)',
+  'visitCode.patientPhoneHint':
+    '번호를 넣으면 알림톡으로 링크를 보낼 수 있습니다. 비워 두면 QR로만 전달됩니다.',
+  'visitCode.register': '등록하고 링크 만들기',
+  'visitCode.registerAgain': '다른 환자 등록',
+  'visitCode.issuedFor': '환자',
+  'visitCode.copyLink': '링크 복사',
+  'visitCode.copied': '복사했습니다',
+  'visitCode.sendAlimtalk': '알림톡 발송',
+  'visitCode.sending': '보내는 중…',
+  'visitCode.sent': '알림톡을 보냈습니다.',
+  'visitCode.alimtalkNotConfigured':
+    '알림톡이 아직 설정되지 않았습니다. 링크를 복사해서 보내 주세요. (설정 방법: kiosk/README.md)',
+  'visitCode.alimtalkNoPhone': '이 환자에게는 휴대폰 번호가 등록돼 있지 않습니다.',
+  'visitCode.alimtalkNoKioskUrl':
+    '키오스크 주소가 설정되지 않아 보낼 링크가 없습니다. 아래에서 주소를 먼저 입력하세요.',
+  'visitCode.alimtalkFailed': '알림톡을 보내지 못했습니다. 링크를 복사해서 보내 주세요.',
+  'visitCode.errorInvalidInput': '이름을 확인해 주세요. 휴대폰 번호는 숫자만 입력합니다.',
+  'visitCode.quickTitle': '빠른 코드 (환자 미지정)',
+  'visitCode.quickHint':
+    '환자를 등록하지 않고 30분짜리 코드만 발급합니다. 환자가 이미 접수대 앞에 서 있을 때 씁니다.',
+  'visitCode.settingsHint':
+    '문진 웹앱이 배포된 주소입니다. 기본값이 이미 채워져 있으니 별도 주소를 쓰는 의원만 바꾸면 됩니다. 두 칸 모두 비우고 저장하면 기본값으로 돌아갑니다.'
 } as const;
 
 export default ko;

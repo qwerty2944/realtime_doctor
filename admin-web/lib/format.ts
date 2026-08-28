@@ -1,3 +1,5 @@
+import type { Cost } from '@/lib/pricing';
+
 const USD = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -15,6 +17,16 @@ const INT = new Intl.NumberFormat('en-US');
 export function fmtUsd(n: number): string {
   if (n >= 1) return USD2.format(n);
   return USD.format(n);
+}
+
+/**
+ * 비용 셀 한 칸. 단가를 모르는 행은 금액 대신 "미산정" 이다.
+ *
+ * `fmtUsd(cost.usd)` 로 쓰면 $0.0000 이 찍히고 그건 "공짜로 썼다" 로 읽힌다.
+ * 미산정과 진짜 0 원은 화면에서 구별되어야 한다.
+ */
+export function fmtCost(cost: Cost): string {
+  return cost.priced ? fmtUsd(cost.usd) : '미산정';
 }
 
 export function fmtInt(n: number | null | undefined): string {

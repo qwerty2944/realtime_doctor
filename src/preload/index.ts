@@ -1,4 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  CareActivityBackfillResult,
+  CareActivityDefinitionView,
+  CareActivityDisplayPayload,
+  MonthlyCareActivityReport
+} from '../shared/careActivities.js';
 import {
   IPC,
   type AnalysisResult,
@@ -6,21 +12,35 @@ import {
   type AuthState,
   type CloudSyncSettings,
   type DeviceInfo,
+  type DeviceLimitNotice,
   type DictationStatus,
   type DictationTemplate,
   type EphemeralSession,
+  type EvidenceStatus,
+  type EvidenceUpdate,
+  type IssueVisitCodeResult,
+  type PatientVisitCodeInput,
+  type VisitCodeAlimtalkResult,
+  type VisitCodeSettings,
   type Language,
   type LoadedSessionPayload,
   type LocalSaveSettings,
   type OverlayKey,
+  type PatientDetail,
   type SessionSummary,
   type ShortcutId,
   type Speaker,
+  type SubscriptionBlockedNotice,
+  type SubscriptionState,
   type SummaryStatus,
   type TranscribeProviderId,
   type TranscribeProviderInfo,
   type TranscriptChunk,
   type TranscriptLabelEvent,
+  type WaitingEncounter,
+  type WaitingListUpdate,
+  type SnapChoiceApply,
+  type SnapChoicePrompt,
   type WindowGroupInfo
 } from '../shared/types.js';
 
@@ -41,6 +61,16 @@ const api = {
   resetTranscript(): void {
     ipcRenderer.send(IPC.TranscriptReset);
   },
+  /** 감별진단 근거 클릭 — main 이 전사 창을 꺼낸 뒤 전 창에 알린다 (E1). */
+  focusUtterance(utteranceId: string): void {
+    ipcRenderer.send(IPC.TranscriptFocusUtterance, utteranceId);
+  },
+  /** 전사 창이 강조·스크롤할 발화 id 를 받는다 (E1). */
+  onFocusUtterance(handler: (utteranceId: string) => void): () => void {
+    const listener = (_e: unknown, utteranceId: string) => handler(utteranceId);
+    ipcRenderer.on(IPC.TranscriptFocusUtterance, listener);
+    return () => ipcRenderer.removeListener(IPC.TranscriptFocusUtterance, listener);
+  },
   setClickThrough(ignore: boolean): void {
     ipcRenderer.send(IPC.WindowToggleClickThrough, ignore);
   },
@@ -50,11 +80,19 @@ const api = {
   minimizeWindow(): void {
     ipcRenderer.send('window:minimize');
   },
-  popoverEnter(): void {
-    ipcRenderer.send('window:popover-enter');
+  /** size 를 주면 그 크기 이상으로 창을 넓힌다 (없으면 팝오버 기본치). */
+  popoverEnter(size?: { width: number; height: number }): void {
+    ipcRenderer.send('window:popover-enter', size);
   },
   popoverLeave(): void {
     ipcRenderer.send('window:popover-leave');
+  },
+  /**
+   * 렌더러가 실제 레이아웃에서 잰 "잘리지 않으려면 필요한 창 높이".
+   * 팝오버 임시 확장과 달리 되돌리지 않는 영구 크기다.
+   */
+  fitContentHeight(height: number): void {
+    ipcRenderer.send('window:fit-content', height);
   },
   setOpacity(value: number): void {
     ipcRenderer.send('window:set-opacity', value);
@@ -375,6 +413,39 @@ const api = {
       return () => ipcRenderer.removeListener(IPC.WindowGroupsHover, listener);
     }
   },
+  windowSnaps: {
+    /** 지금 가장자리 스냅으로 붙어 있는 창들. */
+    get(): Promise<OverlayKey[]> {
+      return ipcRenderer.invoke(IPC.WindowSnapsGet);
+    },
+    detach(key: OverlayKey): void {
+      ipcRenderer.send(IPC.WindowSnapsDetach, key);
+    },
+    onChange(handler: (keys: OverlayKey[]) => void): () => void {
+      const listener = (_e: unknown, payload: OverlayKey[]) => handler(payload);
+      ipcRenderer.on(IPC.WindowSnapsState, listener);
+      return () => ipcRenderer.removeListener(IPC.WindowSnapsState, listener);
+    },
+    /**
+     * 겹쳐 놓았을 때 뜨는 선택지 (상/하/좌/우 붙이기 · 합치기). 고른 것만 실행되고
+     * 취소하면 창은 놓인 자리에 그대로 남는다.
+     */
+    choice: {
+      onPrompt(handler: (prompt: SnapChoicePrompt | null) => void): () => void {
+        const listener = (_e: unknown, payload: SnapChoicePrompt | null) =>
+          handler(payload);
+        ipcRenderer.on(IPC.WindowSnapChoiceShow, listener);
+        return () =>
+          ipcRenderer.removeListener(IPC.WindowSnapChoiceShow, listener);
+      },
+      apply(payload: SnapChoiceApply): void {
+        ipcRenderer.send(IPC.WindowSnapChoiceApply, payload);
+      },
+      cancel(): void {
+        ipcRenderer.send(IPC.WindowSnapChoiceCancel);
+      }
+    }
+  },
   devices: {
     list(): Promise<DeviceInfo[]> {
       return ipcRenderer.invoke(IPC.DevicesList);
@@ -387,6 +458,174 @@ const api = {
         handler(payload);
       ipcRenderer.on(IPC.DeviceRevoked, listener);
       return () => ipcRenderer.removeListener(IPC.DeviceRevoked, listener);
+    },
+    /** 한도 초과로 고른 기기를 내리고 이 기기를 다시 등록한다 (S5). */
+    releaseAndRegister(
+      rowId: string
+    ): Promise<{ ok: boolean; error?: string; devices?: DeviceInfo[] }> {
+      return ipcRenderer.invoke(IPC.DevicesReleaseAndRegister, rowId);
+    },
+    onLimitExceeded(handler: (payload: DeviceLimitNotice) => void): () => void {
+      const listener = (_e: unknown, payload: DeviceLimitNotice) => handler(payload);
+      ipcRenderer.on(IPC.DeviceLimitExceeded, listener);
+      return () => ipcRenderer.removeListener(IPC.DeviceLimitExceeded, listener);
+    }
+  },
+  patients: {
+    listWaiting(): Promise<WaitingEncounter[]> {
+      return ipcRenderer.invoke(IPC.PatientsListWaiting);
+    },
+    loadDetail(encounterId: string): Promise<PatientDetail | null> {
+      return ipcRenderer.invoke(IPC.PatientsLoadDetail, encounterId);
+    },
+    select(encounterId: string | null): Promise<PatientDetail | null> {
+      return ipcRenderer.invoke(IPC.PatientsSelect, encounterId);
+    },
+    onWaitingChange(handler: (payload: WaitingListUpdate) => void): () => void {
+      const listener = (_e: unknown, payload: WaitingListUpdate) => handler(payload);
+      ipcRenderer.on(IPC.PatientsWaitingChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.PatientsWaitingChanged, listener);
+    },
+    /** 나중에 뜬 창이 현재 선택 상태를 스스로 채울 때 사용. */
+    getActive(): Promise<PatientDetail | null> {
+      return ipcRenderer.invoke(IPC.PatientsGetActive);
+    },
+    onActiveChange(handler: (detail: PatientDetail | null) => void): () => void {
+      const listener = (_e: unknown, detail: PatientDetail | null) => handler(detail);
+      ipcRenderer.on(IPC.PatientsActiveChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.PatientsActiveChanged, listener);
+    }
+  },
+  diagnosis: {
+    /**
+     * 감별진단 카드를 펼쳤음을 알린다 (6장). 응답이 없고 실패해도 조용하다 —
+     * 감사 기록이 진료 화면에 끼어들면 안 된다.
+     */
+    cardExpanded(diagnosisName: string): void {
+      ipcRenderer.send(IPC.DiagnosisCardExpanded, diagnosisName);
+    }
+  },
+  evidence: {
+    /** 진단명 하나의 PubMed 근거. 캐시 히트면 즉시, 아니면 조회 후 반환. */
+    request(diagnosis: string, diagnosisEn?: string | null): Promise<EvidenceStatus> {
+      return ipcRenderer.invoke(IPC.EvidenceRequest, { diagnosis, diagnosisEn });
+    },
+    onUpdate(handler: (payload: EvidenceUpdate) => void): () => void {
+      const listener = (_e: unknown, payload: EvidenceUpdate) => handler(payload);
+      ipcRenderer.on(IPC.EvidenceUpdated, listener);
+      return () => ipcRenderer.removeListener(IPC.EvidenceUpdated, listener);
+    },
+    /** 외부 브라우저로 열기. PubMed 주소가 아니면 main 이 거절하고 false. */
+    open(url: string): Promise<boolean> {
+      return ipcRenderer.invoke(IPC.EvidenceOpen, url);
+    }
+  },
+  subscription: {
+    /** 현재 상태. main 이 캐시된 서명 토큰을 재검증한 결과를 돌려준다. */
+    get(): Promise<SubscriptionState> {
+      return ipcRenderer.invoke(IPC.SubscriptionGet);
+    },
+    /** 서버에 다시 물어본다 (결제 후 돌아왔을 때 등). */
+    refresh(): Promise<SubscriptionState> {
+      return ipcRenderer.invoke(IPC.SubscriptionRefresh);
+    },
+    /** 결제 페이지를 외부 브라우저로 연다. 주소 검증은 main 이 한다. */
+    openBilling(): Promise<boolean> {
+      return ipcRenderer.invoke(IPC.SubscriptionOpenBilling);
+    },
+    onChange(handler: (state: SubscriptionState) => void): () => void {
+      const listener = (_e: unknown, state: SubscriptionState) => handler(state);
+      ipcRenderer.on(IPC.SubscriptionChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.SubscriptionChanged, listener);
+    },
+    /** 잠긴 상태에서 기능 호출이 차단됐을 때. */
+    onBlocked(handler: (notice: SubscriptionBlockedNotice) => void): () => void {
+      const listener = (_e: unknown, notice: SubscriptionBlockedNotice) =>
+        handler(notice);
+      ipcRenderer.on(IPC.SubscriptionBlocked, listener);
+      return () => ipcRenderer.removeListener(IPC.SubscriptionBlocked, listener);
+    }
+  },
+  fontScale: {
+    /** 창이 뜬 직후 현재 배율을 채우기 위한 getter. */
+    get(): Promise<number> {
+      return ipcRenderer.invoke(IPC.FontScaleGet);
+    },
+    onChange(handler: (scale: number) => void): () => void {
+      const listener = (_e: unknown, scale: number) => handler(scale);
+      ipcRenderer.on(IPC.FontScaleChanged, listener);
+      return () => ipcRenderer.removeListener(IPC.FontScaleChanged, listener);
+    }
+  },
+  careActivities: {
+    /**
+     * 이번 진료에서 기록된 행위 (B3).
+     *
+     * 화면에 올릴 수 있는 항목만 온다 — 임상 검토를 마친 정의에서 나왔고
+     * 원문 대조를 통과한 것들이다. 비어 있으면 그 이유가 함께 온다.
+     */
+    scan(): Promise<CareActivityDisplayPayload> {
+      return ipcRenderer.invoke(IPC.CareActivitiesScan);
+    },
+    /** 월 단위 집계 (B4). month 는 'YYYY-MM'. */
+    report(month: string): Promise<MonthlyCareActivityReport> {
+      return ipcRenderer.invoke(IPC.CareActivitiesReport, month);
+    },
+    /**
+     * 검토 화면용 정의 목록 (B5).
+     *
+     * 규칙 전문이 담겨 온다. `def.reviewStatus` 는 **이 계정 기준**이며,
+     * 다른 계정의 검토 여부는 여기 담기지도 않고 영향도 주지 않는다.
+     */
+    definitions(): Promise<CareActivityDefinitionView[]> {
+      return ipcRenderer.invoke(IPC.CareActivitiesDefs);
+    },
+    /** 검토 표시·철회 (B5). 이 계정에만 적용된다. */
+    setReview(input: {
+      activityCode: string;
+      ruleVersion: number;
+      reviewed: boolean;
+      note?: string | null;
+    }): Promise<{ ok: true } | { ok: false; error: string }> {
+      return ipcRenderer.invoke(IPC.CareActivitiesSetReview, input);
+    },
+    /** 지난 진료 재스캔 (B5). 저장만 하고 아무 창도 띄우지 않는다. */
+    backfill(months: number): Promise<CareActivityBackfillResult> {
+      return ipcRenderer.invoke(IPC.CareActivitiesBackfill, months);
+    }
+  },
+  visitCode: {
+    /**
+     * 방문 코드 한 개 발급 (L1).
+     *
+     * 평문 코드는 **이 응답에만** 존재한다. 저장하지 않으므로 다시 보려면
+     * 새로 발급해야 한다. 화면도 이 값을 오래 들고 있지 않는다.
+     */
+    issue(): Promise<IssueVisitCodeResult> {
+      return ipcRenderer.invoke(IPC.VisitCodeIssue);
+    },
+    /**
+     * 환자를 등록하고 그 환자의 링크를 발급한다 (0019).
+     *
+     * 익명 코드와 달리 환자 행이 이 시점에 생기고, 링크는 24시간 산다 —
+     * 진료 전날 보내는 것이 이 경로의 목적이기 때문이다.
+     */
+    issueForPatient(input: PatientVisitCodeInput): Promise<IssueVisitCodeResult> {
+      return ipcRenderer.invoke(IPC.VisitCodeIssuePatient, input);
+    },
+    /**
+     * 발급한 링크를 알림톡으로 보낸다. 발송은 키오스크 서버가 하고, 이 앱은
+     * 코드 행 id 만 넘긴다 — 전화번호도 본문도 서버가 DB 에서 읽는다.
+     */
+    sendAlimtalk(codeId: string, link: string): Promise<VisitCodeAlimtalkResult> {
+      return ipcRenderer.invoke(IPC.VisitCodeSendAlimtalk, { codeId, link });
+    },
+    /** 키오스크 주소·슬러그. 주소는 설정값이고 코드에 도메인을 박지 않는다. */
+    getSettings(): Promise<VisitCodeSettings> {
+      return ipcRenderer.invoke(IPC.VisitCodeSettingsGet);
+    },
+    setSettings(patch: Partial<VisitCodeSettings>): Promise<VisitCodeSettings> {
+      return ipcRenderer.invoke(IPC.VisitCodeSettingsSet, patch);
     }
   },
   localSave: {

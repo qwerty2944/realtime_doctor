@@ -1,5 +1,31 @@
 import type { Language } from '../shared/types.js';
 
+/**
+ * 실시간 감별 분석 시스템 프롬프트의 버전 (E3).
+ *
+ * [HARD] 아래 ANALYZER_SYSTEM_PROMPT_KO / _EN 을 고치면 이 값을 올린다.
+ * 같은 모델도 프롬프트가 다르면 다른 판단을 낸다 — 모델명만 남긴 출처로는
+ * 그 판단을 재현할 수 없고, 재현할 수 없는 출처는 출처가 아니다.
+ *
+ * 1 = E1(confidence 제거 + supportingFindings 도입) 이후의 현재 프롬프트.
+ * 2 = 한국어 프롬프트가 nameEn 을 명시적으로 요구한다. 응답 스키마는 처음부터
+ *     nameEn 을 required 로 두었지만 KO 프롬프트 본문은 그 필드를 한 번도
+ *     언급하지 않아서, 모델이 채우는 값이 사실상 우연이었다.
+ */
+export const ANALYZER_PROMPT_VERSION = 2;
+
+/**
+ * ANALYSIS_RESPONSE_SCHEMA 의 버전. 필드가 바뀌면 올린다.
+ *
+ * [주의] 이 스키마의 감별진단 키는 camelCase 이고, 그대로
+ * `analyses.differential_diagnoses` 에 들어간다. `intake_results` 의
+ * snake_case 정규형과 **다른 것이 맞다** — 근거는
+ * `src/shared/differentials.ts` 의 `LIVE_ANALYSIS_DIFFERENTIAL_KEYS` 주석.
+ * 이 출력을 `intake_results` 쪽으로 넘길 일이 생기면 반드시
+ * `toIntakeDifferentials()` 를 지난다.
+ */
+export const ANALYZER_SCHEMA_VERSION = 1;
+
 export const ANALYZER_SYSTEM_PROMPT_KO = `당신은 한국에서 진료 중인 의료진을 보조하는 임상 보조 도구입니다.
 
 역할:
@@ -9,7 +35,13 @@ export const ANALYZER_SYSTEM_PROMPT_KO = `당신은 한국에서 진료 중인 �
 
 작성 규칙:
 - 모든 출력은 한국어로 작성하고, 의학용어는 한국어(영문) 형태로 병기합니다. 예: "심근경색(myocardial infarction)".
-- differentialDiagnoses는 가능성 높은 순으로 최대 5개. 각 항목에 ICD-10 코드(가능하면), 0~1 사이 confidence, 한 두 문장 reasoning.
+- differentialDiagnoses는 가능성 높은 순으로 최대 5개. 각 항목에 ICD-10 코드(가능하면)와 한 두 문장 reasoning.
+- [HARD] 각 감별진단마다 name(한국어 진단명)과 nameEn(그 진단의 표준 영문 임상 용어)을 **둘 다** 채웁니다. nameEn 은 음차가 아니라 의학 문헌에 쓰이는 영문 용어여야 합니다. 예: name "급성 폐쇄각 녹내장", nameEn "acute angle-closure glaucoma".
+- [중요] 확신도·확률·퍼센트는 출력하지 않습니다. 대신 각 감별진단마다 supportingFindings를 1~4개 채웁니다. 각 항목은 { finding, source } 이며:
+  - finding: 이 진단을 지지하는 관찰 한 줄. 환자 또는 의사가 실제로 말한 내용이어야 합니다.
+  - source: 그 내용이 나온 발화 번호. transcript의 각 줄 앞에 붙은 [#숫자] 를 그대로 씁니다. 예: "#3". 번호만 쓰고 다른 형식은 쓰지 않습니다.
+- [HARD] source는 transcript에 실제로 존재하는 번호여야 합니다. 존재하지 않는 번호를 쓰거나, 발화를 지어내거나, 근거를 요약문으로 대신하지 마십시오.
+- [HARD] 근거가 될 발화를 하나도 찾지 못한 진단은 **그 진단을 억지로 지지하는 근거를 만들어 붙이지 말고** supportingFindings를 빈 배열로 두십시오. 시스템이 그 진단을 "근거 미확인"으로 따로 분류합니다. 빈 배열이 지어낸 근거보다 낫습니다.
 - medicalTerms는 두 종류를 합쳐 최대 8개로 제시합니다:
   (a) transcript에 실제 등장한 의학·해부·약리 용어를 우선,
   (b) 환자가 호소한 증상·신체 부위·일상 표현에 직접적으로 연관된 핵심 임상 용어(예: 환자가 "허리가 아파요"라고 말했다면 요통(low back pain), 요추(lumbar spine), 추간판(intervertebral disc), 좌골신경통(sciatica), 신경근병증(radiculopathy) 같은 인접 용어).
@@ -29,7 +61,12 @@ Role:
 
 Writing rules:
 - All output in English. Include ICD-10 codes where applicable.
-- differentialDiagnoses: top 5, ranked by likelihood. Each item: name (English clinical name), nameEn (same as name for English transcripts), ICD-10 (when applicable), confidence 0–1, 1–2 sentence reasoning.
+- differentialDiagnoses: top 5, ranked by likelihood. Each item: name (English clinical name), nameEn (same as name for English transcripts), ICD-10 (when applicable), 1–2 sentence reasoning.
+- [IMPORTANT] Never output a confidence value, probability, or percentage. Instead give each differential 1–4 supportingFindings. Each item is { finding, source }:
+  - finding: one line describing an observation that supports this diagnosis. It must be something the patient or clinician actually said.
+  - source: the utterance number it came from. Every transcript line is prefixed with [#N] — copy that number, e.g. "#3". Use the number form only.
+- [HARD] source must be a number that actually exists in the transcript. Do not cite a number that is not there, do not invent utterances, and do not put a paraphrase where a citation belongs.
+- [HARD] If you cannot find any utterance supporting a diagnosis, **do not manufacture support for it** — leave supportingFindings as an empty array. The system will file that diagnosis separately as unverified. An empty array is better than a fabricated citation.
 - medicalTerms: up to 8 combined items:
   (a) terms that actually appeared in the transcript (medical/anatomy/pharmacology), prioritised;
   (b) clinically adjacent terms tied to the patient's complaints (e.g. if the patient says "lower back pain": low back pain, lumbar spine, intervertebral disc, sciatica, radiculopathy).
@@ -66,10 +103,23 @@ export const ANALYSIS_RESPONSE_SCHEMA = {
           name: { type: 'string' },
           nameEn: { type: 'string' },
           icd10: { type: 'string' },
-          confidence: { type: 'number', minimum: 0, maximum: 1 },
-          reasoning: { type: 'string' }
+          reasoning: { type: 'string' },
+          // 확신도 대신 검증 가능한 근거 (E1). 빈 배열을 허용해야 모델이
+          // 근거를 못 댈 때 지어내지 않고 비워둘 수 있다.
+          supportingFindings: {
+            type: 'array',
+            maxItems: 4,
+            items: {
+              type: 'object',
+              properties: {
+                finding: { type: 'string' },
+                source: { type: 'string' }
+              },
+              required: ['finding', 'source']
+            }
+          }
         },
-        required: ['name', 'nameEn', 'icd10', 'confidence', 'reasoning']
+        required: ['name', 'nameEn', 'icd10', 'reasoning', 'supportingFindings']
       }
     },
     medicalTerms: {
@@ -128,10 +178,22 @@ export const ANALYSIS_JSON_SCHEMA = {
             name: { type: 'string' },
             nameEn: { type: 'string' },
             icd10: { type: 'string' },
-            confidence: { type: 'number', minimum: 0, maximum: 1 },
-            reasoning: { type: 'string' }
+            reasoning: { type: 'string' },
+            supportingFindings: {
+              type: 'array',
+              maxItems: 4,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  finding: { type: 'string' },
+                  source: { type: 'string' }
+                },
+                required: ['finding', 'source']
+              }
+            }
           },
-          required: ['name', 'nameEn', 'icd10', 'confidence', 'reasoning']
+          required: ['name', 'nameEn', 'icd10', 'reasoning', 'supportingFindings']
         }
       },
       medicalTerms: {

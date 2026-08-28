@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCookieSupabase } from '@/lib/supabase/ssr';
 import { requireAdmin } from '@/lib/admin-gate';
-import { costForRow, type UsageRow } from '@/lib/pricing';
-import { fmtDate, fmtDuration, fmtInt, fmtUsd } from '@/lib/format';
+import { costForRow, mergeUnpriced, sumCosts, type UsageRow } from '@/lib/pricing';
+import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtUsd } from '@/lib/format';
+import { UnpricedNotice } from '@/components/unpriced-notice';
 import { DailyCostLine, TaskCostBar } from '@/components/usage-charts';
 import { SessionListToolbar } from '@/components/session-list-toolbar';
 import { SessionList } from '@/components/session-list';
@@ -108,10 +109,13 @@ export default async function UserDetail({
   ]);
 
   const rows = (events ?? []) as Array<UsageRow & { ts: string }>;
-  const total = rows.reduce((s, r) => s + costForRow(r), 0);
+  const { usd: total, unpriced: unpriced30d } = sumCosts(rows);
 
   const lifetimeRows = (lifetimeEventsRows ?? []) as UsageRow[];
-  const lifetimeCost = lifetimeRows.reduce((s, r) => s + costForRow(r), 0);
+  const { usd: lifetimeCost, unpriced: unpricedLifetime } = sumCosts(lifetimeRows);
+
+  // 30일 집계와 누적 집계는 겹치는 행을 보므로 배너는 하나로 합쳐 보여준다.
+  const unpriced = mergeUnpriced(unpriced30d, unpricedLifetime);
   const lifetimeTokens = lifetimeRows.reduce(
     (s, r) => s + ((r.total_tokens as number | null | undefined) ?? 0),
     0
@@ -129,35 +133,47 @@ export default async function UserDetail({
   }
   for (const r of rows) {
     const key = r.ts.slice(5, 10);
-    byDay.set(key, (byDay.get(key) ?? 0) + costForRow(r));
+    byDay.set(key, (byDay.get(key) ?? 0) + costForRow(r).usd);
   }
   const lineData = Array.from(byDay, ([date, cost]) => ({ date, cost }));
 
   const byTask = new Map<string, number>();
   for (const r of rows) {
-    byTask.set(r.task, (byTask.get(r.task) ?? 0) + costForRow(r));
+    byTask.set(r.task, (byTask.get(r.task) ?? 0) + costForRow(r).usd);
   }
   const taskBar = Array.from(byTask, ([task, cost]) => ({ task, cost })).sort(
     (a, b) => b.cost - a.cost
   );
 
-  const byProvider = new Map<string, { calls: number; cost: number }>();
+  // 공급자·모델별 표는 미산정 호출 수를 따로 센다. 이 두 표가 "어느 모델이
+  // 미산정인가" 를 사람이 보는 곳이므로 여기서 0 원으로 뭉개면 안 된다.
+  const byProvider = new Map<
+    string,
+    { calls: number; cost: number; unpricedCalls: number }
+  >();
   for (const r of lifetimeRows) {
-    const cur = byProvider.get(r.provider) ?? { calls: 0, cost: 0 };
+    const cur = byProvider.get(r.provider) ?? { calls: 0, cost: 0, unpricedCalls: 0 };
+    const cost = costForRow(r);
     cur.calls += 1;
-    cur.cost += costForRow(r);
+    if (cost.priced) cur.cost += cost.usd;
+    else cur.unpricedCalls += 1;
     byProvider.set(r.provider, cur);
   }
   const providerStats = Array.from(byProvider, ([provider, v]) => ({ provider, ...v })).sort(
     (a, b) => b.cost - a.cost
   );
 
-  const byModel = new Map<string, { calls: number; cost: number; tokens: number }>();
+  const byModel = new Map<
+    string,
+    { calls: number; cost: number; tokens: number; unpricedCalls: number }
+  >();
   for (const r of lifetimeRows) {
     const key = r.model || '—';
-    const cur = byModel.get(key) ?? { calls: 0, cost: 0, tokens: 0 };
+    const cur = byModel.get(key) ?? { calls: 0, cost: 0, tokens: 0, unpricedCalls: 0 };
+    const cost = costForRow(r);
     cur.calls += 1;
-    cur.cost += costForRow(r);
+    if (cost.priced) cur.cost += cost.usd;
+    else cur.unpricedCalls += 1;
     cur.tokens += ((r.total_tokens as number | null | undefined) ?? 0);
     byModel.set(key, cur);
   }
@@ -193,6 +209,8 @@ export default async function UserDetail({
           <span className="font-mono">{user.user_id}</span>
         </p>
       </div>
+
+      <UnpricedNotice summary={unpriced} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card title="최근 30일 비용" value={fmtUsd(total)} sub={`이벤트 ${fmtInt(rows.length)}`} />
@@ -235,6 +253,11 @@ export default async function UserDetail({
                   <span className="font-mono text-foreground/80">{p.provider}</span>
                   <span className="flex items-center gap-3 text-foreground/70">
                     <span className="text-[11px] text-foreground/50">호출 {fmtInt(p.calls)}</span>
+                    {p.unpricedCalls > 0 && (
+                      <span className="text-[11px] text-amber-400">
+                        미산정 {fmtInt(p.unpricedCalls)}
+                      </span>
+                    )}
                     <span className="font-mono">{fmtUsd(p.cost)}</span>
                   </span>
                 </li>
@@ -264,7 +287,20 @@ export default async function UserDetail({
                     <td className="px-2 py-1.5 font-mono text-foreground/80">{m.model}</td>
                     <td className="px-2 py-1.5 text-right">{fmtInt(m.calls)}</td>
                     <td className="px-2 py-1.5 text-right">{fmtInt(m.tokens)}</td>
-                    <td className="px-2 py-1.5 text-right font-mono">{fmtUsd(m.cost)}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {m.unpricedCalls === m.calls ? (
+                        <span className="text-amber-400">미산정</span>
+                      ) : (
+                        <>
+                          {fmtUsd(m.cost)}
+                          {m.unpricedCalls > 0 && (
+                            <span className="ml-1 font-sans text-[10px] text-amber-400">
+                              +미산정 {fmtInt(m.unpricedCalls)}건
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -303,7 +339,18 @@ export default async function UserDetail({
                     <td className="px-2 py-1.5 text-right">{fmtInt(r.prompt_tokens ?? 0)}</td>
                     <td className="px-2 py-1.5 text-right">{fmtInt(r.output_tokens ?? 0)}</td>
                     <td className="px-2 py-1.5 text-right">{fmtInt(r.duration_ms ?? 0)}</td>
-                    <td className="px-2 py-1.5 text-right font-mono">{fmtUsd(costForRow(r))}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {(() => {
+                        const c = costForRow(r);
+                        return c.priced ? (
+                          fmtCost(c)
+                        ) : (
+                          <span className="text-amber-400" title={`단가 미등록: ${c.label}`}>
+                            {fmtCost(c)}
+                          </span>
+                        );
+                      })()}
+                    </td>
                   </tr>
                 ))}
               </tbody>

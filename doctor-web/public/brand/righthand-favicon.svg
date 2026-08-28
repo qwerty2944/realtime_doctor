@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="righthand.">
+  <!--
+    Small-size variant of the RightHand mark, for favicon use only.
+    The full two-line wordmark (righthand-icon.svg) collapses into mush below
+    ~48px, so the favicon carries just the "h." lockup instead. The 192px+ PNGs
+    and the apple-touch-icon stay on the full wordmark.
+
+    Geometry is fitted, not eyeballed: the ink box measures 717x703 (70% of the
+    canvas), lifted ~10px above true centre and nudged 17px left of the anchor,
+    because text-anchor centres on the advance width rather than on the ink.
+  -->
+  <rect width="1024" height="1024" fill="#f8f9fb"/>
+  <g font-family="'Avenir Next', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+     font-weight="700"
+     font-size="916"
+     letter-spacing="-18.32"
+     text-anchor="middle">
+    <text x="495" y="844" fill="#2456e6">h<tspan fill="#181f30">.</tspan></text>
+  </g>
+</svg>
