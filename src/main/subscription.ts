@@ -1,11 +1,14 @@
-import { shell } from 'electron';
+import { app, shell } from 'electron';
 import { IPC, type SubscriptionState } from '../shared/types.js';
 import { store } from './store.js';
 import { getSupabase } from './supabaseClient.js';
 import {
   daysRemaining,
+  isTokenShape,
+  resolveSecurityConfig,
   verifyToken,
   type EntitlementToken,
+  type SecurityConfig,
   type VerifyFailure
 } from './subscriptionToken.js';
 
@@ -81,8 +84,41 @@ let lastRefreshFailedOffline = false;
 let lastRefreshAtMs = 0;
 let inFlight: Promise<void> | null = null;
 
+/**
+ * 빌드타임 상수 (S2-1). electron.vite.config.ts 의 `define` 이 아래 세 개의
+ * `process.env.RD_BAKED_*` 정적 참조를 빌드 시 문자열 리터럴로 치환한다.
+ * RD_BAKED_* 는 어떤 운영자도 설정하지 않는 이름이라 user-writable dotenv 로는
+ * 주입될 수 없고, define 이 리터럴로 바꾸므로 packaged 런타임에서 env 접근 자체가
+ * 사라진다. dev(빌드 전)에서는 치환이 없어 실제 env 를 읽지만 아무도 이 이름을
+ * 세팅하지 않으므로 빈 값이 되고, securityConfig() 가 dev 경로로 떨어진다.
+ */
+function bakedSecurity(): {
+  publicKey?: string;
+  entitlementUrl?: string;
+  supabaseUrl?: string;
+} {
+  return {
+    publicKey: process.env.RD_BAKED_ENTITLEMENT_PUBLIC_KEY || undefined,
+    entitlementUrl: process.env.RD_BAKED_ENTITLEMENT_URL || undefined,
+    supabaseUrl: process.env.RD_BAKED_SUPABASE_URL || undefined
+  };
+}
+
+function securityConfig(): SecurityConfig {
+  return resolveSecurityConfig({
+    packaged: app.isPackaged,
+    baked: bakedSecurity(),
+    env: {
+      publicKey: process.env.ENTITLEMENT_PUBLIC_KEY,
+      entitlementUrl: process.env.ENTITLEMENT_URL,
+      supabaseUrl: process.env.SUPABASE_URL
+    },
+    fallbackPublicKey: FALLBACK_ENTITLEMENT_PUBLIC_KEY
+  });
+}
+
 function publicKey(): string {
-  return process.env.ENTITLEMENT_PUBLIC_KEY ?? FALLBACK_ENTITLEMENT_PUBLIC_KEY;
+  return securityConfig().publicKey;
 }
 
 export function billingUrl(): string {
@@ -90,11 +126,7 @@ export function billingUrl(): string {
 }
 
 function entitlementUrl(): string | null {
-  const explicit = process.env.ENTITLEMENT_URL;
-  if (explicit) return explicit;
-  const base = process.env.SUPABASE_URL;
-  if (!base) return null;
-  return `${base.replace(/\/+$/, '')}/functions/v1/entitlement`;
+  return securityConfig().entitlementUrl;
 }
 
 function readCache(): CachedEntitlement | null {
@@ -161,11 +193,27 @@ export function getSubscriptionState(): SubscriptionState {
     return lockedState('unknown', 'no_cached_token', 'none');
   }
 
+  // [S2-2] 시계 되돌리기 방어의 기준값(lastServerTimeMs)은 평문 electron-store 에
+  // 있어 사용자가 낮출 수 있다. 그래서 캐시된 토큰 자신의 issuedAt 도 바닥값으로
+  // 함께 쓴다 — 토큰은 서명돼 있어 issuedAt 을 낮추면 서명이 깨지고(bad_signature),
+  // verifyToken 이 서명을 먼저 보므로 위조된 issuedAt 으로 이 바닥값을 부풀릴 수도
+  // 없다. 결과적으로 서명된 토큰이 캐시에 있는 한 평문 필드를 낮추는 것만으로는
+  // 롤백을 통과할 수 없다.
+  // 잔여 위험: 공격자가 예전에 받은(더 이른 issuedAt) 유효 서명 토큰을 들고 있으면
+  // 그 토큰의 issuedAt 시점까지는 되돌릴 수 있다. 다만 토큰 만료(72h)로 상한이 있다.
+  const cachedIssuedMs = isTokenShape(cache.token)
+    ? Date.parse((cache.token as EntitlementToken).issuedAt)
+    : NaN;
+  const rollbackFloorMs = Math.max(
+    cache.lastServerTimeMs,
+    Number.isFinite(cachedIssuedMs) ? cachedIssuedMs : 0
+  );
+
   const result = verifyToken(cache.token, {
     publicKeyB64: publicKey(),
     nowMs: Date.now(),
     expectedUserId: currentUserId,
-    lastServerTimeMs: cache.lastServerTimeMs
+    lastServerTimeMs: rollbackFloorMs
   });
 
   if (!result.ok) {

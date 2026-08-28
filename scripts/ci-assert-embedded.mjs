@@ -19,9 +19,6 @@ const REQUIRED_KEYS = [
   'GEMINI_ANALYZER_MODEL',
   'GEMINI_SUMMARIZER_MODEL',
   'GEMINI_DICTATOR_MODEL',
-  'CLOVA_API_KEY_ID',
-  'CLOVA_API_KEY',
-  'CLOVA_SPEECH_SECRET',
   'SUPABASE_URL',
   'SUPABASE_PUBLISHABLE_KEY',
   'ENTITLEMENT_PUBLIC_KEY',
@@ -42,6 +39,16 @@ const OPTIONAL_KEYS = ['DEVICE_FUNCTION_URL', 'AI_PROXY_URL'];
 //     surviving in code, which would be a runtime undefined -- a silent
 //     feature outage rather than a build failure).
 const FORBIDDEN_KEYS = ['GEMINI_API_KEY', 'OPENAI_API_KEY'];
+
+// [S6-1] CLOVA domain secrets were removed from EMBEDDED_ENV_KEYS. Unlike the
+// keys above, the client STILL reads these names at runtime (clovaStream.ts /
+// clovaTranscriber.ts read process.env.CLOVA_*), provisioned from
+// ~/.realtime-doctor.env by the operator — so the NAME legitimately appears in
+// the bundle and a name check would false-fail. What must never appear is the
+// VALUE: if a future edit re-adds them to EMBEDDED_ENV_KEYS, `define` would
+// inline the value and it would ship in the bundle. This value-only check is
+// what makes that re-embed fail the build (including the mac `dist` path).
+const FORBIDDEN_VALUE_ONLY_KEYS = ['CLOVA_API_KEY_ID', 'CLOVA_API_KEY', 'CLOVA_SPEECH_SECRET'];
 
 // Non-secret substrings that must appear in the bundle. Safe to print.
 const REQUIRED_SUBSTRINGS = ['yhwvwojjwwlcrvpfxgag'];
@@ -134,6 +141,22 @@ for (const key of FORBIDDEN_KEYS) {
     fail(`${key} is referenced by name in ${BUNDLE} — the client must not read this key.`);
   }
   console.log(`  ${key.padEnd(26)} ABSENT (value and name)`);
+}
+
+// [HARD] S6-1: CLOVA domain secrets must not be inlined into the bundle. Only
+// the VALUE is checked (the name is a legitimate runtime read). If .env has no
+// CLOVA value (the build machine no longer needs it), there is nothing to leak
+// and the check trivially passes.
+console.log('\nForbidden values (CLOVA secrets removed from bundle in S6-1):');
+for (const key of FORBIDDEN_VALUE_ONLY_KEYS) {
+  const value = env.get(key);
+  if (value && bundle.includes(needleOf(value))) {
+    fail(
+      `${key} VALUE is embedded in ${BUNDLE} — it was removed from EMBEDDED_ENV_KEYS ` +
+        `and must be provisioned at runtime, not baked into the client.`
+    );
+  }
+  console.log(`  ${key.padEnd(26)} VALUE ABSENT`);
 }
 
 // [HARD] Gemini model ids must be ones the proxy allowlist accepts.

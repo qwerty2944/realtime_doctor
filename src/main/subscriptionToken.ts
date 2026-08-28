@@ -174,6 +174,57 @@ export function verifyToken(value: unknown, opts: VerifyOptions): VerifyResult {
   return { ok: true, token };
 }
 
+/**
+ * 보안 민감 설정값 해석 (S2-1).
+ *
+ * 공개키·엔타이틀먼트 URL·Supabase URL 은 게이트의 신뢰 기준점이다. user-writable
+ * dotenv(userData/home 의 .env)가 이걸 덮으면, 공격자가 자기 공개키를 심고
+ * self-signed 토큰을 캐시에 넣어 영구 entitled 가 된다.
+ *
+ * packaged 빌드에서는 런타임 env(dotenv 포함)를 절대 보지 않고 빌드타임에 박힌
+ * 상수(baked)만 읽는다. baked 공개키가 없으면 fail-closed — fallback 도 쓰지
+ * 않는다. dev(빌드 전, baked 없음)에서는 편의상 env → fallback 로 떨어진다.
+ *
+ * electron 에 의존하지 않는 순수 함수라 프로브가 그대로 검증한다.
+ */
+export interface SecurityConfigInput {
+  packaged: boolean;
+  /** 빌드타임 define 으로 박힌 값. dev 에서는 전부 빈 문자열/undefined. */
+  baked: { publicKey?: string; entitlementUrl?: string; supabaseUrl?: string };
+  /** 런타임 process.env 값 (dev 전용 경로에서만 사용). */
+  env: { publicKey?: string; entitlementUrl?: string; supabaseUrl?: string };
+  /** dev 편의용 하드코딩 공개키. packaged 에서는 절대 쓰이지 않는다. */
+  fallbackPublicKey: string;
+}
+
+export interface SecurityConfig {
+  /** 빈 문자열이면 검증이 no_public_key 로 fail-closed 된다. */
+  publicKey: string;
+  entitlementUrl: string | null;
+}
+
+function entitlementUrlFrom(
+  explicit: string | undefined,
+  supabaseBase: string | undefined
+): string | null {
+  if (explicit) return explicit;
+  if (supabaseBase) return `${supabaseBase.replace(/\/+$/, '')}/functions/v1/entitlement`;
+  return null;
+}
+
+export function resolveSecurityConfig(input: SecurityConfigInput): SecurityConfig {
+  if (input.packaged) {
+    return {
+      publicKey: input.baked.publicKey ?? '',
+      entitlementUrl: entitlementUrlFrom(input.baked.entitlementUrl, input.baked.supabaseUrl)
+    };
+  }
+  return {
+    publicKey: input.env.publicKey ?? input.fallbackPublicKey,
+    entitlementUrl: entitlementUrlFrom(input.env.entitlementUrl, input.env.supabaseUrl)
+  };
+}
+
 /** 체험/구독이 며칠 남았는지. 올림 -- "0일 남음"은 이미 끝난 것이므로. */
 export function daysRemaining(coverageEnd: string | null, nowMs: number): number | null {
   if (!coverageEnd) return null;

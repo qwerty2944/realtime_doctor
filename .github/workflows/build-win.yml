@@ -36,9 +36,10 @@ jobs:
           GEMINI_ANALYZER_MODEL: ${{ secrets.GEMINI_ANALYZER_MODEL }}
           GEMINI_SUMMARIZER_MODEL: ${{ secrets.GEMINI_SUMMARIZER_MODEL }}
           GEMINI_DICTATOR_MODEL: ${{ secrets.GEMINI_DICTATOR_MODEL }}
-          CLOVA_API_KEY_ID: ${{ secrets.CLOVA_API_KEY_ID }}
-          CLOVA_API_KEY: ${{ secrets.CLOVA_API_KEY }}
-          CLOVA_SPEECH_SECRET: ${{ secrets.CLOVA_SPEECH_SECRET }}
+          # [S6-1] CLOVA_* removed: no longer baked into the bundle (client-direct
+          # gRPC has no server backstop). Provisioned at runtime via
+          # ~/.realtime-doctor.env. ci-assert-embedded.mjs fails the build if a
+          # CLOVA value reappears in out/main/index.js.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           ENTITLEMENT_PUBLIC_KEY: ${{ secrets.ENTITLEMENT_PUBLIC_KEY }}
@@ -53,7 +54,6 @@ jobs:
           $required = @(
             'GEMINI_TRANSCRIBE_MODEL','GEMINI_DIARIZER_MODEL',
             'GEMINI_ANALYZER_MODEL','GEMINI_SUMMARIZER_MODEL','GEMINI_DICTATOR_MODEL',
-            'CLOVA_API_KEY_ID','CLOVA_API_KEY','CLOVA_SPEECH_SECRET',
             'SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY',
             'ENTITLEMENT_PUBLIC_KEY','ENTITLEMENT_URL','BILLING_PORTAL_URL'
           )
