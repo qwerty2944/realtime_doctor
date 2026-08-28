@@ -1,7 +1,13 @@
 import type { Metadata, Viewport } from 'next';
+
+import { SITE_URL } from '@/lib/site';
+
 import './globals.css';
 
 export const metadata: Metadata = {
+  // Set once here so every page's relative og:image / canonical resolves to an
+  // absolute URL. Crawlers and answer engines discard relative og:url values.
+  metadataBase: new URL(SITE_URL),
   title: {
     default: 'RightHand 사전 문진',
     template: '%s | RightHand 사전 문진',

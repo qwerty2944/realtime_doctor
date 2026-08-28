@@ -5,7 +5,12 @@ import LoginForm from '@/app/righthand/doctor/login/LoginForm';
 /** Kept in sync with `DASHBOARD_HOME_PATH` in `@/lib/auth/doctor` (server-only module). */
 const DASHBOARD_HOME_PATH = '/righthand/doctor';
 
-export const metadata = { title: '의료진 로그인' };
+// noindex in addition to the robots.txt disallow: a disallowed URL can still be
+// indexed from an inbound link, and a login wall is not a search result we want.
+export const metadata = {
+  title: '의료진 로그인',
+  robots: { index: false, follow: false },
+};
 
 /**
  * Reject anything that is not a local dashboard path.

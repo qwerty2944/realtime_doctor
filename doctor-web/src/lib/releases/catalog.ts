@@ -20,7 +20,7 @@
  */
 
 /** Version of the builds catalogued below. Matches the root package.json. */
-export const DESKTOP_APP_VERSION = '0.8.0';
+export const DESKTOP_APP_VERSION = '0.8.2';
 
 /** Private Supabase Storage bucket. Nothing in it is reachable without a signature. */
 export const RELEASE_BUCKET = 'app-releases';
@@ -69,32 +69,32 @@ export const DESKTOP_ARTIFACTS: Record<DesktopArtifactKey, DesktopArtifact> = {
   'mac-universal': {
     key: 'mac-universal',
     platform: 'mac',
-    storagePath: `mac/${DESKTOP_APP_VERSION}/realtime-doctor-${DESKTOP_APP_VERSION}-universal.dmg`,
-    fileName: `Realtime Doctor-${DESKTOP_APP_VERSION}-universal.dmg`,
+    storagePath: `mac/${DESKTOP_APP_VERSION}/righthand-${DESKTOP_APP_VERSION}-universal.dmg`,
+    fileName: `RightHand-${DESKTOP_APP_VERSION}-universal.dmg`,
     label: 'macOS 공용 (Intel + Apple Silicon)',
     description: '어떤 Mac에서도 실행됩니다. 어느 쪽인지 모르겠다면 이 파일을 받으세요.',
-    sizeBytes: 192_604_784,
-    sha256: 'b78d6378b602e5a13ea958ab129d96e9848962cc752aa0d65751f3de40d44687',
+    sizeBytes: 189_413_742,
+    sha256: 'd326e0960262131dc23915406f06c1eb01aefceb3a438c7f27439e01b7a81785',
   },
   'mac-arm64': {
     key: 'mac-arm64',
     platform: 'mac',
-    storagePath: `mac/${DESKTOP_APP_VERSION}/realtime-doctor-${DESKTOP_APP_VERSION}-arm64.dmg`,
-    fileName: `Realtime Doctor-${DESKTOP_APP_VERSION}-arm64.dmg`,
+    storagePath: `mac/${DESKTOP_APP_VERSION}/righthand-${DESKTOP_APP_VERSION}-arm64.dmg`,
+    fileName: `RightHand-${DESKTOP_APP_VERSION}-arm64.dmg`,
     label: 'macOS Apple Silicon 전용',
     description: 'M1 이후 Mac 전용입니다. 공용 파일보다 약 80MB 작습니다.',
-    sizeBytes: 109_794_565,
-    sha256: '5d4bcc9300c808b0208755fb8effebea5ce5ed90293ebb88da88ad4e8c3c4e88',
+    sizeBytes: 106_565_942,
+    sha256: '74569d2b70767bffb2587af4b92d23fe9f0024e0ce007f3fd98a87d6b638cd82',
   },
   'win-x64': {
     key: 'win-x64',
     platform: 'windows',
-    storagePath: `win/${DESKTOP_APP_VERSION}/realtime-doctor-${DESKTOP_APP_VERSION}-setup.exe`,
-    fileName: `Realtime Doctor Setup ${DESKTOP_APP_VERSION}.exe`,
+    storagePath: `win/${DESKTOP_APP_VERSION}/righthand-${DESKTOP_APP_VERSION}-setup.exe`,
+    fileName: `RightHand Setup ${DESKTOP_APP_VERSION}.exe`,
     label: 'Windows 64비트',
     description: '설치 위치를 고를 수 있는 일반 설치 파일입니다. Windows 10 이상 64비트용입니다.',
-    sizeBytes: 86_460_695,
-    sha256: 'd2f1eebe6ff8eb0c1f33fd34cb235b7fe221bb7a81736d2ff377fac00cb62acc',
+    sizeBytes: 87_303_736,
+    sha256: '6a44fc057681e7a066ecc6858c2d57cadd861f04c07f4b3233d8251e4bc08902',
   },
 };
 
@@ -119,7 +119,7 @@ export function formatFileSize(bytes: number): string {
 }
 
 /**
- * Windows is built for 0.8.0 and served from this catalog like any other file.
+ * Windows is built for 0.8.2 and served from this catalog like any other file.
  *
  * The flag that used to live here (`WINDOWS_BUILD_AVAILABLE`) is gone rather
  * than flipped to `true`. It existed to say "no artifact exists", and a boolean

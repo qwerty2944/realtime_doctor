@@ -9,7 +9,7 @@
  */
 
 import { useState, useSyncExternalStore } from 'react';
-import { Apple, Download, MonitorDown, ShieldAlert, Terminal } from 'lucide-react';
+import { Apple, Download, MonitorDown, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import {
@@ -59,8 +59,6 @@ const platformStore = {
   })(),
 };
 
-const QUARANTINE_COMMAND = 'xattr -dr com.apple.quarantine "/Applications/Realtime Doctor.app"';
-
 export default function DownloadView() {
   const platform = useSyncExternalStore(
     platformStore.subscribe,
@@ -69,7 +67,6 @@ export default function DownloadView() {
   );
   const [pending, setPending] = useState<DesktopArtifactKey | null>(null);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
 
   const handleDownload = async (key: DesktopArtifactKey) => {
     setPending(key);
@@ -102,17 +99,6 @@ export default function DownloadView() {
       setError('네트워크 오류로 다운로드를 시작하지 못했습니다. 연결을 확인해 주세요.');
     } finally {
       setPending(null);
-    }
-  };
-
-  const handleCopyCommand = async () => {
-    try {
-      await navigator.clipboard.writeText(QUARANTINE_COMMAND);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard access can be denied; the command is printed in full next to
-      // the button, so there is nothing to recover and nothing to report.
     }
   };
 
@@ -209,7 +195,7 @@ export default function DownloadView() {
         <div className="flex flex-col gap-1">
           <span className="t-caption font-semibold text-content-tertiary">macOS (터미널)</span>
           <pre className="t7 overflow-x-auto rounded-lg bg-surface-canvas px-4 py-3 font-mono text-content-secondary">
-            shasum -a 256 ~/Downloads/Realtime\ Doctor-{DESKTOP_APP_VERSION}-universal.dmg
+            shasum -a 256 ~/Downloads/RightHand-{DESKTOP_APP_VERSION}-universal.dmg
           </pre>
         </div>
         <div className="flex flex-col gap-1">
@@ -217,55 +203,35 @@ export default function DownloadView() {
             Windows (PowerShell)
           </span>
           <pre className="t7 overflow-x-auto rounded-lg bg-surface-canvas px-4 py-3 font-mono text-content-secondary">
-            Get-FileHash &quot;$env:USERPROFILE\Downloads\Realtime Doctor Setup{' '}
+            Get-FileHash &quot;$env:USERPROFILE\Downloads\RightHand Setup{' '}
             {DESKTOP_APP_VERSION}.exe&quot; -Algorithm SHA256
           </pre>
         </div>
       </section>
 
-      {/* First launch */}
-      <section className="flex flex-col gap-4 rounded-xl border border-status-warning bg-status-warning-weak p-5 text-orange-900">
+      {/*
+        macOS first launch. Since 0.8.1 the .dmg is signed with a Developer ID
+        certificate and notarized by Apple, so Gatekeeper opens it without a
+        prompt. The old right-click-to-open and `xattr -dr com.apple.quarantine`
+        instructions were removed rather than left in place: telling users to
+        strip quarantine from an app that no longer needs it teaches them to
+        disarm the check that would catch a tampered copy.
+      */}
+      <section className="flex flex-col gap-3 rounded-xl border border-line-default bg-surface-default p-5">
         <div className="flex items-start gap-3">
-          <ShieldAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+          <ShieldCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-content-tertiary" />
           <div className="flex flex-col gap-1">
-            <h2 className="t5 font-semibold">
-              macOS에서 처음 실행할 때: 공증(notarization)되지 않은 앱입니다
-            </h2>
-            <p className="t6">
-              이 macOS 빌드는 Apple 공증을 받지 않았습니다. 그래서 아이콘을 그냥 두 번 눌러 실행하면
-              &ldquo;확인되지 않은 개발자&rdquo; 경고와 함께 열리지 않습니다. 고장이 아니라 예상된
-              동작입니다.
+            <h2 className="t5 font-semibold text-content-primary">macOS에서 처음 실행할 때</h2>
+            <p className="t6 text-content-secondary">
+              이 macOS 빌드는 Apple Developer ID로 서명하고 공증(notarization)을 받았습니다. 내려받은
+              .dmg를 열고 앱을 응용 프로그램 폴더로 옮긴 뒤, 아이콘을 두 번 누르면 그대로 실행됩니다.
+              별도의 우회 절차는 필요 없습니다.
             </p>
-          </div>
-        </div>
-
-        <ol className="flex list-decimal flex-col gap-2 pl-9 t6">
-          <li>내려받은 .dmg를 열고 앱을 응용 프로그램 폴더로 옮깁니다.</li>
-          <li>
-            응용 프로그램 폴더에서 앱 아이콘을{' '}
-            <b className="font-semibold">우클릭(또는 Control+클릭) → 열기</b>를 선택합니다.
-          </li>
-          <li>
-            같은 경고가 다시 뜨면 이번에는 <b className="font-semibold">열기</b> 버튼이 있습니다. 한 번만
-            이렇게 열면 다음부터는 두 번 눌러 실행됩니다.
-          </li>
-        </ol>
-
-        <div className="flex flex-col gap-2 border-t border-status-warning pt-4">
-          <div className="flex items-start gap-3">
-            <Terminal aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-            <p className="t6">
-              그래도 열리지 않고 &ldquo;손상되었기 때문에 열 수 없습니다&rdquo;가 나오면, 터미널에서 아래
-              명령으로 격리 속성을 지운 뒤 다시 실행하세요.
+            <p className="t6 text-content-secondary">
+              혹시 &ldquo;확인되지 않은 개발자&rdquo;나 &ldquo;손상되었기 때문에 열 수 없습니다&rdquo;
+              경고가 뜬다면 정상이 아닙니다. 우회하지 마시고, 위의 SHA-256 값으로 파일을 확인한 뒤
+              다시 내려받아 주세요.
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <code className="t7 min-w-0 flex-1 overflow-x-auto rounded-lg bg-surface-default px-4 py-3 font-mono text-content-secondary">
-              {QUARANTINE_COMMAND}
-            </code>
-            <Button variant="secondary" size="sm" onClick={() => void handleCopyCommand()}>
-              {copied ? '복사됨' : '복사'}
-            </Button>
           </div>
         </div>
       </section>
@@ -294,7 +260,7 @@ export default function DownloadView() {
 
         <ol className="flex list-decimal flex-col gap-2 pl-9 t6">
           <li>
-            내려받은 <b className="font-semibold">Realtime Doctor Setup {DESKTOP_APP_VERSION}.exe</b>{' '}
+            내려받은 <b className="font-semibold">RightHand Setup {DESKTOP_APP_VERSION}.exe</b>{' '}
             를 실행합니다.
           </li>
           <li>
